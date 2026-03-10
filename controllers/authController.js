@@ -80,7 +80,7 @@ exports.me = async (req, res) => {
 
 exports.getPublicBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id).select('name phone brandColor maxReservationPeople');
+    const business = await Business.findById(req.params.id).select('name email phone brandColor maxReservationPeople');
     if (!business) return res.status(404).json({ message: 'Business not found' });
     res.json(business);
   } catch (err) {
