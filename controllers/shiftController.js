@@ -198,7 +198,7 @@ exports.getPublicSlots = async (req, res) => {
 
     slots.sort((a, b) => a.time.localeCompare(b.time));
 
-    // Filter by maxPeoplePerSlot capacity
+    // Filter by maxPeoplePerSlot capacity and annotate remaining
     const biz = await Business.findById(businessId).select('maxPeoplePerSlot');
     if (biz?.maxPeoplePerSlot) {
       const reservations = await Reservation.find({
@@ -212,10 +212,15 @@ exports.getPublicSlots = async (req, res) => {
         peopleBySlot[r.time] = (peopleBySlot[r.time] || 0) + r.people;
       });
 
-      const filtered = slots.filter(s => {
-        const used = peopleBySlot[s.time] || 0;
-        return used < biz.maxPeoplePerSlot;
-      });
+      const filtered = slots
+        .filter(s => {
+          const used = peopleBySlot[s.time] || 0;
+          return used < biz.maxPeoplePerSlot;
+        })
+        .map(s => ({
+          ...s,
+          remaining: biz.maxPeoplePerSlot - (peopleBySlot[s.time] || 0),
+        }));
       return res.json(filtered);
     }
 
