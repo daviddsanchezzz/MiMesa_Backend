@@ -18,7 +18,9 @@ const setRefreshCookie = (res, token) => {
 
 const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
-  phone: b.phone, brandColor: b.brandColor, maxReservationPeople: b.maxReservationPeople,
+  phone: b.phone, brandColor: b.brandColor,
+  maxReservationPeople: b.maxReservationPeople,
+  maxPeoplePerSlot: b.maxPeoplePerSlot ?? null,
 });
 
 exports.register = async (req, res) => {
@@ -80,7 +82,7 @@ exports.me = async (req, res) => {
 
 exports.getPublicBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id).select('name email phone brandColor maxReservationPeople');
+    const business = await Business.findById(req.params.id).select('name email phone brandColor maxReservationPeople maxPeoplePerSlot');
     if (!business) return res.status(404).json({ message: 'Business not found' });
     res.json(business);
   } catch (err) {
@@ -90,10 +92,11 @@ exports.getPublicBusiness = async (req, res) => {
 
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    const { brandColor, maxReservationPeople } = req.body;
+    const { brandColor, maxReservationPeople, maxPeoplePerSlot } = req.body;
     const updateData = {};
     if (brandColor !== undefined) updateData.brandColor = brandColor;
     if (maxReservationPeople !== undefined) updateData.maxReservationPeople = maxReservationPeople;
+    if (maxPeoplePerSlot !== undefined) updateData.maxPeoplePerSlot = maxPeoplePerSlot;
 
     const business = await Business.findByIdAndUpdate(
       req.businessId,

@@ -1,4 +1,6 @@
 const Shift = require('../models/Shift');
+const Business = require('../models/Business');
+const Reservation = require('../models/Reservation');
 
 // Generate 30-min time slots within a window
 function generateSlots(startTime, endTime) {
@@ -195,6 +197,28 @@ exports.getPublicSlots = async (req, res) => {
     });
 
     slots.sort((a, b) => a.time.localeCompare(b.time));
+
+    // Filter by maxPeoplePerSlot capacity
+    const biz = await Business.findById(businessId).select('maxPeoplePerSlot');
+    if (biz?.maxPeoplePerSlot) {
+      const reservations = await Reservation.find({
+        businessId,
+        date,
+        status: { $nin: ['cancelled'] },
+      }).select('time people');
+
+      const peopleBySlot = {};
+      reservations.forEach(r => {
+        peopleBySlot[r.time] = (peopleBySlot[r.time] || 0) + r.people;
+      });
+
+      const filtered = slots.filter(s => {
+        const used = peopleBySlot[s.time] || 0;
+        return used < biz.maxPeoplePerSlot;
+      });
+      return res.json(filtered);
+    }
+
     res.json(slots);
   } catch (err) {
     res.status(500).json({ message: err.message });
