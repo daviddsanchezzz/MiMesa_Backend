@@ -199,7 +199,7 @@ exports.getPublicSlots = async (req, res) => {
     slots.sort((a, b) => a.time.localeCompare(b.time));
 
     // Filter by maxPeoplePerSlot capacity and annotate remaining
-    const biz = await Business.findById(businessId).select('maxPeoplePerSlot');
+    const biz = await Business.findById(businessId).select('maxPeoplePerSlot reservationDuration');
     if (biz?.maxPeoplePerSlot) {
       const reservations = await Reservation.find({
         businessId,
@@ -207,19 +207,28 @@ exports.getPublicSlots = async (req, res) => {
         status: { $nin: ['cancelled'] },
       }).select('time people');
 
-      const peopleBySlot = {};
-      reservations.forEach(r => {
-        peopleBySlot[r.time] = (peopleBySlot[r.time] || 0) + r.people;
-      });
+      const duration = biz.reservationDuration || 0; // minutes
+
+      // For each slot, sum people from reservations that are still "occupying" due to duration
+      const toMinutes = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+
+      const occupiedAt = (slotTime) => {
+        const slotMin = toMinutes(slotTime);
+        return reservations.reduce((sum, r) => {
+          const rMin = toMinutes(r.time);
+          // Reservation occupies from rMin to rMin+duration (exclusive)
+          if (rMin <= slotMin && (duration === 0 ? rMin === slotMin : rMin + duration > slotMin)) {
+            return sum + r.people;
+          }
+          return sum;
+        }, 0);
+      };
 
       const filtered = slots
-        .filter(s => {
-          const used = peopleBySlot[s.time] || 0;
-          return used < biz.maxPeoplePerSlot;
-        })
+        .filter(s => occupiedAt(s.time) < biz.maxPeoplePerSlot)
         .map(s => ({
           ...s,
-          remaining: biz.maxPeoplePerSlot - (peopleBySlot[s.time] || 0),
+          remaining: biz.maxPeoplePerSlot - occupiedAt(s.time),
         }));
       return res.json(filtered);
     }

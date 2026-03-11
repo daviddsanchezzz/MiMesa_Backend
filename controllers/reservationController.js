@@ -70,16 +70,28 @@ exports.createPublicReservation = async (req, res) => {
   try {
     const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent } = req.body;
 
-    const business = await Business.findById(businessId).select('name brandColor maxReservationPeople maxPeoplePerSlot email phone');
+    const business = await Business.findById(businessId).select('name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration email phone');
     if (business?.maxReservationPeople && people > business.maxReservationPeople) {
       return res.status(400).json({ message: `No se permiten más de ${business.maxReservationPeople} personas por reserva` });
     }
 
     if (business?.maxPeoplePerSlot) {
+      const duration = business.reservationDuration || 0;
+      const toMinutes = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+      const slotMin = toMinutes(time);
+
       const existing = await Reservation.find({
-        businessId, date, time, status: { $nin: ['cancelled'] },
-      }).select('people');
-      const used = existing.reduce((sum, r) => sum + r.people, 0);
+        businessId, date, status: { $nin: ['cancelled'] },
+      }).select('time people');
+
+      const used = existing.reduce((sum, r) => {
+        const rMin = toMinutes(r.time);
+        if (rMin <= slotMin && (duration === 0 ? rMin === slotMin : rMin + duration > slotMin)) {
+          return sum + r.people;
+        }
+        return sum;
+      }, 0);
+
       if (used + people > business.maxPeoplePerSlot) {
         return res.status(400).json({ message: `No hay suficiente capacidad en ese horario` });
       }

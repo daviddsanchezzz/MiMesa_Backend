@@ -21,6 +21,7 @@ const businessData = (b) => ({
   phone: b.phone, brandColor: b.brandColor,
   maxReservationPeople: b.maxReservationPeople,
   maxPeoplePerSlot: b.maxPeoplePerSlot ?? null,
+  reservationDuration: b.reservationDuration ?? null,
 });
 
 exports.register = async (req, res) => {
@@ -82,7 +83,7 @@ exports.me = async (req, res) => {
 
 exports.getPublicBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id).select('name email phone brandColor maxReservationPeople maxPeoplePerSlot');
+    const business = await Business.findById(req.params.id).select('name email phone brandColor maxReservationPeople maxPeoplePerSlot reservationDuration');
     if (!business) return res.status(404).json({ message: 'Business not found' });
     res.json(business);
   } catch (err) {
@@ -97,6 +98,7 @@ exports.updateBusinessSettings = async (req, res) => {
     if (brandColor !== undefined) updateData.brandColor = brandColor;
     if (maxReservationPeople !== undefined) updateData.maxReservationPeople = maxReservationPeople;
     if (maxPeoplePerSlot !== undefined) updateData.maxPeoplePerSlot = maxPeoplePerSlot;
+    if (req.body.reservationDuration !== undefined) updateData.reservationDuration = req.body.reservationDuration;
 
     const business = await Business.findByIdAndUpdate(
       req.businessId,
