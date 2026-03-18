@@ -5,14 +5,14 @@ const signAccessToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '15m' });
 
 const signRefreshToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '60d' });
+  jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '90d' });
 
 const setRefreshCookie = (res, token) => {
   res.cookie('refreshToken', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 60 * 24 * 60 * 60 * 1000, // 60 days
+    maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days
   });
 };
 
@@ -31,8 +31,9 @@ exports.register = async (req, res) => {
     if (exists) return res.status(400).json({ message: 'Email already registered' });
 
     const business = await Business.create({ name, email, password, phone });
-    setRefreshCookie(res, signRefreshToken(business._id));
-    res.status(201).json({ accessToken: signAccessToken(business._id), business: businessData(business) });
+    const refreshToken = signRefreshToken(business._id);
+    setRefreshCookie(res, refreshToken);
+    res.status(201).json({ accessToken: signAccessToken(business._id), refreshToken, business: businessData(business) });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -45,19 +46,23 @@ exports.login = async (req, res) => {
     if (!business || !(await business.matchPassword(password)))
       return res.status(401).json({ message: 'Invalid credentials' });
 
-    setRefreshCookie(res, signRefreshToken(business._id));
-    res.json({ accessToken: signAccessToken(business._id), business: businessData(business) });
+    const refreshToken = signRefreshToken(business._id);
+    setRefreshCookie(res, refreshToken);
+    res.json({ accessToken: signAccessToken(business._id), refreshToken, business: businessData(business) });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
 exports.refresh = (req, res) => {
-  const token = req.cookies?.refreshToken;
+  // Accept token from cookie (web) or request body (mobile/Safari fallback)
+  const token = req.cookies?.refreshToken || req.body?.refreshToken;
   if (!token) return res.status(401).json({ message: 'No refresh token' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-    res.json({ accessToken: signAccessToken(decoded.id) });
+    const newRefreshToken = signRefreshToken(decoded.id);
+    setRefreshCookie(res, newRefreshToken);
+    res.json({ accessToken: signAccessToken(decoded.id), refreshToken: newRefreshToken });
   } catch {
     res.status(401).json({ message: 'Invalid refresh token' });
   }
