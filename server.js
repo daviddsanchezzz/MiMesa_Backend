@@ -8,6 +8,15 @@ const app = express();
 
 connectDB();
 
+// Permissive CORS for public endpoints (no credentials needed, embeddable from any domain)
+const publicCors = cors({ origin: '*' });
+app.use('/api/auth/public',         publicCors);
+app.use('/api/rooms/public',        publicCors);
+app.use('/api/shifts/public',       publicCors);
+app.use('/api/vacations/public',    publicCors);
+app.use('/api/reservations/public', publicCors);
+
+// Authenticated endpoints — restricted to known frontend origin
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3005',
   credentials: true,
