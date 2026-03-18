@@ -1,6 +1,7 @@
 const Shift = require('../models/Shift');
 const Business = require('../models/Business');
 const Reservation = require('../models/Reservation');
+const Vacation = require('../models/Vacation');
 
 // Generate 30-min time slots within a window
 function generateSlots(startTime, endTime) {
@@ -234,6 +235,43 @@ exports.getPublicSlots = async (req, res) => {
     }
 
     res.json(slots);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/shifts/public/month-availability?year=YYYY&month=MM&businessId=...
+exports.getPublicMonthAvailability = async (req, res) => {
+  try {
+    const { year, month, businessId } = req.query;
+    if (!year || !month || !businessId) return res.status(400).json({ message: 'year, month, businessId requeridos' });
+    const y = parseInt(year), m = parseInt(month);
+    const pad = (n) => String(n).padStart(2, '0');
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const startOfMonth = `${y}-${pad(m)}-01`;
+    const endOfMonth = `${y}-${pad(m)}-${pad(daysInMonth)}`;
+
+    const [vacations, shifts] = await Promise.all([
+      Vacation.find({ businessId, startDate: { $lte: endOfMonth }, endDate: { $gte: startOfMonth } }).select('startDate endDate'),
+      Shift.find({ businessId }).select('days startDate endDate'),
+    ]);
+
+    const closedDays = [], noSlotDays = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${y}-${pad(m)}-${pad(d)}`;
+      const isVacation = vacations.some(v => v.startDate <= dateStr && v.endDate >= dateStr);
+      if (isVacation) { closedDays.push(d); continue; }
+      const dayOfWeek = new Date(y, m - 1, d).getDay();
+      const hasShift = shifts.some(s => {
+        if (!s.days.includes(dayOfWeek)) return false;
+        if (s.startDate && dateStr < s.startDate) return false;
+        if (s.endDate && dateStr > s.endDate) return false;
+        return true;
+      });
+      if (!hasShift) noSlotDays.push(d);
+    }
+
+    res.json({ closedDays, noSlotDays });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
