@@ -17,6 +17,9 @@ const businessMemberSchema = new mongoose.Schema({
   userId:     { type: String, required: true, index: true },
   businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
   role:       { type: String, default: 'staff' },
+  // Denormalized for display (no join needed)
+  userName:   { type: String, default: '' },
+  userEmail:  { type: String, default: '' },
 }, { timestamps: true });
 
 // A user can only have one role per restaurant
