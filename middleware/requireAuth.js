@@ -22,14 +22,23 @@ module.exports = async function requireAuth(req, res, next) {
     });
 
     if (session?.user) {
-      const business = await Business.findOne({ ownerId: session.user.id });
+      let business = await Business.findOne({ ownerId: session.user.id });
+
+      // Migration fallback: legacy Business with same email but no ownerId yet
+      if (!business) {
+        business = await Business.findOne({ email: session.user.email.toLowerCase() });
+        if (business) {
+          // Link on the fly (runs once per user)
+          business.ownerId = session.user.id;
+          await business.save().catch(() => {});
+        }
+      }
+
       if (business) {
         req.user       = session.user;
         req.businessId = business._id.toString();
         return next();
       }
-      // User exists in Better Auth but has no Business yet (shouldn't normally happen
-      // because databaseHooks creates it, but handle gracefully).
       return res.status(403).json({ message: 'Cuenta sin negocio asociado' });
     }
   } catch {

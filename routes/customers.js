@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const auth = require('../middleware/auth');
+const auth = require('../middleware/requireAuth');
 const { getCustomers, createCustomer, updateCustomer } = require('../controllers/customerController');
 
 router.use(auth);

@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const auth = require('../middleware/auth');
+const auth = require('../middleware/requireAuth');
 const { getReservations, createReservation, updateReservation, deleteReservation, createPublicReservation, cancelPublicReservation, getPublicReservationDetails } = require('../controllers/reservationController');
 
 // Public routes (before auth middleware)

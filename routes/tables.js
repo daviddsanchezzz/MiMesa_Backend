@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const auth = require('../middleware/auth');
+const auth = require('../middleware/requireAuth');
 const { getTables, createTable, updateTable, deleteTable } = require('../controllers/tableController');
 
 router.use(auth);

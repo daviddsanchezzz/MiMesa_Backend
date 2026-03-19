@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const auth   = require('../middleware/auth');
+const auth   = require('../middleware/requireAuth');
 const { getRooms, createRoom, updateRoom, deleteRoom, getPublicRooms } = require('../controllers/roomController');
 
 // Public route (before auth middleware)
