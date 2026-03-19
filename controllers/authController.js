@@ -80,7 +80,9 @@ exports.logout = (req, res) => {
 exports.me = async (req, res) => {
   try {
     const business = await Business.findById(req.businessId).select('-password');
-    res.json(businessData(business));
+    // req.memberRole is set by requireAuth for Better Auth sessions;
+    // legacy JWT users are always owners.
+    res.json({ ...businessData(business), role: req.memberRole ?? 'owner' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

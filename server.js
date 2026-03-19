@@ -41,6 +41,16 @@ app.use(cors({
   credentials: true,
 }));
 
+// ── Stripe webhook — MUST be before express.json() ──────────────────────────
+// Stripe signature verification requires the raw request body (Buffer).
+// express.raw() captures it without parsing; express.json() would destroy it.
+// Stripe webhook needs raw body for signature verification
+app.post(
+  '/api/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  require('./controllers/stripeController').handleWebhook,
+);
+
 // ── Body / cookie parsing ────────────────────────────────────────────────────
 app.use(express.json());
 app.use(cookieParser());
@@ -78,6 +88,7 @@ getMongoClient().then((mongoClient) => {
 
 // ── Application routes ───────────────────────────────────────────────────────
 app.use('/api/auth',         require('./routes/auth'));
+app.use('/api/stripe',       require('./routes/stripe'));
 app.use('/api/rooms',        require('./routes/rooms'));
 app.use('/api/tables',       require('./routes/tables'));
 app.use('/api/customers',    require('./routes/customers'));

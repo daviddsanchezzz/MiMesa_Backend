@@ -12,6 +12,7 @@ const jwt = require('jsonwebtoken');
 const { fromNodeHeaders } = require('better-auth/node');
 const { getAuth } = require('../lib/auth');
 const Business = require('../models/Business');
+const BusinessMember = require('../models/BusinessMember');
 
 module.exports = async function requireAuth(req, res, next) {
   // ── 1. Better Auth session ──────────────────────────────────────────────
@@ -35,8 +36,14 @@ module.exports = async function requireAuth(req, res, next) {
       }
 
       if (business) {
+        // Resolve membership role in the same request (avoids extra round-trip in requireRole)
+        const member = await BusinessMember.findOne({
+          userId:     session.user.id,
+          businessId: business._id,
+        });
         req.user       = session.user;
         req.businessId = business._id.toString();
+        req.memberRole = member?.role ?? 'owner'; // 'owner' as safe default during migration
         return next();
       }
       return res.status(403).json({ message: 'Cuenta sin negocio asociado' });

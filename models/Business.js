@@ -11,9 +11,16 @@ const businessSchema = new mongoose.Schema({
   maxReservationPeople: { type: Number, default: 20, min: 1 },
   maxPeoplePerSlot: { type: Number, default: null },
   reservationDuration: { type: Number, default: null },
-  // Better Auth user ID that owns this business.
-  // null for legacy users (created before Better Auth migration).
+  // Better Auth user ID that owns this business (null for legacy users)
   ownerId: { type: String, default: null, index: true },
+
+  // ── Stripe / subscriptions ───────────────────────────────────────────────
+  stripeCustomerId:     { type: String, default: null },
+  stripeSubscriptionId: { type: String, default: null },
+  // Plan: 'free' | 'basic' | 'pro'  — add more as needed
+  plan:                 { type: String, default: 'free' },
+  // Mirrors Stripe subscription status: active | trialing | past_due | canceled | incomplete | null
+  subscriptionStatus:   { type: String, default: null },
 }, { timestamps: true });
 
 businessSchema.pre('save', async function (next) {
