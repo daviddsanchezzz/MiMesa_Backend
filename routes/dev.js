@@ -11,5 +11,6 @@ router.post('/businesses',         c.createBusiness);
 router.patch('/businesses/:id/plan', c.updatePlan);
 router.delete('/businesses/:id',   c.deleteBusiness);
 router.post('/migrate-memberships', c.migrateMemberships);
+router.post('/invite-user', c.inviteUser);
 
 module.exports = router;

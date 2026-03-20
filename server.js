@@ -89,6 +89,7 @@ getMongoClient().then((mongoClient) => {
 // ── Application routes ───────────────────────────────────────────────────────
 app.use('/api/dev',          require('./routes/dev'));
 app.use('/api/auth',         require('./routes/auth'));
+app.use('/api/businesses',   require('./routes/businesses'));
 app.use('/api/stripe',       require('./routes/stripe'));
 app.use('/api/members',      require('./routes/members'));
 app.use('/api/invitations',  require('./routes/invitations'));

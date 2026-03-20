@@ -96,6 +96,62 @@ exports.deleteBusiness = async (req, res) => {
   }
 };
 
+// ── POST /api/dev/invite-user ────────────────────────────────────────────
+// Sends a platform invitation to a new user.
+exports.inviteUser = async (req, res) => {
+  try {
+    const Invitation = require('../models/Invitation');
+    const { Resend }  = require('resend');
+    const resend      = new Resend(process.env.RESEND_API_KEY);
+
+    const { name, email } = req.body;
+    if (!name || !email) return res.status(400).json({ message: 'Nombre y email son obligatorios' });
+
+    // Cancel previous pending platform invitations for this email
+    await Invitation.updateMany(
+      { email: email.toLowerCase(), type: 'platform', status: 'pending' },
+      { status: 'canceled' },
+    );
+
+    const invitation = await Invitation.create({
+      name,
+      email: email.toLowerCase(),
+      businessId: null,
+      role:       'owner',
+      type:       'platform',
+      invitedBy:  req.user?.id,
+    });
+
+    const inviteUrl = `${process.env.FRONTEND_URL}/invite?token=${invitation.token}`;
+
+    await resend.emails.send({
+      from:    process.env.RESEND_FROM || 'Mimesa <onboarding@resend.dev>',
+      to:      email,
+      subject: 'Te han dado acceso a MiMesa',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
+          <div style="margin-bottom:24px">
+            <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">MiMesa</span>
+          </div>
+          <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
+          <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
+            Te han dado acceso a <strong>MiMesa</strong>, la plataforma de gestión de reservas para restaurantes.
+          </p>
+          <a href="${inviteUrl}"
+             style="display:inline-block;background:#4f46e5;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
+            Activar mi cuenta
+          </a>
+          <p style="color:#aaa;font-size:12px;margin-top:32px">El enlace caduca en 7 días.</p>
+        </div>
+      `,
+    });
+
+    res.status(201).json({ id: invitation._id, email: invitation.email, name: invitation.name });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // ── POST /api/dev/migrate-memberships ─────────────────────────────────────
 // One-time migration: ensures every Business owner has a Membership record.
 exports.migrateMemberships = async (req, res) => {

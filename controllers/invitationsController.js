@@ -8,66 +8,106 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // ── POST /api/invitations ─────────────────────────────────────────────────
 exports.createInvitation = async (req, res) => {
   try {
-    const { name, email, role = 'staff' } = req.body;
+    const { name, email, role = 'staff', businessId: bodyBusinessId } = req.body;
     if (!name || !email) return res.status(400).json({ message: 'Nombre y email son obligatorios' });
 
-    const VALID_ROLES = ['manager', 'staff'];
-    if (!VALID_ROLES.includes(role)) {
-      return res.status(400).json({ message: 'Rol inválido. Usa: manager, staff' });
+    // Platform invitation (from dev): no business attached
+    const isPlatform = !bodyBusinessId;
+    const type = isPlatform ? 'platform' : 'business';
+
+    if (!isPlatform) {
+      const VALID_ROLES = ['manager', 'staff'];
+      if (!VALID_ROLES.includes(role)) {
+        return res.status(400).json({ message: 'Rol inválido. Usa: manager, staff' });
+      }
     }
 
-    const business = await Business.findById(req.businessId);
-    if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
+    const businessId = isPlatform ? null : (bodyBusinessId || req.businessId);
 
-    // Cancel any previous pending invitation for this email+business
-    await Invitation.updateMany(
-      { email: email.toLowerCase(), businessId: req.businessId, status: 'pending' },
-      { status: 'canceled' },
-    );
+    let business = null;
+    if (!isPlatform) {
+      business = await Business.findById(businessId);
+      if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
+    }
+
+    // Cancel any previous pending invitation for this email+business (or platform)
+    const cancelQuery = isPlatform
+      ? { email: email.toLowerCase(), type: 'platform', status: 'pending' }
+      : { email: email.toLowerCase(), businessId, status: 'pending' };
+    await Invitation.updateMany(cancelQuery, { status: 'canceled' });
 
     const invitation = await Invitation.create({
       name,
       email: email.toLowerCase(),
-      businessId: req.businessId,
-      role,
+      businessId: isPlatform ? null : businessId,
+      role: isPlatform ? 'owner' : role,
+      type,
       invitedBy: req.user?.id,
     });
 
     const inviteUrl = `${process.env.FRONTEND_URL}/invite?token=${invitation.token}`;
 
-    await resend.emails.send({
-      from:    process.env.RESEND_FROM || 'Mimesa <onboarding@resend.dev>',
-      to:      email,
-      subject: `${business.name} te invita a unirte a MiMesa`,
-      html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
-          <div style="margin-bottom:24px">
-            <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">MiMesa</span>
+    if (isPlatform) {
+      await resend.emails.send({
+        from:    process.env.RESEND_FROM || 'Mimesa <onboarding@resend.dev>',
+        to:      email,
+        subject: `Te han invitado a MiMesa`,
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
+            <div style="margin-bottom:24px">
+              <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">MiMesa</span>
+            </div>
+            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
+            <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
+              Te han dado acceso a <strong>MiMesa</strong>, la plataforma de gestión de reservas para restaurantes.
+              Haz clic en el botón para activar tu cuenta.
+            </p>
+            <a href="${inviteUrl}"
+               style="display:inline-block;background:#4f46e5;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
+              Activar mi cuenta
+            </a>
+            <p style="color:#aaa;font-size:12px;margin-top:32px">
+              Si no esperabas esta invitación, ignora este email. El enlace caduca en 7 días.
+            </p>
           </div>
-          <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
-          <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 8px">
-            <strong>${business.name}</strong> te ha invitado a unirte a su equipo en MiMesa
-            con el rol de <strong>${role === 'manager' ? 'Manager' : 'Staff'}</strong>.
-          </p>
-          <p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 24px">
-            Haz clic en el botón para activar tu cuenta. El enlace caduca en 7 días.
-          </p>
-          <a href="${inviteUrl}"
-             style="display:inline-block;background:#4f46e5;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
-            Activar cuenta y unirme
-          </a>
-          <p style="color:#aaa;font-size:12px;margin-top:32px">
-            Si no esperabas esta invitación, ignora este email.
-          </p>
-        </div>
-      `,
-    });
+        `,
+      });
+    } else {
+      await resend.emails.send({
+        from:    process.env.RESEND_FROM || 'Mimesa <onboarding@resend.dev>',
+        to:      email,
+        subject: `${business.name} te invita a unirte a MiMesa`,
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
+            <div style="margin-bottom:24px">
+              <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">MiMesa</span>
+            </div>
+            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
+            <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 8px">
+              <strong>${business.name}</strong> te ha invitado a unirte a su equipo en MiMesa
+              con el rol de <strong>${role === 'manager' ? 'Manager' : 'Staff'}</strong>.
+            </p>
+            <p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 24px">
+              Haz clic en el botón para activar tu cuenta. El enlace caduca en 7 días.
+            </p>
+            <a href="${inviteUrl}"
+               style="display:inline-block;background:#4f46e5;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
+              Activar cuenta y unirme
+            </a>
+            <p style="color:#aaa;font-size:12px;margin-top:32px">
+              Si no esperabas esta invitación, ignora este email.
+            </p>
+          </div>
+        `,
+      });
+    }
 
     res.status(201).json({
       id:     invitation._id,
       email:  invitation.email,
       name:   invitation.name,
       role:   invitation.role,
+      type:   invitation.type,
       status: invitation.status,
       expiresAt: invitation.expiresAt,
     });
@@ -124,7 +164,10 @@ exports.getPublicInvitation = async (req, res) => {
       name:     invitation.name,
       email:    invitation.email,
       role:     invitation.role,
-      business: { name: invitation.businessId?.name, brandColor: invitation.businessId?.brandColor },
+      type:     invitation.type || 'business',
+      business: invitation.businessId
+        ? { name: invitation.businessId.name, brandColor: invitation.businessId.brandColor }
+        : null,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -142,25 +185,29 @@ exports.acceptInvitation = async (req, res) => {
     });
     if (!invitation) return res.status(404).json({ message: 'Invitación inválida o expirada' });
 
-    // Verify the authenticated user's email matches
     if (req.user?.email?.toLowerCase() !== invitation.email) {
       return res.status(403).json({
         message: `Esta invitación es para ${invitation.email}. Inicia sesión con esa cuenta.`,
       });
     }
 
-    // Create (or update) membership
-    await BusinessMember.findOneAndUpdate(
-      { userId: req.user.id, businessId: invitation.businessId },
-      { role: invitation.role, status: 'active', userName: req.user.name || '', userEmail: req.user.email },
-      { upsert: true, new: true },
-    );
+    if (invitation.type !== 'platform') {
+      // Create (or update) membership for business invitations
+      await BusinessMember.findOneAndUpdate(
+        { userId: req.user.id, businessId: invitation.businessId },
+        { role: invitation.role, status: 'active', userName: req.user.name || '', userEmail: req.user.email },
+        { upsert: true, new: true },
+      );
+    }
 
-    // Mark invitation as accepted
     invitation.status = 'accepted';
     await invitation.save();
 
-    res.json({ message: 'Bienvenido al equipo', businessId: invitation.businessId });
+    res.json({
+      message:    invitation.type === 'platform' ? 'Cuenta activada' : 'Bienvenido al equipo',
+      type:       invitation.type || 'business',
+      businessId: invitation.businessId ?? null,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

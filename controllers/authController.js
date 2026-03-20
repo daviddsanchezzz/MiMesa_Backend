@@ -83,6 +83,20 @@ exports.me = async (req, res) => {
   try {
     const devUser = isDev(req.user?.email) || !!req.isDev;
 
+    // Self-resolve business context if not set (e.g. when called via requireSession)
+    if (!req.businessId && req.user) {
+      const requestedId = req.headers['x-business-id'];
+      const activeFilter = { status: { $ne: 'invited' } };
+      let m;
+      if (requestedId) {
+        m = await BusinessMember.findOne({ userId: req.user.id, businessId: requestedId, ...activeFilter });
+        if (!m) m = await BusinessMember.findOne({ userId: req.user.id, ...activeFilter }).sort({ createdAt: 1 });
+      } else {
+        m = await BusinessMember.findOne({ userId: req.user.id, ...activeFilter }).sort({ createdAt: 1 });
+      }
+      if (m) { req.businessId = m.businessId.toString(); req.memberRole = m.role; }
+    }
+
     // All active memberships for multi-business support
     const membershipDocs = req.user
       ? await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
@@ -99,7 +113,6 @@ exports.me = async (req, res) => {
       role:         m.role,
     }));
 
-    // Dev with no active business context
     if (!req.businessId) {
       return res.json({ isDev: devUser, memberships });
     }

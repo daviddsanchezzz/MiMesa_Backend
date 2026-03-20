@@ -4,8 +4,9 @@ const crypto   = require('crypto');
 const invitationSchema = new mongoose.Schema({
   email:      { type: String, required: true, lowercase: true },
   name:       { type: String, required: true },
-  businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true },
+  businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', default: null },
   role:       { type: String, default: 'staff' },
+  type:       { type: String, enum: ['platform', 'business'], default: 'business' },
   token:      { type: String, required: true, unique: true, default: () => crypto.randomBytes(32).toString('hex') },
   status:     { type: String, enum: ['pending', 'accepted', 'canceled'], default: 'pending' },
   expiresAt:  { type: Date,   required: true, default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }, // 7 days
