@@ -146,7 +146,12 @@ exports.inviteUser = async (req, res) => {
       `,
     });
 
-    res.status(201).json({ id: invitation._id, email: invitation.email, name: invitation.name });
+    res.status(201).json({
+      id:         invitation._id,
+      email:      invitation.email,
+      name:       invitation.name,
+      inviteLink: inviteUrl,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
