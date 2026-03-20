@@ -16,6 +16,15 @@ function resolveFrontendBaseUrl(req) {
   return base.replace(/\/+$/, '');
 }
 
+function resolveInviteFrom() {
+  return (
+    process.env.RESEND_FROM_INVITE ||
+    process.env.RESEND_FROM_SYSTEM ||
+    process.env.RESEND_FROM ||
+    'Tableo <onboarding@resend.dev>'
+  );
+}
+
 async function sendEmailOrThrow(payload) {
   const result = await resend.emails.send(payload);
   if (result?.error) {
@@ -71,7 +80,7 @@ exports.createInvitation = async (req, res) => {
 
     if (isPlatform) {
       await sendEmailOrThrow({
-        from:    process.env.RESEND_FROM_INVITE || 'Tableo <onboarding@resend.dev>',
+        from:    resolveInviteFrom(),
         to:      email,
         subject: `Te han invitado a Tableo`,
         html: `
@@ -96,7 +105,7 @@ exports.createInvitation = async (req, res) => {
       });
     } else {
       await sendEmailOrThrow({
-        from:    process.env.RESEND_FROM || 'Tableo <onboarding@resend.dev>',
+        from:    resolveInviteFrom(),
         to:      email,
         subject: `${business.name} te invita a unirte a Tableo`,
         html: `
