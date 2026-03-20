@@ -15,5 +15,6 @@ router.post('/',             requireRole('manager'), c.addMember);
 // Owner only: change roles and remove members
 router.put('/:memberId',     requireRole('owner'), c.updateRole);
 router.delete('/:memberId',  requireRole('owner'), c.removeMember);
+router.put('/:memberId/notifications', c.updateNotifications);
 
 module.exports = router;

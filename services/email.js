@@ -240,4 +240,53 @@ async function sendStatusUpdate(reservation, business, newStatus) {
   }
 }
 
-module.exports = { sendReservationConfirmation, sendStatusUpdate };
+async function sendStaffReservationNotification(recipients, reservation, business, eventType) {
+  if (!Array.isArray(recipients) || recipients.length === 0) return;
+  if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
+
+  const title = eventType === 'cancelled' ? 'Reserva cancelada' : 'Nueva reserva';
+  const subject = `${title} - ${business.name}`;
+  const roomName = reservation.roomId?.name || 'Sin sala';
+  const tableName = reservation.tableId?.name || 'Sin mesa';
+  const guestEmail = reservation.guestEmail || '-';
+  const guestPhone = reservation.guestPhone || '-';
+
+  const html = baseLayout(
+    business.brandColor || '#4f46e5',
+    `
+      <p style="margin:0 0 16px;font-size:16px;color:#111827;"><strong>${title}</strong></p>
+      <table width="100%" cellpadding="0" cellspacing="0"
+        style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;">
+        <tr><td>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            ${detailRow('Cliente', reservation.guestName || '-')}
+            ${detailRow('Fecha', fmtDate(reservation.date))}
+            ${detailRow('Hora', reservation.time || '-')}
+            ${detailRow('Personas', String(reservation.people || '-'))}
+            ${detailRow('Sala', roomName)}
+            ${detailRow('Mesa', tableName)}
+            ${detailRow('Email', guestEmail)}
+            ${detailRow('Telefono', guestPhone)}
+          </table>
+        </td></tr>
+      </table>
+    `
+  );
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: recipients,
+      subject,
+      html,
+    });
+  } catch (err) {
+    console.error('[email] sendStaffReservationNotification failed:', err.message);
+  }
+}
+
+module.exports = {
+  sendReservationConfirmation,
+  sendStatusUpdate,
+  sendStaffReservationNotification,
+};

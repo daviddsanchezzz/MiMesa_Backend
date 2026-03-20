@@ -115,3 +115,37 @@ exports.removeMember = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// —— PUT /api/members/:memberId/notifications ——————————————————————————————
+// Authenticated users can only update their own notification preferences.
+exports.updateNotifications = async (req, res) => {
+  try {
+    const { newReservationEmail, cancelledReservationEmail } = req.body || {};
+
+    const member = await BusinessMember.findOne({
+      _id: req.params.memberId,
+      businessId: req.businessId,
+    });
+    if (!member) return res.status(404).json({ message: 'Miembro no encontrado' });
+
+    if (!req.user || member.userId !== req.user.id) {
+      return res.status(403).json({ message: 'No puedes modificar las notificaciones de otro usuario' });
+    }
+
+    member.notificationPreferences = {
+      newReservationEmail:
+        newReservationEmail !== undefined
+          ? !!newReservationEmail
+          : (member.notificationPreferences?.newReservationEmail ?? true),
+      cancelledReservationEmail:
+        cancelledReservationEmail !== undefined
+          ? !!cancelledReservationEmail
+          : (member.notificationPreferences?.cancelledReservationEmail ?? true),
+    };
+
+    await member.save();
+    res.json({ notificationPreferences: member.notificationPreferences });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

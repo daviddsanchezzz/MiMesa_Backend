@@ -20,7 +20,7 @@ const setRefreshCookie = (res, token) => {
 
 const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
-  phone: b.phone, brandColor: b.brandColor,
+  phone: b.phone, cif: b.cif, brandColor: b.brandColor,
   maxReservationPeople: b.maxReservationPeople,
   maxPeoplePerSlot: b.maxPeoplePerSlot ?? null,
   reservationDuration: b.reservationDuration ?? null,
@@ -114,7 +114,13 @@ exports.me = async (req, res) => {
     }));
 
     if (!req.businessId) {
-      return res.json({ isDev: devUser, memberships, userEmail: req.user?.email ?? null });
+      return res.json({
+        isDev: devUser,
+        memberships,
+        userId: req.user?.id ?? null,
+        userName: req.user?.name ?? null,
+        userEmail: req.user?.email ?? null,
+      });
     }
 
     const business = await Business.findById(req.businessId).select('-password');
@@ -125,6 +131,8 @@ exports.me = async (req, res) => {
       role:        req.memberRole ?? 'owner',
       isDev:       devUser,
       memberships,
+      userId:      req.user?.id ?? null,
+      userName:    req.user?.name ?? null,
       userEmail:   req.user?.email ?? null,
     });
   } catch (err) {
@@ -144,12 +152,26 @@ exports.getPublicBusiness = async (req, res) => {
 
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    const { brandColor, maxReservationPeople, maxPeoplePerSlot } = req.body;
+    const { brandColor, maxReservationPeople, maxPeoplePerSlot, name, phone, email, cif } = req.body;
     const updateData = {};
+    if (name !== undefined) updateData.name = String(name).trim();
+    if (phone !== undefined) updateData.phone = String(phone).trim();
+    if (cif !== undefined) updateData.cif = String(cif).trim();
     if (brandColor !== undefined) updateData.brandColor = brandColor;
     if (maxReservationPeople !== undefined) updateData.maxReservationPeople = maxReservationPeople;
     if (maxPeoplePerSlot !== undefined) updateData.maxPeoplePerSlot = maxPeoplePerSlot;
     if (req.body.reservationDuration !== undefined) updateData.reservationDuration = req.body.reservationDuration;
+    if (email !== undefined) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const exists = await Business.findOne({
+        _id: { $ne: req.businessId },
+        email: normalizedEmail,
+      }).select('_id');
+      if (exists) {
+        return res.status(400).json({ message: 'El email ya esta en uso por otro negocio' });
+      }
+      updateData.email = normalizedEmail;
+    }
 
     const business = await Business.findByIdAndUpdate(
       req.businessId,

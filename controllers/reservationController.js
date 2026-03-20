@@ -2,7 +2,12 @@ const Reservation = require('../models/Reservation');
 const Customer    = require('../models/Customer');
 const Table       = require('../models/Table');
 const Business    = require('../models/Business');
-const { sendReservationConfirmation, sendStatusUpdate } = require('../services/email');
+const BusinessMember = require('../models/BusinessMember');
+const {
+  sendReservationConfirmation,
+  sendStatusUpdate,
+  sendStaffReservationNotification,
+} = require('../services/email');
 
 const POPULATE = [
   { path: 'customerId', select: 'name phone email visits' },
@@ -24,6 +29,35 @@ async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmai
     });
   }
   return customer;
+}
+
+async function notifyStaff(businessId, reservation, eventType) {
+  try {
+    const business = await Business.findById(businessId).select('name brandColor');
+    if (!business) return;
+
+    const members = await BusinessMember.find({
+      businessId,
+      status: { $ne: 'invited' },
+      userEmail: { $ne: '' },
+    }).select('userEmail notificationPreferences');
+
+    const recipients = [...new Set(
+      members
+        .filter((m) => {
+          const prefs = m.notificationPreferences || {};
+          if (eventType === 'cancelled') return prefs.cancelledReservationEmail !== false;
+          return prefs.newReservationEmail !== false;
+        })
+        .map((m) => m.userEmail)
+        .filter(Boolean)
+    )];
+
+    if (recipients.length === 0) return;
+    await sendStaffReservationNotification(recipients, reservation, business, eventType);
+  } catch (err) {
+    console.error('[reservations] notifyStaff failed:', err.message);
+  }
 }
 
 exports.getReservations = async (req, res) => {
@@ -59,6 +93,7 @@ exports.createReservation = async (req, res) => {
       const business = await Business.findById(req.businessId).select('name brandColor email phone');
       sendReservationConfirmation(populated, business);
     }
+    notifyStaff(req.businessId, populated, 'created');
 
     res.status(201).json(populated);
   } catch (err) {
@@ -115,6 +150,7 @@ exports.createPublicReservation = async (req, res) => {
     if (guestEmail && business) {
       sendReservationConfirmation(populated, business);
     }
+    notifyStaff(businessId, populated, 'created');
 
     res.status(201).json(populated);
   } catch (err) {
@@ -177,6 +213,7 @@ exports.cancelPublicReservation = async (req, res) => {
     if (reservation.guestEmail && business) {
       sendStatusUpdate(reservation, business, 'cancelled');
     }
+    notifyStaff(reservation.businessId, reservation, 'cancelled');
 
     res.json({ message: 'Reserva cancelada correctamente' });
   } catch (err) {
@@ -220,6 +257,9 @@ exports.updateReservation = async (req, res) => {
     if (statusChanged && reservation.guestEmail && ['confirmed', 'cancelled'].includes(reservation.status)) {
       const business = await Business.findById(req.businessId).select('name brandColor email phone');
       sendStatusUpdate(reservation, business, reservation.status);
+    }
+    if (statusChanged && reservation.status === 'cancelled') {
+      notifyStaff(req.businessId, reservation, 'cancelled');
     }
 
     res.json(reservation);

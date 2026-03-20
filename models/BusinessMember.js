@@ -19,6 +19,10 @@ const businessMemberSchema = new mongoose.Schema({
   // Denormalized for display (no join needed in lists)
   userName:   { type: String, default: '' },
   userEmail:  { type: String, default: '' },
+  notificationPreferences: {
+    newReservationEmail: { type: Boolean, default: true },
+    cancelledReservationEmail: { type: Boolean, default: true },
+  },
 }, { timestamps: true });
 
 // A user can only have one membership per business
