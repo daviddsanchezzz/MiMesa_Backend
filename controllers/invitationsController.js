@@ -152,7 +152,7 @@ exports.acceptInvitation = async (req, res) => {
     // Create (or update) membership
     await BusinessMember.findOneAndUpdate(
       { userId: req.user.id, businessId: invitation.businessId },
-      { role: invitation.role, userName: req.user.name || '', userEmail: req.user.email },
+      { role: invitation.role, status: 'active', userName: req.user.name || '', userEmail: req.user.email },
       { upsert: true, new: true },
     );
 

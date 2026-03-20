@@ -1,5 +1,7 @@
 const jwt = require('jsonwebtoken');
 const Business = require('../models/Business');
+const BusinessMember = require('../models/BusinessMember');
+const { isDev } = require('../middleware/requireDev');
 
 const signAccessToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '15m' });
@@ -79,10 +81,38 @@ exports.logout = (req, res) => {
 
 exports.me = async (req, res) => {
   try {
+    const devUser = isDev(req.user?.email) || !!req.isDev;
+
+    // All active memberships for multi-business support
+    const membershipDocs = req.user
+      ? await BusinessMember.find({ userId: req.user.id, status: 'active' })
+          .populate('businessId', 'name brandColor plan subscriptionStatus')
+          .sort({ createdAt: 1 })
+          .lean()
+      : [];
+
+    const memberships = membershipDocs.map(m => ({
+      businessId:   m.businessId?._id?.toString() ?? '',
+      businessName: m.businessId?.name ?? '',
+      brandColor:   m.businessId?.brandColor ?? '#4f46e5',
+      plan:         m.businessId?.plan ?? 'free',
+      role:         m.role,
+    }));
+
+    // Dev with no active business context
+    if (!req.businessId) {
+      return res.json({ isDev: devUser, memberships });
+    }
+
     const business = await Business.findById(req.businessId).select('-password');
-    // req.memberRole is set by requireAuth for Better Auth sessions;
-    // legacy JWT users are always owners.
-    res.json({ ...businessData(business), role: req.memberRole ?? 'owner' });
+    if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
+
+    res.json({
+      ...businessData(business),
+      role:        req.memberRole ?? 'owner',
+      isDev:       devUser,
+      memberships,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

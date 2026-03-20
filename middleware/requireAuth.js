@@ -1,60 +1,66 @@
 /**
  * requireAuth — combined middleware
  *
- * Checks authentication in two layers:
- *  1. Better Auth session cookie (new system)
- *  2. JWT Bearer token (legacy fallback — kept during migration)
+ * Authentication flow:
+ *  1. Better Auth session cookie (primary)
+ *  2. JWT Bearer token (legacy fallback)
  *
- * Sets req.businessId so all existing route handlers keep working unchanged.
+ * Business resolution (Membership is the source of truth):
+ *  - If X-Business-Id header present → validate user has active membership there
+ *  - Otherwise → auto-select first (oldest) active membership
+ *
+ * Sets: req.user, req.businessId, req.memberRole, req.isDev
  */
 
-const jwt = require('jsonwebtoken');
+const jwt            = require('jsonwebtoken');
 const { fromNodeHeaders } = require('better-auth/node');
-const { getAuth } = require('../lib/auth');
-const Business = require('../models/Business');
+const { getAuth }    = require('../lib/auth');
 const BusinessMember = require('../models/BusinessMember');
+const { isDev }      = require('./requireDev');
 
 module.exports = async function requireAuth(req, res, next) {
   // ── 1. Better Auth session ──────────────────────────────────────────────
   try {
-    const auth = getAuth();
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
+    const auth    = getAuth();
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
 
     if (session?.user) {
-      let business = await Business.findOne({ ownerId: session.user.id });
+      req.user = session.user;
+      if (isDev(session.user.email)) req.isDev = true;
 
-      // Migration fallback: legacy Business with same email but no ownerId yet
-      if (!business) {
-        business = await Business.findOne({ email: session.user.email.toLowerCase() });
-        if (business) {
-          // Link on the fly (runs once per user)
-          business.ownerId = session.user.id;
-          await business.save().catch(() => {});
-        }
-      }
+      // Resolve which business to operate on
+      const requestedId = req.headers['x-business-id'];
 
-      if (business) {
-        // Resolve membership role in the same request (avoids extra round-trip in requireRole)
-        const member = await BusinessMember.findOne({
+      let membership;
+      if (requestedId) {
+        // Validate the user actually belongs to the requested business
+        membership = await BusinessMember.findOne({
           userId:     session.user.id,
-          businessId: business._id,
+          businessId: requestedId,
+          status:     'active',
         });
-        req.user       = session.user;
-        req.businessId = business._id.toString();
-        req.memberRole = member?.role ?? 'owner'; // 'owner' as safe default during migration
-        return next();
+        // Graceful fallback: use their first business if header is stale/invalid
+        if (!membership) {
+          membership = await BusinessMember.findOne({
+            userId: session.user.id,
+            status: 'active',
+          }).sort({ createdAt: 1 });
+        }
+      } else {
+        membership = await BusinessMember.findOne({
+          userId: session.user.id,
+          status: 'active',
+        }).sort({ createdAt: 1 });
       }
 
-      // Invited member: no owned business, but has a BusinessMember record
-      const membership = await BusinessMember.findOne({ userId: session.user.id });
       if (membership) {
-        req.user       = session.user;
         req.businessId = membership.businessId.toString();
         req.memberRole = membership.role;
         return next();
       }
+
+      // Dev users can proceed without a business (for the /dev console)
+      if (req.isDev) return next();
 
       return res.status(403).json({ message: 'Cuenta sin negocio asociado' });
     }
@@ -66,7 +72,7 @@ module.exports = async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (token) {
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded  = jwt.verify(token, process.env.JWT_SECRET);
       req.businessId = decoded.id;
       return next();
     } catch {
