@@ -85,7 +85,7 @@ exports.me = async (req, res) => {
 
     // All active memberships for multi-business support
     const membershipDocs = req.user
-      ? await BusinessMember.find({ userId: req.user.id, status: 'active' })
+      ? await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
           .populate('businessId', 'name brandColor plan subscriptionStatus')
           .sort({ createdAt: 1 })
           .lean()

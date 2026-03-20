@@ -31,25 +31,27 @@ module.exports = async function requireAuth(req, res, next) {
       // Resolve which business to operate on
       const requestedId = req.headers['x-business-id'];
 
+      // status: { $ne: 'invited' } matches both 'active' AND documents without the field
+      // (existing records created before the status field was added)
+      const activeFilter = { status: { $ne: 'invited' } };
+
       let membership;
       if (requestedId) {
-        // Validate the user actually belongs to the requested business
         membership = await BusinessMember.findOne({
           userId:     session.user.id,
           businessId: requestedId,
-          status:     'active',
+          ...activeFilter,
         });
-        // Graceful fallback: use their first business if header is stale/invalid
         if (!membership) {
           membership = await BusinessMember.findOne({
             userId: session.user.id,
-            status: 'active',
+            ...activeFilter,
           }).sort({ createdAt: 1 });
         }
       } else {
         membership = await BusinessMember.findOne({
           userId: session.user.id,
-          status: 'active',
+          ...activeFilter,
         }).sort({ createdAt: 1 });
       }
 
