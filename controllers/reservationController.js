@@ -17,17 +17,41 @@ const POPULATE = [
 
 /** Find existing customer by phone or email, or create a new one. */
 async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmail) {
-  if (!guestPhone && !guestEmail) return null;
-  const orClauses = [];
-  if (guestPhone) orClauses.push({ phone: guestPhone });
-  if (guestEmail) orClauses.push({ email: guestEmail.toLowerCase() });
-  let customer = await Customer.findOne({ businessId, $or: orClauses });
+  const phone = (guestPhone || '').trim();
+  const email = (guestEmail || '').trim().toLowerCase();
+  const name = (guestName || '').trim();
+
+  if (!phone && !email) return null;
+
+  // Email has priority as unique identity for customers.
+  let customer = null;
+  if (email) {
+    customer = await Customer.findOne({ businessId, email });
+  }
+
+  if (!customer && phone) {
+    customer = await Customer.findOne({ businessId, phone });
+  }
+
   if (!customer) {
-    customer = await Customer.create({
-      businessId, name: guestName,
-      phone: guestPhone || '', email: guestEmail || '',
+    return Customer.create({
+      businessId,
+      name,
+      phone,
+      email,
     });
   }
+
+  // Keep customer data fresh without overriding with empty values.
+  const update = {};
+  if (name && customer.name !== name) update.name = name;
+  if (phone && customer.phone !== phone) update.phone = phone;
+  if (email && customer.email !== email) update.email = email;
+  if (Object.keys(update).length > 0) {
+    await Customer.updateOne({ _id: customer._id }, { $set: update });
+    customer = { ...customer.toObject(), ...update };
+  }
+
   return customer;
 }
 
@@ -104,6 +128,15 @@ exports.createReservation = async (req, res) => {
 exports.createPublicReservation = async (req, res) => {
   try {
     const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent } = req.body;
+    const phone = (guestPhone || '').trim();
+    const email = (guestEmail || '').trim().toLowerCase();
+
+    if (!phone) {
+      return res.status(400).json({ message: 'El teléfono es obligatorio' });
+    }
+    if (!email) {
+      return res.status(400).json({ message: 'El email es obligatorio' });
+    }
 
     const business = await Business.findById(businessId).select('name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration email phone');
     if (business?.maxReservationPeople && people > business.maxReservationPeople) {
@@ -132,11 +165,11 @@ exports.createPublicReservation = async (req, res) => {
       }
     }
 
-    const customer = await findOrCreateCustomer(businessId, guestName, guestPhone, guestEmail);
+    const customer = await findOrCreateCustomer(businessId, guestName, phone, email);
     const reservation = await Reservation.create({
       businessId,
       customerId: customer?._id || null,
-      guestName, guestPhone: guestPhone || '', guestEmail: guestEmail || '',
+      guestName, guestPhone: phone, guestEmail: email,
       roomId:  roomId  || null,
       tableId: tableId || null,
       date, time, people, notes: notes || '', consent: consent || false,
@@ -147,7 +180,7 @@ exports.createPublicReservation = async (req, res) => {
     const populated = await reservation.populate(POPULATE);
 
     // Send confirmation email
-    if (guestEmail && business) {
+    if (email && business) {
       sendReservationConfirmation(populated, business);
     }
     notifyStaff(businessId, populated, 'created');
