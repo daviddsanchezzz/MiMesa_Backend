@@ -7,6 +7,7 @@ const businessSchema = new mongoose.Schema({
   // password is kept for legacy users (JWT auth). Better Auth users have no password here.
   password:  { type: String, required: false, default: null },
   phone:     { type: String, default: '' },
+  cif:       { type: String, default: '' },
   brandColor: { type: String, default: '#3B82F6' },
   maxReservationPeople: { type: Number, default: 20, min: 1 },
   maxPeoplePerSlot: { type: Number, default: null },

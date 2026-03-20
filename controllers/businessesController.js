@@ -6,13 +6,15 @@ const BusinessMember = require('../models/BusinessMember');
 // Uses requireSession — works for users with no membership yet.
 exports.createBusiness = async (req, res) => {
   try {
-    const { name, phone = '' } = req.body;
+    const { name, email, phone = '', cif = '' } = req.body;
     if (!name) return res.status(400).json({ message: 'El nombre del negocio es obligatorio' });
+    if (!email) return res.status(400).json({ message: 'El email del restaurante es obligatorio' });
 
     const business = await Business.create({
       name,
-      email: req.user.email,
+      email: email.toLowerCase(),
       phone,
+      cif,
       ownerId: req.user.id,
     });
 
