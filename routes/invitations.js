@@ -1,14 +1,15 @@
-const router      = require('express').Router();
-const requireAuth = require('../middleware/requireAuth');
-const requireRole = require('../middleware/requireRole');
-const cors        = require('cors');
-const c           = require('../controllers/invitationsController');
+const router         = require('express').Router();
+const requireAuth    = require('../middleware/requireAuth');
+const requireSession = require('../middleware/requireSession');
+const requireRole    = require('../middleware/requireRole');
+const cors           = require('cors');
+const c              = require('../controllers/invitationsController');
 
 // Public — no auth needed (for the AcceptInvite page to fetch details)
 router.get('/public/:token',    cors({ origin: '*' }), c.getPublicInvitation);
 
-// Authenticated — accept invitation (user just registered/logged in)
-router.post('/accept/:token',   requireAuth, c.acceptInvitation);
+// Session-only — accept invitation (user just registered/logged in, may not have a business yet)
+router.post('/accept/:token',   requireSession, c.acceptInvitation);
 
 // Protected — manage invitations (manager+ to send, owner to cancel)
 router.get('/',                 requireAuth, requireRole('manager'), c.listInvitations);
