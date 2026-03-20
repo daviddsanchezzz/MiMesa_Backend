@@ -98,12 +98,28 @@ exports.me = async (req, res) => {
     }
 
     // All active memberships for multi-business support
-    const membershipDocs = req.user
+    let membershipDocs = req.user
       ? await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
           .populate('businessId', 'name brandColor plan subscriptionStatus')
           .sort({ createdAt: 1 })
           .lean()
       : [];
+
+    // Auto-heal old invitation bug: membership created with wrong userId but same email.
+    if (req.user && membershipDocs.length === 0 && req.user.email) {
+      const email = req.user.email.toLowerCase();
+      const legacy = await BusinessMember.find({ userEmail: email, status: { $ne: 'invited' } }).select('_id userId');
+      if (legacy.length > 0) {
+        await BusinessMember.updateMany(
+          { _id: { $in: legacy.map((m) => m._id) } },
+          { $set: { userId: req.user.id } }
+        );
+        membershipDocs = await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
+          .populate('businessId', 'name brandColor plan subscriptionStatus')
+          .sort({ createdAt: 1 })
+          .lean();
+      }
+    }
 
     const memberships = membershipDocs.map(m => ({
       businessId:   m.businessId?._id?.toString() ?? '',

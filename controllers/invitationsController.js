@@ -190,15 +190,25 @@ exports.acceptInvitation = async (req, res) => {
     if (!invitation) return res.status(404).json({ message: 'Invitación inválida o expirada' });
 
     // Find the registered user that owns this email
-    const authUser = await AuthUser.findOne({ email: invitation.email });
+    const authUser = await AuthUser.findOne({ email: invitation.email.toLowerCase() });
     if (!authUser) {
       return res.status(404).json({ message: 'No se encontró ninguna cuenta para este email. Regístrate primero.' });
     }
 
+    const canonicalUserId = authUser.id || authUser._doc?.id;
+    if (!canonicalUserId) {
+      return res.status(500).json({ message: 'No se pudo resolver el identificador del usuario' });
+    }
+
     if (invitation.type !== 'platform') {
       await BusinessMember.findOneAndUpdate(
-        { userId: authUser._id.toString(), businessId: invitation.businessId },
-        { role: invitation.role, status: 'active', userName: authUser.name || '', userEmail: authUser.email },
+        { userId: canonicalUserId, businessId: invitation.businessId },
+        {
+          role: invitation.role,
+          status: 'active',
+          userName: authUser.name || '',
+          userEmail: (authUser.email || '').toLowerCase(),
+        },
         { upsert: true, new: true },
       );
     }
