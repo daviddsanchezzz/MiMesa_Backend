@@ -5,6 +5,17 @@ const { Resend }     = require('resend');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+function resolveFrontendBaseUrl(req) {
+  const candidates = [
+    process.env.FRONTEND_URL,
+    ...(process.env.FRONTEND_URLS || '').split(',').map((v) => v.trim()).filter(Boolean),
+    req.headers.origin,
+  ].filter(Boolean);
+
+  const base = candidates[0] || 'http://localhost:3005';
+  return base.replace(/\/+$/, '');
+}
+
 // ── POST /api/invitations ─────────────────────────────────────────────────
 exports.createInvitation = async (req, res) => {
   try {
@@ -45,7 +56,8 @@ exports.createInvitation = async (req, res) => {
       invitedBy: req.user?.id,
     });
 
-    const inviteUrl = `${process.env.FRONTEND_URL}/invite?token=${invitation.token}`;
+    const inviteBase = resolveFrontendBaseUrl(req);
+    const inviteUrl = `${inviteBase}/invite?token=${invitation.token}`;
 
     if (isPlatform) {
       await resend.emails.send({
