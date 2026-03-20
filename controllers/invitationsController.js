@@ -61,17 +61,17 @@ exports.createInvitation = async (req, res) => {
 
     if (isPlatform) {
       await resend.emails.send({
-        from:    process.env.RESEND_FROM_INVITE || 'Mimesa <onboarding@resend.dev>',
+        from:    process.env.RESEND_FROM_INVITE || 'Tableo <onboarding@resend.dev>',
         to:      email,
-        subject: `Te han invitado a MiMesa`,
+        subject: `Te han invitado a Tableo`,
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
             <div style="margin-bottom:24px">
-              <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">MiMesa</span>
+              <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Tableo</span>
             </div>
             <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
-              Te han dado acceso a <strong>MiMesa</strong>, la plataforma de gestión de reservas para restaurantes.
+              Te han dado acceso a <strong>Tableo</strong>, la plataforma de gestión de reservas para restaurantes.
               Haz clic en el botón para activar tu cuenta.
             </p>
             <a href="${inviteUrl}"
@@ -86,17 +86,17 @@ exports.createInvitation = async (req, res) => {
       });
     } else {
       await resend.emails.send({
-        from:    process.env.RESEND_FROM || 'Mimesa <onboarding@resend.dev>',
+        from:    process.env.RESEND_FROM || 'Tableo <onboarding@resend.dev>',
         to:      email,
-        subject: `${business.name} te invita a unirte a MiMesa`,
+        subject: `${business.name} te invita a unirte a Tableo`,
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
             <div style="margin-bottom:24px">
-              <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">MiMesa</span>
+              <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Tableo</span>
             </div>
             <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 8px">
-              <strong>${business.name}</strong> te ha invitado a unirte a su equipo en MiMesa
+              <strong>${business.name}</strong> te ha invitado a unirte a su equipo en Tableo
               con el rol de <strong>${role === 'manager' ? 'Manager' : 'Staff'}</strong>.
             </p>
             <p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 24px">
