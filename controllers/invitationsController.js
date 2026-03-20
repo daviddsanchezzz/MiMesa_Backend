@@ -16,6 +16,14 @@ function resolveFrontendBaseUrl(req) {
   return base.replace(/\/+$/, '');
 }
 
+async function sendEmailOrThrow(payload) {
+  const result = await resend.emails.send(payload);
+  if (result?.error) {
+    throw new Error(result.error.message || 'Error enviando email con Resend');
+  }
+  return result;
+}
+
 // ── POST /api/invitations ─────────────────────────────────────────────────
 exports.createInvitation = async (req, res) => {
   try {
@@ -62,7 +70,7 @@ exports.createInvitation = async (req, res) => {
     const inviteUrl = `${inviteBase}/invite?token=${invitation.token}`;
 
     if (isPlatform) {
-      await resend.emails.send({
+      await sendEmailOrThrow({
         from:    process.env.RESEND_FROM_INVITE || 'Tableo <onboarding@resend.dev>',
         to:      email,
         subject: `Te han invitado a Tableo`,
@@ -87,7 +95,7 @@ exports.createInvitation = async (req, res) => {
         `,
       });
     } else {
-      await resend.emails.send({
+      await sendEmailOrThrow({
         from:    process.env.RESEND_FROM || 'Tableo <onboarding@resend.dev>',
         to:      email,
         subject: `${business.name} te invita a unirte a Tableo`,
