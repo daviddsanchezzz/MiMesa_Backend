@@ -175,27 +175,30 @@ exports.getPublicInvitation = async (req, res) => {
 };
 
 // ── POST /api/invitations/accept/:token ───────────────────────────────────
-// Called after the user has logged in / signed up.
+// Token-authenticated: no session required. The invite token is the credential.
+// The frontend calls this right after signUp/signIn; cross-origin cookies are
+// unreliable at that moment, so we look up the user by email instead.
 exports.acceptInvitation = async (req, res) => {
   try {
+    const AuthUser = require('../models/AuthUser');
+
     const invitation = await Invitation.findOne({
-      token:  req.params.token,
-      status: 'pending',
+      token:     req.params.token,
+      status:    'pending',
       expiresAt: { $gt: new Date() },
     });
     if (!invitation) return res.status(404).json({ message: 'Invitación inválida o expirada' });
 
-    if (req.user?.email?.toLowerCase() !== invitation.email) {
-      return res.status(403).json({
-        message: `Esta invitación es para ${invitation.email}. Inicia sesión con esa cuenta.`,
-      });
+    // Find the registered user that owns this email
+    const authUser = await AuthUser.findOne({ email: invitation.email });
+    if (!authUser) {
+      return res.status(404).json({ message: 'No se encontró ninguna cuenta para este email. Regístrate primero.' });
     }
 
     if (invitation.type !== 'platform') {
-      // Create (or update) membership for business invitations
       await BusinessMember.findOneAndUpdate(
-        { userId: req.user.id, businessId: invitation.businessId },
-        { role: invitation.role, status: 'active', userName: req.user.name || '', userEmail: req.user.email },
+        { userId: authUser._id.toString(), businessId: invitation.businessId },
+        { role: invitation.role, status: 'active', userName: authUser.name || '', userEmail: authUser.email },
         { upsert: true, new: true },
       );
     }

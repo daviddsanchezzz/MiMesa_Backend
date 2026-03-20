@@ -8,8 +8,9 @@ const c              = require('../controllers/invitationsController');
 // Public — no auth needed (for the AcceptInvite page to fetch details)
 router.get('/public/:token',    cors({ origin: '*' }), c.getPublicInvitation);
 
-// Session-only — accept invitation (user just registered/logged in, may not have a business yet)
-router.post('/accept/:token',   requireSession, c.acceptInvitation);
+// Token-authenticated — no session required; the invite token IS the credential.
+// The controller verifies the token and looks up the user by email.
+router.post('/accept/:token',   c.acceptInvitation);
 
 // Protected — manage invitations (manager+ to send, owner to cancel)
 router.get('/',                 requireAuth, requireRole('manager'), c.listInvitations);
