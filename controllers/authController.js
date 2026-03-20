@@ -114,7 +114,7 @@ exports.me = async (req, res) => {
     }));
 
     if (!req.businessId) {
-      return res.json({ isDev: devUser, memberships });
+      return res.json({ isDev: devUser, memberships, userEmail: req.user?.email ?? null });
     }
 
     const business = await Business.findById(req.businessId).select('-password');
@@ -125,6 +125,7 @@ exports.me = async (req, res) => {
       role:        req.memberRole ?? 'owner',
       isDev:       devUser,
       memberships,
+      userEmail:   req.user?.email ?? null,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
