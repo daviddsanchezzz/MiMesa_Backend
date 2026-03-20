@@ -125,7 +125,7 @@ exports.inviteUser = async (req, res) => {
     const inviteUrl = `${process.env.FRONTEND_URL}/invite?token=${invitation.token}`;
 
     await resend.emails.send({
-      from:    process.env.RESEND_FROM || 'Mimesa <onboarding@resend.dev>',
+      from:    process.env.RESEND_FROM_INVITE || 'Mimesa <onboarding@resend.dev>',
       to:      email,
       subject: 'Te han dado acceso a MiMesa',
       html: `

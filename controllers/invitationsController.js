@@ -49,7 +49,7 @@ exports.createInvitation = async (req, res) => {
 
     if (isPlatform) {
       await resend.emails.send({
-        from:    process.env.RESEND_FROM || 'Mimesa <onboarding@resend.dev>',
+        from:    process.env.RESEND_FROM_INVITE || 'Mimesa <onboarding@resend.dev>',
         to:      email,
         subject: `Te han invitado a MiMesa`,
         html: `

@@ -1,7 +1,7 @@
 const { Resend } = require('resend');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM   = process.env.RESEND_FROM || 'Reservas <noreply@resend.dev>';
+const FROM   = process.env.RESEND_FROM_SYSTEM || 'Reservas <noreply@resend.dev>';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
