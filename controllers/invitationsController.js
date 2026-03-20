@@ -22,8 +22,10 @@ exports.createInvitation = async (req, res) => {
     const { name, email, role = 'staff', businessId: bodyBusinessId } = req.body;
     if (!name || !email) return res.status(400).json({ message: 'Nombre y email son obligatorios' });
 
-    // Platform invitation (from dev): no business attached
-    const isPlatform = !bodyBusinessId;
+    // By default, invitations sent from a business context are business invitations.
+    // Platform invitation is only when there is no business context at all.
+    const resolvedBusinessId = bodyBusinessId || req.businessId || null;
+    const isPlatform = !resolvedBusinessId;
     const type = isPlatform ? 'platform' : 'business';
 
     if (!isPlatform) {
@@ -33,7 +35,7 @@ exports.createInvitation = async (req, res) => {
       }
     }
 
-    const businessId = isPlatform ? null : (bodyBusinessId || req.businessId);
+    const businessId = isPlatform ? null : resolvedBusinessId;
 
     let business = null;
     if (!isPlatform) {
@@ -202,12 +204,12 @@ exports.acceptInvitation = async (req, res) => {
     if (!invitation) return res.status(404).json({ message: 'Invitación inválida o expirada' });
 
     // Find the registered user that owns this email
-    const authUser = await AuthUser.findOne({ email: invitation.email.toLowerCase() });
+    const authUser = await AuthUser.findOne({ email: invitation.email.toLowerCase() }).lean();
     if (!authUser) {
       return res.status(404).json({ message: 'No se encontró ninguna cuenta para este email. Regístrate primero.' });
     }
 
-    const canonicalUserId = authUser.id || authUser._doc?.id;
+    const canonicalUserId = authUser.id || (authUser._id ? authUser._id.toString() : null);
     if (!canonicalUserId) {
       return res.status(500).json({ message: 'No se pudo resolver el identificador del usuario' });
     }
