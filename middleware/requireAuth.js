@@ -46,6 +46,16 @@ module.exports = async function requireAuth(req, res, next) {
         req.memberRole = member?.role ?? 'owner'; // 'owner' as safe default during migration
         return next();
       }
+
+      // Invited member: no owned business, but has a BusinessMember record
+      const membership = await BusinessMember.findOne({ userId: session.user.id });
+      if (membership) {
+        req.user       = session.user;
+        req.businessId = membership.businessId.toString();
+        req.memberRole = membership.role;
+        return next();
+      }
+
       return res.status(403).json({ message: 'Cuenta sin negocio asociado' });
     }
   } catch {
