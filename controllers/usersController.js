@@ -4,8 +4,13 @@ const BusinessMember = require('../models/BusinessMember');
 const { getAuth } = require('../lib/auth');
 
 const DEFAULT_NOTIFICATION_PREFERENCES = {
-  newReservationEmail: true,
-  cancelledReservationEmail: true,
+  newReservationEmail: false,
+  cancelledReservationEmail: false,
+};
+
+const STAFF_NOTIFICATION_PREFERENCES = {
+  newReservationEmail: false,
+  cancelledReservationEmail: false,
 };
 
 exports.getMe = async (req, res) => {
@@ -30,10 +35,12 @@ exports.getMe = async (req, res) => {
         businessId: m.businessId?._id?.toString() || '',
         businessName: m.businessId?.name || '',
         role: m.role || 'staff',
-        notificationPreferences: {
-          ...DEFAULT_NOTIFICATION_PREFERENCES,
-          ...(m.notificationPreferences || {}),
-        },
+        notificationPreferences: (m.role || 'staff') === 'staff'
+          ? STAFF_NOTIFICATION_PREFERENCES
+          : {
+              ...DEFAULT_NOTIFICATION_PREFERENCES,
+              ...(m.notificationPreferences || {}),
+            },
       })),
     });
   } catch (err) {
@@ -107,6 +114,16 @@ exports.updateMembershipNotifications = async (req, res) => {
       status: { $ne: 'invited' },
     });
     if (!membership) return res.status(404).json({ message: 'Membresia no encontrada' });
+
+    if ((membership.role || 'staff') === 'staff') {
+      membership.notificationPreferences = STAFF_NOTIFICATION_PREFERENCES;
+      await membership.save();
+
+      return res.json({
+        id: membership._id.toString(),
+        notificationPreferences: STAFF_NOTIFICATION_PREFERENCES,
+      });
+    }
 
     membership.notificationPreferences = {
       ...DEFAULT_NOTIFICATION_PREFERENCES,
