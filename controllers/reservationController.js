@@ -127,7 +127,7 @@ exports.createReservation = async (req, res) => {
 
 exports.createPublicReservation = async (req, res) => {
   try {
-    const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent } = req.body;
+    const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent, marketingConsent } = req.body;
     const phone = (guestPhone || '').trim();
     const email = (guestEmail || '').trim().toLowerCase();
 
@@ -172,7 +172,7 @@ exports.createPublicReservation = async (req, res) => {
       guestName, guestPhone: phone, guestEmail: email,
       roomId:  roomId  || null,
       tableId: tableId || null,
-      date, time, people, notes: notes || '', consent: consent || false,
+      date, time, people, notes: notes || '', consent: consent || false, marketingConsent: marketingConsent || false,
     });
     if (tableId) {
       await Table.findOneAndUpdate({ _id: tableId, businessId }, { status: 'reserved' });

@@ -14,7 +14,8 @@ const reservationSchema = new mongoose.Schema({
   people:     { type: Number, required: true, min: 1 },
   status:     { type: String, enum: ['pending', 'confirmed', 'cancelled', 'seated'], default: 'confirmed' },
   notes:      { type: String, default: '' },
-  consent:    { type: Boolean, default: false }, // Privacy consent given
+  consent:          { type: Boolean, default: false }, // Privacy consent given
+  marketingConsent: { type: Boolean, default: false }, // Optional marketing opt-in
 }, { timestamps: true });
 
 module.exports = mongoose.model('Reservation', reservationSchema);

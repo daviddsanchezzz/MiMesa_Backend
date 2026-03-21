@@ -8,7 +8,7 @@ const businessSchema = new mongoose.Schema({
   password:  { type: String, required: false, default: null },
   phone:     { type: String, default: '' },
   cif:       { type: String, default: '' },
-  brandColor: { type: String, default: '#3B82F6' },
+  brandColor:  { type: String, default: '#3B82F6' },
   maxReservationPeople: { type: Number, default: 20, min: 1 },
   maxPeoplePerSlot: { type: Number, default: null },
   reservationDuration: { type: Number, default: null },
