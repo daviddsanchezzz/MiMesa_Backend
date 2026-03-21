@@ -124,7 +124,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
   const accent = accentColor || '#4f46e5';
   const statusMessages = {
     confirmed: { title: 'Reserva confirmada', msg: 'Tu reserva ha sido <strong>confirmada</strong>. Te esperamos.' },
-    cancelled: { title: 'Reserva cancelada',  msg: 'Tu reserva ha sido <strong>cancelada</strong>. Si crees que es un error, contacta con nosotros.' },
+    cancelled: { title: 'Reserva cancelada', msg: 'Tu reserva ha sido <strong>cancelada</strong>. Si crees que es un error, contacta con nosotros.' },
   };
   const { title, msg } = statusMessages[status] || {};
   if (!title) return null;
@@ -135,12 +135,23 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 
   const contactInfo = [];
   if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Teléfono: ${businessPhone}`);
+  if (businessPhone) contactInfo.push(`Tel�fono: ${businessPhone}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
       ${contactInfo.join('<br>')}
     </p>` : '';
+
+  const cancelSection = status === 'cancelled' ? '' : `
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
+      Si deseas cancelar tu reserva, haz clic en el bot�n a continuaci�n:
+    </p>
+    <p style="margin:16px 0;text-align:center;">
+      <a href="${cancelUrl}"
+         style="display:inline-block;padding:12px 24px;background:${accent};color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+        Cancelar reserva
+      </a>
+    </p>`;
 
   const body = `
     <p style="margin:0 0 20px;font-size:16px;color:#111827;">
@@ -154,34 +165,19 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
       <tr><td>
         <table width="100%" cellpadding="0" cellspacing="0">
           ${detailRow('Restaurante', businessName)}
-          ${detailRow('Fecha',       fmtDate(date))}
-          ${detailRow('Hora',        time)}
-          ${detailRow('Personas',    `${people} ${people === 1 ? 'persona' : 'personas'}`)}
+          ${detailRow('Fecha', fmtDate(date))}
+          ${detailRow('Hora', time)}
+          ${detailRow('Personas', `${people} ${people === 1 ? 'persona' : 'personas'}`)}
         </table>
       </td></tr>
     </table>
-    <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
-      Si deseas cancelar tu reserva, haz clic en el botón a continuación:
-    </p>
-    <p style="margin:16px 0;text-align:center;">
-      <a href="${cancelUrl}"
-         style="display:inline-block;padding:12px 24px;background:${accent};color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
-        Cancelar reserva
-      </a>
-    </p>${contactSection}`;
+    ${cancelSection}${contactSection}`;
 
   return {
-    subject: `${title} — ${businessName}`,
+    subject: `${title} � ${businessName}`,
     html: baseLayout(accent, body),
   };
 }
-
-// ── PUBLIC API ────────────────────────────────────────────────────────────────
-
-/**
- * Send reservation confirmation email to the guest.
- * Silently ignores if no email or no API key configured.
- */
 async function sendReservationConfirmation(reservation, business) {
   const to = reservation.guestEmail;
   console.log('[email] sendReservationConfirmation → to:', to, '| key set:', !!process.env.RESEND_API_KEY);
