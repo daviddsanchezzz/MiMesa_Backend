@@ -86,7 +86,7 @@ exports.createInvitation = async (req, res) => {
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
             <div style="margin-bottom:24px">
-              <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Tableo</span>
+              <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Tableo</span>
             </div>
             <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
@@ -94,11 +94,14 @@ exports.createInvitation = async (req, res) => {
               Haz clic en el botón para activar tu cuenta.
             </p>
             <a href="${inviteUrl}"
-               style="display:inline-block;background:#4f46e5;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
+               style="display:inline-block;background:#7C3AED;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
               Activar mi cuenta
             </a>
             <p style="color:#aaa;font-size:12px;margin-top:32px">
               Si no esperabas esta invitación, ignora este email. El enlace caduca en 7 días.
+            </p>
+            <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
+              Powered by <a href="${process.env.LANDING_URL || 'https://tableo.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
             </p>
           </div>
         `,
@@ -111,7 +114,7 @@ exports.createInvitation = async (req, res) => {
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
             <div style="margin-bottom:24px">
-              <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Tableo</span>
+              <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Tableo</span>
             </div>
             <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 8px">
@@ -122,11 +125,14 @@ exports.createInvitation = async (req, res) => {
               Haz clic en el botón para activar tu cuenta. El enlace caduca en 7 días.
             </p>
             <a href="${inviteUrl}"
-               style="display:inline-block;background:#4f46e5;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
+               style="display:inline-block;background:#7C3AED;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
               Activar cuenta y unirme
             </a>
             <p style="color:#aaa;font-size:12px;margin-top:32px">
               Si no esperabas esta invitación, ignora este email.
+            </p>
+            <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
+              Powered by <a href="${process.env.LANDING_URL || 'https://tableo.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
             </p>
           </div>
         `,

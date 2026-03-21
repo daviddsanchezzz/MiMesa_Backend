@@ -39,9 +39,12 @@ function baseLayout(accentColor, content) {
           </tr>
           <!-- Footer -->
           <tr>
-            <td style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;">
+            <td style="background:#f9fafb;padding:16px 32px 20px;border-top:1px solid #e5e7eb;">
               <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
                 Este correo ha sido generado automÃ¡ticamente, por favor no respondas a este mensaje.
+              </p>
+              <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
+                Powered by <a href="${process.env.LANDING_URL || 'https://tableo.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
               </p>
             </td>
           </tr>
@@ -135,7 +138,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 
   const contactInfo = [];
   if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Teléfono: ${businessPhone}`);
+  if (businessPhone) contactInfo.push(`Telï¿½fono: ${businessPhone}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -144,7 +147,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 
   const cancelSection = status === 'cancelled' ? '' : `
     <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
-      Si deseas cancelar tu reserva, haz clic en el botón a continuación:
+      Si deseas cancelar tu reserva, haz clic en el botï¿½n a continuaciï¿½n:
     </p>
     <p style="margin:16px 0;text-align:center;">
       <a href="${cancelUrl}"
@@ -174,7 +177,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
     ${cancelSection}${contactSection}`;
 
   return {
-    subject: `${title} — ${businessName}`,
+    subject: `${title} ï¿½ ${businessName}`,
     html: baseLayout(accent, body),
   };
 }
