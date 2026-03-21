@@ -36,6 +36,26 @@ exports.updateTable = async (req, res) => {
   }
 };
 
+exports.bulkCreateTables = async (req, res) => {
+  try {
+    const { tables } = req.body;
+    if (!Array.isArray(tables) || tables.length === 0)
+      return res.status(400).json({ message: 'Se requiere un array de mesas' });
+    if (tables.length > 200)
+      return res.status(400).json({ message: 'Máximo 200 mesas por operación' });
+    const docs = tables.map(t => ({
+      businessId: req.businessId,
+      name:       String(t.name).trim(),
+      capacity:   Number(t.capacity) || 2,
+      roomId:     t.roomId || null,
+    }));
+    const created = await Table.insertMany(docs);
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 exports.deleteTable = async (req, res) => {
   try {
     const table = await Table.findOneAndDelete({ _id: req.params.id, businessId: req.businessId });
