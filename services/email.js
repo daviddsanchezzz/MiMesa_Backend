@@ -3,6 +3,13 @@ const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM   = process.env.RESEND_FROM_SYSTEM || 'Reservas <noreply@resend.dev>';
 
+// Builds a "Business Name <same-email>" from header for restaurant emails
+function fromBusiness(businessName) {
+  const match = FROM.match(/<(.+)>/);
+  const email = match ? match[1] : FROM;
+  return `${businessName} <${email}>`;
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(dateStr) {
@@ -201,8 +208,9 @@ async function sendReservationConfirmation(reservation, business) {
     businessPhone: business.phone,
   });
 
-  console.log('[email] sending to', to, '| subject:', subject, '| from:', FROM);
-  const result = await resend.emails.send({ from: FROM, to, subject, html });
+  const from = fromBusiness(business.name);
+  console.log('[email] sending to', to, '| subject:', subject, '| from:', from);
+  const result = await resend.emails.send({ from, to, subject, html });
   if (result.error) {
     console.error('[email] Resend error:', JSON.stringify(result.error));
   } else {
@@ -233,7 +241,7 @@ async function sendStatusUpdate(reservation, business, newStatus) {
   if (!result) return;
 
   try {
-    await resend.emails.send({ from: FROM, to, subject: result.subject, html: result.html });
+    await resend.emails.send({ from: fromBusiness(business.name), to, subject: result.subject, html: result.html });
   } catch (err) {
     console.error('[email] sendStatusUpdate failed:', err.message);
   }
@@ -274,7 +282,7 @@ async function sendStaffReservationNotification(recipients, reservation, busines
 
   try {
     await resend.emails.send({
-      from: FROM,
+      from: fromBusiness(business.name),
       to: recipients,
       subject,
       html,
