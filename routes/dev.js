@@ -2,6 +2,7 @@ const router         = require('express').Router();
 const requireSession = require('../middleware/requireSession');
 const requireDev     = require('../middleware/requireDev');
 const c              = require('../controllers/devController');
+const pc             = require('../controllers/pricingController');
 
 // All dev routes require a valid session AND dev email
 router.use(requireSession, requireDev);
@@ -12,5 +13,8 @@ router.patch('/businesses/:id/plan', c.updatePlan);
 router.delete('/businesses/:id',   c.deleteBusiness);
 router.post('/migrate-memberships', c.migrateMemberships);
 router.post('/invite-user', c.inviteUser);
+
+router.get('/pricing', pc.getDevPricing);
+router.put('/pricing', pc.upsertPricing);
 
 module.exports = router;
