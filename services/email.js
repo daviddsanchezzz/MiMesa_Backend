@@ -292,8 +292,57 @@ async function sendStaffReservationNotification(recipients, reservation, busines
   }
 }
 
+async function sendContactEmail({ name, email, subject, message }) {
+  const to = (process.env.DEV_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+  if (to.length === 0) return;
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" /></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
+        <tr><td style="background:#7C3AED;padding:24px 32px;">
+          <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">📬 Nuevo mensaje de contacto</p>
+        </td></tr>
+        <tr><td style="padding:28px 32px;">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="padding:8px 0;border-bottom:1px solid #f3f4f6;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">De</p>
+              <p style="margin:4px 0 0;font-size:15px;color:#111827;font-weight:600;">${name} &lt;${email}&gt;</p>
+            </td></tr>
+            <tr><td style="padding:8px 0;border-bottom:1px solid #f3f4f6;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Asunto</p>
+              <p style="margin:4px 0 0;font-size:15px;color:#111827;">${subject}</p>
+            </td></tr>
+            <tr><td style="padding:16px 0 0;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Mensaje</p>
+              <p style="margin:8px 0 0;font-size:15px;color:#374151;line-height:1.7;white-space:pre-line;">${message}</p>
+            </td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#f9fafb;padding:14px 32px;border-top:1px solid #e5e7eb;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">Puedes responder directamente a <a href="mailto:${email}" style="color:#7C3AED;">${email}</a></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  await resend.emails.send({
+    from:     process.env.RESEND_FROM_SYSTEM || 'noreply@tableo.app',
+    to,
+    replyTo:  email,
+    subject:  `[Contacto Tableo] ${subject} — ${name}`,
+    html,
+  });
+}
+
 module.exports = {
   sendReservationConfirmation,
   sendStatusUpdate,
   sendStaffReservationNotification,
+  sendContactEmail,
 };

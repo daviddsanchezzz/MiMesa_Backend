@@ -114,6 +114,7 @@ app.use('/api/vacations',    require('./routes/vacations'));
 app.use('/api/pricing',      require('./routes/pricing'));
 app.use('/api/marketing',    require('./routes/marketing'));
 app.use('/api/promos',       require('./routes/promos'));
+app.use('/api/contact',      require('./routes/contact'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
