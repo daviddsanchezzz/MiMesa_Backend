@@ -127,7 +127,7 @@ exports.createReservation = async (req, res) => {
 
 exports.createPublicReservation = async (req, res) => {
   try {
-    const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent, marketingConsent } = req.body;
+    const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent, marketingConsent, marketingConsentText } = req.body;
     const phone = (guestPhone || '').trim();
     const email = (guestEmail || '').trim().toLowerCase();
 
@@ -172,11 +172,27 @@ exports.createPublicReservation = async (req, res) => {
       guestName, guestPhone: phone, guestEmail: email,
       roomId:  roomId  || null,
       tableId: tableId || null,
-      date, time, people, notes: notes || '', consent: consent || false, marketingConsent: marketingConsent || false,
+      date, time, people, notes: notes || '', consent: consent || false,
+      marketingConsent:     marketingConsent || false,
+      marketingConsentAt:   marketingConsent ? new Date() : null,
+      marketingConsentText: marketingConsent ? (marketingConsentText || '') : '',
     });
     if (tableId) {
       await Table.findOneAndUpdate({ _id: tableId, businessId }, { status: 'reserved' });
     }
+
+    // Update customer marketing subscription if opted in and not already unsubscribed
+    if (marketingConsent && customer?._id) {
+      const crypto = require('crypto');
+      const update = { marketingSubscribed: true, marketingSubscribedAt: new Date() };
+      // Generate unsubscribe token only if the customer doesn't have one yet
+      const existing = await Customer.findById(customer._id).select('unsubscribeToken marketingUnsubscribed');
+      if (!existing?.unsubscribeToken) update.unsubscribeToken = crypto.randomBytes(32).toString('hex');
+      if (!existing?.marketingUnsubscribed) {
+        await Customer.updateOne({ _id: customer._id }, { $set: update });
+      }
+    }
+
     const populated = await reservation.populate(POPULATE);
 
     // Send confirmation email

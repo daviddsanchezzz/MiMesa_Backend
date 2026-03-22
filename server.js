@@ -34,6 +34,7 @@ app.use('/api/rooms/public',        publicCors);
 app.use('/api/shifts/public',       publicCors);
 app.use('/api/vacations/public',    publicCors);
 app.use('/api/reservations/public', publicCors);
+app.use('/api/marketing/public',    publicCors);
 app.use('/api/pricing/public',      publicCors);
 
 // Authenticated + Better Auth endpoints: specific origin with credentials
@@ -110,6 +111,7 @@ app.use('/api/reservations', require('./routes/reservations'));
 app.use('/api/shifts',       require('./routes/shifts'));
 app.use('/api/vacations',    require('./routes/vacations'));
 app.use('/api/pricing',      require('./routes/pricing'));
+app.use('/api/marketing',    require('./routes/marketing'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
