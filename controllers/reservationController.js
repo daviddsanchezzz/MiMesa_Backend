@@ -127,7 +127,7 @@ exports.createReservation = async (req, res) => {
 
 exports.createPublicReservation = async (req, res) => {
   try {
-    const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent, marketingConsent, marketingConsentText } = req.body;
+    const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent, marketingConsent, marketingConsentText, promoCode: rawPromoCode } = req.body;
     const phone = (guestPhone || '').trim();
     const email = (guestEmail || '').trim().toLowerCase();
 
@@ -165,6 +165,26 @@ exports.createPublicReservation = async (req, res) => {
       }
     }
 
+    // Validate promo code if provided
+    let resolvedPromoCode = '';
+    let resolvedPromoCodeId = null;
+    if (rawPromoCode?.trim()) {
+      const PromoCode = require('../models/PromoCode');
+      const promo = await PromoCode.findOne({
+        businessId,
+        code: rawPromoCode.trim().toUpperCase(),
+        active: true,
+      });
+      const now = new Date();
+      const expired  = promo?.expiresAt && now > new Date(promo.expiresAt);
+      const maxed    = promo?.maxUses !== null && promo?.usedCount >= promo?.maxUses;
+      if (!promo || expired || maxed) {
+        return res.status(400).json({ message: 'El código promocional no es válido o ha expirado' });
+      }
+      resolvedPromoCode   = promo.code;
+      resolvedPromoCodeId = promo._id;
+    }
+
     const customer = await findOrCreateCustomer(businessId, guestName, phone, email);
     const reservation = await Reservation.create({
       businessId,
@@ -176,7 +196,15 @@ exports.createPublicReservation = async (req, res) => {
       marketingConsent:     marketingConsent || false,
       marketingConsentAt:   marketingConsent ? new Date() : null,
       marketingConsentText: marketingConsent ? (marketingConsentText || '') : '',
+      promoCode:   resolvedPromoCode,
+      promoCodeId: resolvedPromoCodeId,
     });
+
+    // Increment promo usage
+    if (resolvedPromoCodeId) {
+      const PromoCode = require('../models/PromoCode');
+      await PromoCode.updateOne({ _id: resolvedPromoCodeId }, { $inc: { usedCount: 1 } });
+    }
     if (tableId) {
       await Table.findOneAndUpdate({ _id: tableId, businessId }, { status: 'reserved' });
     }

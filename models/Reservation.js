@@ -14,6 +14,8 @@ const reservationSchema = new mongoose.Schema({
   people:     { type: Number, required: true, min: 1 },
   status:     { type: String, enum: ['pending', 'confirmed', 'cancelled', 'seated'], default: 'confirmed' },
   notes:      { type: String, default: '' },
+  promoCode:   { type: String,  default: '' },
+  promoCodeId: { type: mongoose.Schema.Types.ObjectId, ref: 'PromoCode', default: null },
   consent:               { type: Boolean, default: false },
   marketingConsent:      { type: Boolean, default: false },
   marketingConsentAt:    { type: Date,   default: null },
