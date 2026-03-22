@@ -293,8 +293,15 @@ async function sendStaffReservationNotification(recipients, reservation, busines
 }
 
 async function sendContactEmail({ name, email, subject, message }) {
+  if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') {
+    console.warn('[contact] RESEND_API_KEY not configured — email skipped');
+    return;
+  }
   const to = (process.env.DEV_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
-  if (to.length === 0) return;
+  if (to.length === 0) {
+    console.warn('[contact] DEV_EMAILS not configured — email skipped');
+    return;
+  }
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -331,13 +338,18 @@ async function sendContactEmail({ name, email, subject, message }) {
 </body>
 </html>`;
 
-  await resend.emails.send({
-    from:     process.env.RESEND_FROM_SYSTEM || 'noreply@tableo.app',
+  const result = await resend.emails.send({
+    from:     process.env.RESEND_FROM_SYSTEM || 'onboarding@resend.dev',
     to,
     replyTo:  email,
     subject:  `[Contacto Tableo] ${subject} — ${name}`,
     html,
   });
+  if (result.error) {
+    console.error('[contact] Resend error:', JSON.stringify(result.error));
+    throw new Error(result.error.message || 'Resend send failed');
+  }
+  console.log('[contact] email sent OK, id:', result.data?.id);
 }
 
 module.exports = {
