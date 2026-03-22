@@ -37,6 +37,7 @@ app.use('/api/reservations/public', publicCors);
 app.use('/api/marketing/public',    publicCors);
 app.use('/api/promos/public',       publicCors);
 app.use('/api/pricing/public',      publicCors);
+app.use('/api/contact',             publicCors);
 
 // Authenticated + Better Auth endpoints: specific origin with credentials
 // FRONTEND_URLS supports comma-separated list for multiple origins (e.g. Netlify + custom domain)
