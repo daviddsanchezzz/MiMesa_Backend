@@ -38,6 +38,7 @@ app.use('/api/marketing/public',    publicCors);
 app.use('/api/promos/public',       publicCors);
 app.use('/api/pricing/public',      publicCors);
 app.use('/api/contact',             publicCors);
+app.use('/api/contact',             require('./routes/contact'));
 
 // Authenticated + Better Auth endpoints: specific origin with credentials
 // FRONTEND_URLS supports comma-separated list for multiple origins (e.g. Netlify + custom domain)
@@ -115,7 +116,6 @@ app.use('/api/vacations',    require('./routes/vacations'));
 app.use('/api/pricing',      require('./routes/pricing'));
 app.use('/api/marketing',    require('./routes/marketing'));
 app.use('/api/promos',       require('./routes/promos'));
-app.use('/api/contact',      require('./routes/contact'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
