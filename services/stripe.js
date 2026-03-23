@@ -45,13 +45,16 @@ async function getOrCreateCustomer(business) {
 
 async function createCheckoutSession({ customerId, priceId, businessId, successUrl, cancelUrl }) {
   return getStripe().checkout.sessions.create({
-    customer:  customerId,
-    mode:      'subscription',
-    line_items: [{ price: priceId, quantity: 1 }],
+    customer:    customerId,
+    mode:        'subscription',
+    line_items:  [{ price: priceId, quantity: 1 }],
     success_url: successUrl,
     cancel_url:  cancelUrl,
+    // Collect card upfront but don't charge for 14 days
+    payment_method_collection: 'always',
     metadata: { businessId: businessId.toString() },
     subscription_data: {
+      trial_period_days: 14,
       metadata: { businessId: businessId.toString() },
     },
   });
@@ -79,6 +82,20 @@ function constructWebhookEvent(rawBody, signature) {
   );
 }
 
+// ---------- Subscription management ----------
+
+async function cancelSubscriptionAtPeriodEnd(subscriptionId) {
+  return getStripe().subscriptions.update(subscriptionId, { cancel_at_period_end: true });
+}
+
+async function reactivateSubscription(subscriptionId) {
+  return getStripe().subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+}
+
+async function getSubscription(subscriptionId) {
+  return getStripe().subscriptions.retrieve(subscriptionId);
+}
+
 // ---------- Helpers ----------
 
 /**
@@ -97,6 +114,9 @@ module.exports = {
   getOrCreateCustomer,
   createCheckoutSession,
   createPortalSession,
+  cancelSubscriptionAtPeriodEnd,
+  reactivateSubscription,
+  getSubscription,
   constructWebhookEvent,
   planFromPriceId,
 };

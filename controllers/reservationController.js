@@ -8,6 +8,7 @@ const {
   sendStatusUpdate,
   sendStaffReservationNotification,
 } = require('../services/email');
+const { canUseFeature, checkReservationLimit } = require('../lib/planCapabilities');
 
 const POPULATE = [
   { path: 'customerId', select: 'name phone email visits' },
@@ -98,6 +99,20 @@ exports.getReservations = async (req, res) => {
 exports.createReservation = async (req, res) => {
   try {
     const { guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent } = req.body;
+
+    // Check monthly reservation limit for free plan
+    const businessForPlan = await Business.findById(req.businessId).select('plan subscriptionStatus name brandColor email phone');
+    const limitCheck = await checkReservationLimit(req.businessId, businessForPlan);
+    if (!limitCheck.allowed) {
+      return res.status(403).json({
+        message:         `Has alcanzado el límite de ${limitCheck.limit} reservas al mes del plan gratuito`,
+        limitReached:    true,
+        upgradeRequired: true,
+        used:  limitCheck.used,
+        limit: limitCheck.limit,
+      });
+    }
+
     const customer = await findOrCreateCustomer(req.businessId, guestName, guestPhone, guestEmail);
     const reservation = await Reservation.create({
       businessId: req.businessId,
@@ -112,12 +127,13 @@ exports.createReservation = async (req, res) => {
     }
     const populated = await reservation.populate(POPULATE);
 
-    // Send confirmation email (fire-and-forget, non-blocking)
-    if (guestEmail) {
-      const business = await Business.findById(req.businessId).select('name brandColor email phone');
-      sendReservationConfirmation(populated, business);
+    // Send emails only if plan allows it
+    if (canUseFeature(businessForPlan, 'autoEmails') && guestEmail) {
+      sendReservationConfirmation(populated, businessForPlan);
     }
-    notifyStaff(req.businessId, populated, 'created');
+    if (canUseFeature(businessForPlan, 'staffNotifications')) {
+      notifyStaff(req.businessId, populated, 'created');
+    }
 
     res.status(201).json(populated);
   } catch (err) {
@@ -138,7 +154,18 @@ exports.createPublicReservation = async (req, res) => {
       return res.status(400).json({ message: 'El email es obligatorio' });
     }
 
-    const business = await Business.findById(businessId).select('name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration email phone');
+    const business = await Business.findById(businessId).select('name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration email phone plan subscriptionStatus');
+    if (!business) return res.status(404).json({ message: 'Restaurante no encontrado' });
+
+    // Check monthly reservation limit for free plan
+    const limitCheck = await checkReservationLimit(businessId, business);
+    if (!limitCheck.allowed) {
+      return res.status(403).json({
+        message: 'Este restaurante ha alcanzado su límite de reservas este mes. Por favor, contacta directamente con el local.',
+        limitReached: true,
+      });
+    }
+
     if (business?.maxReservationPeople && people > business.maxReservationPeople) {
       return res.status(400).json({ message: `No se permiten más de ${business.maxReservationPeople} personas por reserva` });
     }
@@ -223,11 +250,13 @@ exports.createPublicReservation = async (req, res) => {
 
     const populated = await reservation.populate(POPULATE);
 
-    // Send confirmation email
-    if (email && business) {
+    // Send emails only if plan allows it
+    if (canUseFeature(business, 'autoEmails') && email) {
       sendReservationConfirmation(populated, business);
     }
-    notifyStaff(businessId, populated, 'created');
+    if (canUseFeature(business, 'staffNotifications')) {
+      notifyStaff(businessId, populated, 'created');
+    }
 
     res.status(201).json(populated);
   } catch (err) {

@@ -24,6 +24,13 @@ const businessData = (b) => ({
   maxReservationPeople: b.maxReservationPeople,
   maxPeoplePerSlot: b.maxPeoplePerSlot ?? null,
   reservationDuration: b.reservationDuration ?? null,
+  // Billing / plan
+  plan:               b.plan               ?? 'free',
+  subscriptionStatus: b.subscriptionStatus ?? null,
+  trialEndsAt:        b.trialEndsAt        ?? null,
+  currentPeriodEnd:   b.currentPeriodEnd   ?? null,
+  cancelAtPeriodEnd:  b.cancelAtPeriodEnd  ?? false,
+  stripeCustomerId:   b.stripeCustomerId   ?? null,
 });
 
 exports.register = async (req, res) => {

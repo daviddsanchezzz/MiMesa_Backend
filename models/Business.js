@@ -22,6 +22,9 @@ const businessSchema = new mongoose.Schema({
   plan:                 { type: String, default: 'free' },
   // Mirrors Stripe subscription status: active | trialing | past_due | canceled | incomplete | null
   subscriptionStatus:   { type: String, default: null },
+  trialEndsAt:          { type: Date,    default: null },
+  currentPeriodEnd:     { type: Date,    default: null },
+  cancelAtPeriodEnd:    { type: Boolean, default: false },
 }, { timestamps: true });
 
 businessSchema.pre('save', async function (next) {
