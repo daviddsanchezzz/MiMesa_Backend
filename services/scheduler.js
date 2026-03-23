@@ -14,7 +14,6 @@ function parseDateTime(date, time) {
 async function runReservationReminders() {
   const businesses = await Business.find({
     subscriptionStatus: { $in: ['active', 'trialing'] },
-    plan: { $in: ['pro'] },
   }).select('name brandColor email phone plan subscriptionStatus reminderHoursBefore');
 
   for (const business of businesses) {
