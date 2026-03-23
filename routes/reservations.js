@@ -1,6 +1,20 @@
 const router = require('express').Router();
 const auth = require('../middleware/requireAuth');
-const { getReservations, createReservation, updateReservation, deleteReservation, createPublicReservation, cancelPublicReservation, getPublicReservationDetails } = require('../controllers/reservationController');
+const requireRole = require('../middleware/requireRole');
+const {
+  getReservations,
+  getPendingReservations,
+  createReservation,
+  updateReservation,
+  deleteReservation,
+  createPublicReservation,
+  cancelPublicReservation,
+  getPublicReservationDetails,
+  acceptPendingReservation,
+  rejectPendingReservation,
+  proposeAlternativeTime,
+  markNoShow,
+} = require('../controllers/reservationController');
 
 // Public routes (before auth middleware)
 router.post('/public', createPublicReservation);
@@ -9,7 +23,12 @@ router.get('/public/cancel', cancelPublicReservation);
 
 router.use(auth);
 router.get('/', getReservations);
+router.get('/pending', requireRole('manager'), getPendingReservations);
 router.post('/', createReservation);
+router.put('/:id/accept', requireRole('manager'), acceptPendingReservation);
+router.put('/:id/reject', requireRole('manager'), rejectPendingReservation);
+router.put('/:id/propose-alternative', requireRole('manager'), proposeAlternativeTime);
+router.put('/:id/no-show', requireRole('manager'), markNoShow);
 router.put('/:id', updateReservation);
 router.delete('/:id', deleteReservation);
 

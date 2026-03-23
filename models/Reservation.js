@@ -12,7 +12,15 @@ const reservationSchema = new mongoose.Schema({
   date:       { type: String, required: true }, // 'YYYY-MM-DD'
   time:       { type: String, required: true }, // 'HH:MM'
   people:     { type: Number, required: true, min: 1 },
-  status:     { type: String, enum: ['pending', 'confirmed', 'cancelled', 'seated'], default: 'confirmed' },
+  status:     { type: String, enum: ['pending', 'confirmed', 'cancelled', 'seated', 'no_show'], default: 'confirmed' },
+  pendingReason: { type: String, enum: ['slot_capacity', 'large_group', 'manual', 'none'], default: 'none' },
+  proposedAlternative: {
+    date: { type: String, default: null },   // 'YYYY-MM-DD'
+    time: { type: String, default: null },   // 'HH:MM'
+    message: { type: String, default: '' },
+    proposedAt: { type: Date, default: null },
+  },
+  reminderSentAt: { type: Date, default: null },
   notes:      { type: String, default: '' },
   promoCode:   { type: String,  default: '' },
   promoCodeId: { type: mongoose.Schema.Types.ObjectId, ref: 'PromoCode', default: null },

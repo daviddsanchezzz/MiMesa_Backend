@@ -1,22 +1,46 @@
 const Reservation = require('../models/Reservation');
-const Customer    = require('../models/Customer');
-const Table       = require('../models/Table');
-const Business    = require('../models/Business');
+const Customer = require('../models/Customer');
+const Table = require('../models/Table');
+const Shift = require('../models/Shift');
+const Vacation = require('../models/Vacation');
+const Business = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
 const {
   sendReservationConfirmation,
   sendStatusUpdate,
   sendStaffReservationNotification,
+  sendReservationPendingEmail,
+  sendAlternativeProposalEmail,
 } = require('../services/email');
 const { canUseFeature, checkReservationLimit } = require('../lib/planCapabilities');
 
 const POPULATE = [
-  { path: 'customerId', select: 'name phone email visits' },
+  { path: 'customerId', select: 'name phone email visits noShowCount' },
   { path: 'tableId', select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
   { path: 'roomId', select: 'name' },
 ];
 
-/** Find existing customer by phone or email, or create a new one. */
+function toMinutes(t) {
+  const [h, m] = String(t || '00:00').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function generateSlots(startTime, endTime) {
+  const [sh, sm] = String(startTime || '00:00').split(':').map(Number);
+  let [eh, em] = String(endTime || '00:00').split(':').map(Number);
+  if (eh === 0 && em === 0) {
+    eh = 24;
+    em = 0;
+  }
+  const slots = [];
+  for (let t = sh * 60 + sm; t < eh * 60 + em; t += 30) {
+    const h = Math.floor(t / 60) % 24;
+    const m = t % 60;
+    slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  }
+  return slots;
+}
+
 async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmail) {
   const phone = (guestPhone || '').trim();
   const email = (guestEmail || '').trim().toLowerCase();
@@ -24,15 +48,9 @@ async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmai
 
   if (!phone && !email) return null;
 
-  // Email has priority as unique identity for customers.
   let customer = null;
-  if (email) {
-    customer = await Customer.findOne({ businessId, email });
-  }
-
-  if (!customer && phone) {
-    customer = await Customer.findOne({ businessId, phone });
-  }
+  if (email) customer = await Customer.findOne({ businessId, email });
+  if (!customer && phone) customer = await Customer.findOne({ businessId, phone });
 
   if (!customer) {
     return Customer.create({
@@ -43,7 +61,6 @@ async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmai
     });
   }
 
-  // Keep customer data fresh without overriding with empty values.
   const update = {};
   if (name && customer.name !== name) update.name = name;
   if (phone && customer.phone !== phone) update.phone = phone;
@@ -85,6 +102,119 @@ async function notifyStaff(businessId, reservation, eventType) {
   }
 }
 
+async function getSlotLoad({ businessId, date, time, durationMinutes }) {
+  const target = toMinutes(time);
+  const reservations = await Reservation.find({
+    businessId,
+    date,
+    status: { $in: ['confirmed', 'seated'] },
+  }).select('time people');
+
+  return reservations.reduce((sum, r) => {
+    const start = toMinutes(r.time);
+    if (durationMinutes === 0) {
+      if (start === target) return sum + (r.people || 0);
+      return sum;
+    }
+    if (start <= target && start + durationMinutes > target) {
+      return sum + (r.people || 0);
+    }
+    return sum;
+  }, 0);
+}
+
+async function evaluateReservationStatus({ business, businessId, date, time, people }) {
+  const hasPendingControl = canUseFeature(business, 'pendingApprovalControl');
+  const duration = business.reservationDuration || 0;
+
+  const overLargeGroupThreshold =
+    business.requireApprovalAbove !== null &&
+    business.requireApprovalAbove !== undefined &&
+    Number(people) > Number(business.requireApprovalAbove);
+
+  let overSlotCapacity = false;
+  if (business.maxPeoplePerSlot) {
+    const used = await getSlotLoad({ businessId, date, time, durationMinutes: duration });
+    overSlotCapacity = used + Number(people) > Number(business.maxPeoplePerSlot);
+  }
+
+  if (hasPendingControl && overLargeGroupThreshold) {
+    return { status: 'pending', pendingReason: 'large_group' };
+  }
+  if (hasPendingControl && overSlotCapacity) {
+    return { status: 'pending', pendingReason: 'slot_capacity' };
+  }
+  if (!hasPendingControl && overSlotCapacity) {
+    return { status: 'rejected_capacity', pendingReason: 'none' };
+  }
+  return { status: 'confirmed', pendingReason: 'none' };
+}
+
+async function getApplicableSlotsForDate(businessId, date) {
+  const dayOfWeek = new Date(`${date}T12:00:00Z`).getDay();
+  const allShifts = await Shift.find({ businessId, days: dayOfWeek }).sort({ startTime: 1 });
+  const general = allShifts.filter((s) => !s.startDate && !s.endDate);
+  const specific = allShifts.filter((s) => s.startDate && s.endDate && date >= s.startDate && date <= s.endDate);
+  const byName = {};
+  general.forEach((s) => { byName[s.name] = s; });
+  specific.forEach((s) => { byName[s.name] = s; });
+  const applicable = Object.values(byName);
+  const slots = [];
+  applicable.forEach((shift) => {
+    const times = shift.subShifts.length
+      ? shift.subShifts.map((ss) => ss.time)
+      : generateSlots(shift.startTime, shift.endTime);
+    times.forEach((t) => slots.push(t));
+  });
+  return [...new Set(slots)].sort();
+}
+
+async function suggestAlternativeSlot({ business, reservation }) {
+  const maxDaysAhead = 14;
+  const today = new Date(`${reservation.date}T00:00:00`);
+  const businessId = reservation.businessId;
+  for (let i = 0; i < maxDaysAhead; i += 1) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const date = d.toISOString().slice(0, 10);
+
+    const closed = await Vacation.findOne({
+      businessId,
+      startDate: { $lte: date },
+      endDate: { $gte: date },
+    }).select('_id');
+    if (closed) continue;
+
+    const slots = await getApplicableSlotsForDate(businessId, date);
+    if (slots.length === 0) continue;
+
+    for (const time of slots) {
+      if (date === reservation.date && time === reservation.time) continue;
+      if (!business.maxPeoplePerSlot) return { date, time };
+
+      const used = await getSlotLoad({
+        businessId,
+        date,
+        time,
+        durationMinutes: business.reservationDuration || 0,
+      });
+      if (used + reservation.people <= business.maxPeoplePerSlot) {
+        return { date, time };
+      }
+    }
+  }
+  return null;
+}
+
+async function updateTableStatusForReservation(reservation, businessId) {
+  const tableId = reservation.tableId?._id || reservation.tableId;
+  if (!tableId) return;
+  let tableStatus = 'reserved';
+  if (reservation.status === 'seated') tableStatus = 'occupied';
+  if (['cancelled', 'no_show', 'pending'].includes(reservation.status)) tableStatus = 'free';
+  await Table.findOneAndUpdate({ _id: tableId, businessId }, { status: tableStatus });
+}
+
 exports.getReservations = async (req, res) => {
   try {
     const filter = { businessId: req.businessId };
@@ -96,46 +226,81 @@ exports.getReservations = async (req, res) => {
   }
 };
 
+exports.getPendingReservations = async (req, res) => {
+  try {
+    const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
+    if (!canUseFeature(business, 'pendingApprovalControl')) {
+      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'pendingApprovalControl', upgradeRequired: true });
+    }
+    const reservations = await Reservation.find({
+      businessId: req.businessId,
+      status: 'pending',
+    }).populate(POPULATE).sort({ date: 1, time: 1, createdAt: 1 });
+    res.json(reservations);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 exports.createReservation = async (req, res) => {
   try {
     const { guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent } = req.body;
-
-    // Check monthly reservation limit for free plan
-    const businessForPlan = await Business.findById(req.businessId).select('plan subscriptionStatus name brandColor email phone');
-    const limitCheck = await checkReservationLimit(req.businessId, businessForPlan);
+    const business = await Business.findById(req.businessId).select(
+      'name brandColor email phone plan subscriptionStatus maxPeoplePerSlot reservationDuration requireApprovalAbove'
+    );
+    const limitCheck = await checkReservationLimit(req.businessId, business);
     if (!limitCheck.allowed) {
       return res.status(403).json({
-        message:         `Has alcanzado el límite de ${limitCheck.limit} reservas al mes del plan gratuito`,
-        limitReached:    true,
+        message: `Has alcanzado el limite de ${limitCheck.limit} reservas al mes del plan gratuito`,
+        limitReached: true,
         upgradeRequired: true,
-        used:  limitCheck.used,
+        used: limitCheck.used,
         limit: limitCheck.limit,
       });
     }
+
+    const decision = await evaluateReservationStatus({
+      business,
+      businessId: req.businessId,
+      date,
+      time,
+      people,
+    });
 
     const customer = await findOrCreateCustomer(req.businessId, guestName, guestPhone, guestEmail);
     const reservation = await Reservation.create({
       businessId: req.businessId,
       customerId: customer?._id || null,
-      guestName, guestPhone: guestPhone || '', guestEmail: guestEmail || '',
-      roomId:  roomId  || null,
+      guestName,
+      guestPhone: guestPhone || '',
+      guestEmail: guestEmail || '',
+      roomId: roomId || null,
       tableId: tableId || null,
-      date, time, people, notes: notes || '', consent: consent || false,
+      date,
+      time,
+      people,
+      notes: notes || '',
+      consent: consent || false,
+      status: decision.status === 'rejected_capacity' ? 'confirmed' : decision.status,
+      pendingReason: decision.pendingReason,
     });
-    if (tableId) {
-      await Table.findOneAndUpdate({ _id: tableId, businessId: req.businessId }, { status: 'reserved' });
-    }
+
     const populated = await reservation.populate(POPULATE);
+    await updateTableStatusForReservation(populated, req.businessId);
 
-    // Send emails only if plan allows it
-    if (canUseFeature(businessForPlan, 'autoEmails') && guestEmail) {
-      sendReservationConfirmation(populated, businessForPlan);
+    if (canUseFeature(business, 'autoEmails') && populated.guestEmail) {
+      if (populated.status === 'pending') await sendReservationPendingEmail(populated, business);
+      else await sendReservationConfirmation(populated, business);
     }
-    if (canUseFeature(businessForPlan, 'staffNotifications')) {
-      notifyStaff(req.businessId, populated, 'created');
+    if (canUseFeature(business, 'staffNotifications')) {
+      await notifyStaff(req.businessId, populated, 'created');
     }
 
-    res.status(201).json(populated);
+    const payload = populated.toObject ? populated.toObject() : populated;
+    if (payload.status === 'pending') {
+      payload.statusMessage = 'Reserva pendiente de aprobacion. Puedes aceptarla, rechazarla o proponer otro horario.';
+    }
+    return res.status(201).json(payload);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
@@ -143,56 +308,38 @@ exports.createReservation = async (req, res) => {
 
 exports.createPublicReservation = async (req, res) => {
   try {
-    const { businessId, guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent, marketingConsent, marketingConsentText, promoCode: rawPromoCode } = req.body;
+    const {
+      businessId, guestName, guestPhone, guestEmail, roomId, tableId,
+      date, time, people, notes, consent, marketingConsent, marketingConsentText, promoCode: rawPromoCode,
+    } = req.body;
+
     const phone = (guestPhone || '').trim();
     const email = (guestEmail || '').trim().toLowerCase();
+    if (!phone) return res.status(400).json({ message: 'El telefono es obligatorio' });
+    if (!email) return res.status(400).json({ message: 'El email es obligatorio' });
 
-    if (!phone) {
-      return res.status(400).json({ message: 'El teléfono es obligatorio' });
-    }
-    if (!email) {
-      return res.status(400).json({ message: 'El email es obligatorio' });
-    }
-
-    const business = await Business.findById(businessId).select('name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration email phone plan subscriptionStatus');
+    const business = await Business.findById(businessId).select(
+      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus'
+    );
     if (!business) return res.status(404).json({ message: 'Restaurante no encontrado' });
 
-    // Check monthly reservation limit for free plan
     const limitCheck = await checkReservationLimit(businessId, business);
     if (!limitCheck.allowed) {
       return res.status(403).json({
-        message: 'Este restaurante ha alcanzado su límite de reservas este mes. Por favor, contacta directamente con el local.',
+        message: 'Este restaurante ha alcanzado su limite de reservas este mes. Por favor, contacta directamente con el local.',
         limitReached: true,
       });
     }
 
-    if (business?.maxReservationPeople && people > business.maxReservationPeople) {
-      return res.status(400).json({ message: `No se permiten más de ${business.maxReservationPeople} personas por reserva` });
+    if (business.maxReservationPeople && Number(people) > business.maxReservationPeople) {
+      return res.status(400).json({ message: `No se permiten mas de ${business.maxReservationPeople} personas por reserva` });
     }
 
-    if (business?.maxPeoplePerSlot) {
-      const duration = business.reservationDuration || 0;
-      const toMinutes = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-      const slotMin = toMinutes(time);
-
-      const existing = await Reservation.find({
-        businessId, date, status: { $nin: ['cancelled'] },
-      }).select('time people');
-
-      const used = existing.reduce((sum, r) => {
-        const rMin = toMinutes(r.time);
-        if (rMin <= slotMin && (duration === 0 ? rMin === slotMin : rMin + duration > slotMin)) {
-          return sum + r.people;
-        }
-        return sum;
-      }, 0);
-
-      if (used + people > business.maxPeoplePerSlot) {
-        return res.status(400).json({ message: `No hay suficiente capacidad en ese horario` });
-      }
+    const decision = await evaluateReservationStatus({ business, businessId, date, time, people });
+    if (decision.status === 'rejected_capacity') {
+      return res.status(400).json({ message: 'No hay suficiente capacidad en ese horario' });
     }
 
-    // Validate promo code if provided
     let resolvedPromoCode = '';
     let resolvedPromoCodeId = null;
     if (rawPromoCode?.trim()) {
@@ -203,12 +350,12 @@ exports.createPublicReservation = async (req, res) => {
         active: true,
       });
       const now = new Date();
-      const expired  = promo?.expiresAt && now > new Date(promo.expiresAt);
-      const maxed    = promo?.maxUses !== null && promo?.usedCount >= promo?.maxUses;
+      const expired = promo?.expiresAt && now > new Date(promo.expiresAt);
+      const maxed = promo?.maxUses !== null && promo?.usedCount >= promo?.maxUses;
       if (!promo || expired || maxed) {
-        return res.status(400).json({ message: 'El código promocional no es válido o ha expirado' });
+        return res.status(400).json({ message: 'El codigo promocional no es valido o ha expirado' });
       }
-      resolvedPromoCode   = promo.code;
+      resolvedPromoCode = promo.code;
       resolvedPromoCodeId = promo._id;
     }
 
@@ -216,31 +363,33 @@ exports.createPublicReservation = async (req, res) => {
     const reservation = await Reservation.create({
       businessId,
       customerId: customer?._id || null,
-      guestName, guestPhone: phone, guestEmail: email,
-      roomId:  roomId  || null,
+      guestName,
+      guestPhone: phone,
+      guestEmail: email,
+      roomId: roomId || null,
       tableId: tableId || null,
-      date, time, people, notes: notes || '', consent: consent || false,
-      marketingConsent:     marketingConsent || false,
-      marketingConsentAt:   marketingConsent ? new Date() : null,
+      date,
+      time,
+      people,
+      notes: notes || '',
+      consent: consent || false,
+      marketingConsent: marketingConsent || false,
+      marketingConsentAt: marketingConsent ? new Date() : null,
       marketingConsentText: marketingConsent ? (marketingConsentText || '') : '',
-      promoCode:   resolvedPromoCode,
+      promoCode: resolvedPromoCode,
       promoCodeId: resolvedPromoCodeId,
+      status: decision.status,
+      pendingReason: decision.pendingReason,
     });
 
-    // Increment promo usage
     if (resolvedPromoCodeId) {
       const PromoCode = require('../models/PromoCode');
       await PromoCode.updateOne({ _id: resolvedPromoCodeId }, { $inc: { usedCount: 1 } });
     }
-    if (tableId) {
-      await Table.findOneAndUpdate({ _id: tableId, businessId }, { status: 'reserved' });
-    }
 
-    // Update customer marketing subscription if opted in and not already unsubscribed
     if (marketingConsent && customer?._id) {
       const crypto = require('crypto');
       const update = { marketingSubscribed: true, marketingSubscribedAt: new Date() };
-      // Generate unsubscribe token only if the customer doesn't have one yet
       const existing = await Customer.findById(customer._id).select('unsubscribeToken marketingUnsubscribed');
       if (!existing?.unsubscribeToken) update.unsubscribeToken = crypto.randomBytes(32).toString('hex');
       if (!existing?.marketingUnsubscribed) {
@@ -249,79 +398,171 @@ exports.createPublicReservation = async (req, res) => {
     }
 
     const populated = await reservation.populate(POPULATE);
+    await updateTableStatusForReservation(populated, businessId);
 
-    // Send emails only if plan allows it
     if (canUseFeature(business, 'autoEmails') && email) {
-      sendReservationConfirmation(populated, business);
+      if (populated.status === 'pending') await sendReservationPendingEmail(populated, business);
+      else await sendReservationConfirmation(populated, business);
     }
     if (canUseFeature(business, 'staffNotifications')) {
-      notifyStaff(businessId, populated, 'created');
+      await notifyStaff(businessId, populated, 'created');
     }
 
-    res.status(201).json(populated);
+    const payload = populated.toObject ? populated.toObject() : populated;
+    if (payload.status === 'pending') {
+      payload.statusMessage = 'Tu reserva esta pendiente de aprobacion. Te avisaremos por email cuando el restaurante la revise.';
+    }
+    res.status(201).json(payload);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 };
 
-/**
- * Public reservation details endpoint for cancel page.
- * Returns reservation details without modifying it.
- */
 exports.getPublicReservationDetails = async (req, res) => {
   try {
     const { reservationId, email } = req.query;
-    if (!reservationId || !email) {
-      return res.status(400).json({ message: 'Parámetros faltantes' });
-    }
-
-    const reservation = await Reservation.findOne({ _id: reservationId, guestEmail: email.toLowerCase() })
-      .populate(POPULATE);
-    if (!reservation) {
-      return res.status(404).json({ message: 'Reserva no encontrada' });
-    }
-
+    if (!reservationId || !email) return res.status(400).json({ message: 'Parametros faltantes' });
+    const reservation = await Reservation.findOne({ _id: reservationId, guestEmail: email.toLowerCase() }).populate(POPULATE);
+    if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
     res.json(reservation);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/**
- * Public cancellation endpoint invoked via email link.  
- * Expects reservationId and guest email (for simple verification).
- * If found and not already cancelled, updates status and frees table.
- */
 exports.cancelPublicReservation = async (req, res) => {
   try {
     const { reservationId, email } = req.query;
-    if (!reservationId || !email) {
-      return res.status(400).json({ message: 'Parámetros faltantes' });
-    }
+    if (!reservationId || !email) return res.status(400).json({ message: 'Parametros faltantes' });
 
     const reservation = await Reservation.findOne({ _id: reservationId, guestEmail: email.toLowerCase() });
-    if (!reservation) {
-      return res.status(404).json({ message: 'Reserva no encontrada' });
-    }
-    if (reservation.status === 'cancelled') {
-      return res.json({ message: 'Esta reserva ya ha sido cancelada anteriormente.' });
-    }
+    if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
+    if (reservation.status === 'cancelled') return res.json({ message: 'Esta reserva ya ha sido cancelada anteriormente.' });
 
     reservation.status = 'cancelled';
     await reservation.save();
+    await updateTableStatusForReservation(reservation, reservation.businessId);
 
-    if (reservation.tableId) {
-      await Table.findOneAndUpdate({ _id: reservation.tableId }, { status: 'free' });
-    }
-
-    // notify guest / business about cancellation via email
     const business = await Business.findById(reservation.businessId).select('name brandColor email phone');
-    if (reservation.guestEmail && business) {
-      sendStatusUpdate(reservation, business, 'cancelled');
-    }
-    notifyStaff(reservation.businessId, reservation, 'cancelled');
+    if (reservation.guestEmail && business) await sendStatusUpdate(reservation, business, 'cancelled');
+    await notifyStaff(reservation.businessId, reservation, 'cancelled');
 
     res.json({ message: 'Reserva cancelada correctamente' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.acceptPendingReservation = async (req, res) => {
+  try {
+    const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus');
+    if (!canUseFeature(business, 'pendingApprovalControl')) {
+      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'pendingApprovalControl', upgradeRequired: true });
+    }
+
+    const reservation = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
+    if (reservation.status !== 'pending') return res.status(400).json({ message: 'Solo se pueden aceptar reservas pendientes' });
+
+    reservation.status = 'confirmed';
+    reservation.pendingReason = 'none';
+    await reservation.save();
+    const populated = await reservation.populate(POPULATE);
+    await updateTableStatusForReservation(populated, req.businessId);
+
+    if (reservation.guestEmail && business) await sendStatusUpdate(populated, business, 'confirmed');
+    res.json(populated);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.rejectPendingReservation = async (req, res) => {
+  try {
+    const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus');
+    if (!canUseFeature(business, 'pendingApprovalControl')) {
+      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'pendingApprovalControl', upgradeRequired: true });
+    }
+
+    const reservation = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
+    if (reservation.status !== 'pending') return res.status(400).json({ message: 'Solo se pueden rechazar reservas pendientes' });
+
+    reservation.status = 'cancelled';
+    reservation.pendingReason = 'none';
+    await reservation.save();
+    const populated = await reservation.populate(POPULATE);
+    await updateTableStatusForReservation(populated, req.businessId);
+
+    if (reservation.guestEmail && business) await sendStatusUpdate(populated, business, 'cancelled');
+    await notifyStaff(req.businessId, populated, 'cancelled');
+    res.json(populated);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.proposeAlternativeTime = async (req, res) => {
+  try {
+    const { date, time, message = '' } = req.body || {};
+    const reservation = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
+    if (reservation.status !== 'pending') return res.status(400).json({ message: 'Solo se puede proponer alternativa a reservas pendientes' });
+
+    const business = await Business.findById(req.businessId).select(
+      'name brandColor email phone maxPeoplePerSlot reservationDuration requireApprovalAbove plan subscriptionStatus'
+    );
+    if (!canUseFeature(business, 'pendingApprovalControl')) {
+      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'pendingApprovalControl', upgradeRequired: true });
+    }
+
+    let alternative = null;
+    if (date && time) alternative = { date, time };
+    if (!alternative) {
+      alternative = await suggestAlternativeSlot({ business, reservation });
+      if (!alternative) {
+        return res.status(400).json({ message: 'No se encontro una alternativa disponible automaticamente' });
+      }
+    }
+
+    reservation.proposedAlternative = {
+      date: alternative.date,
+      time: alternative.time,
+      message: String(message || '').trim(),
+      proposedAt: new Date(),
+    };
+    await reservation.save();
+    const populated = await reservation.populate(POPULATE);
+
+    if (reservation.guestEmail) await sendAlternativeProposalEmail(populated, business);
+    res.json(populated);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.markNoShow = async (req, res) => {
+  try {
+    const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
+    if (!canUseFeature(business, 'noShowTracking')) {
+      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'noShowTracking', upgradeRequired: true });
+    }
+
+    const reservation = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
+    if (!['confirmed', 'seated'].includes(reservation.status)) {
+      return res.status(400).json({ message: 'Solo reservas confirmadas o sentadas pueden marcarse como no-show' });
+    }
+
+    reservation.status = 'no_show';
+    await reservation.save();
+    await updateTableStatusForReservation(reservation, req.businessId);
+
+    if (reservation.customerId) {
+      await Customer.findByIdAndUpdate(reservation.customerId, { $inc: { noShowCount: 1 } });
+    }
+
+    res.json(await reservation.populate(POPULATE));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -332,40 +573,40 @@ exports.updateReservation = async (req, res) => {
     const old = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!old) return res.status(404).json({ message: 'Reservation not found' });
 
+    if (req.body?.status === 'no_show') {
+      const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
+      if (!canUseFeature(business, 'noShowTracking')) {
+        return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'noShowTracking', upgradeRequired: true });
+      }
+    }
+
     const reservation = await Reservation.findOneAndUpdate(
       { _id: req.params.id, businessId: req.businessId },
-      req.body, { new: true }
+      req.body,
+      { new: true, runValidators: true }
     ).populate(POPULATE);
 
     const oldTableId = old.tableId?.toString();
     const newTableId = reservation.tableId?._id?.toString();
-
-    // Free old table if it changed
     if (oldTableId && oldTableId !== newTableId) {
       await Table.findOneAndUpdate({ _id: oldTableId, businessId: req.businessId }, { status: 'free' });
     }
+    await updateTableStatusForReservation(reservation, req.businessId);
 
-    // Set new table status
-    if (newTableId) {
-      let tableStatus = 'reserved';
-      if (reservation.status === 'seated')    tableStatus = 'occupied';
-      if (reservation.status === 'cancelled') tableStatus = 'free';
-      await Table.findOneAndUpdate({ _id: newTableId, businessId: req.businessId }, { status: tableStatus });
-    }
-
-    // Increment visits when first seated
     if (reservation.status === 'seated' && old.status !== 'seated' && reservation.customerId) {
       await Customer.findByIdAndUpdate(reservation.customerId._id, { $inc: { visits: 1 } });
     }
+    if (reservation.status === 'no_show' && old.status !== 'no_show' && reservation.customerId) {
+      await Customer.findByIdAndUpdate(reservation.customerId._id, { $inc: { noShowCount: 1 } });
+    }
 
-    // Send status-change email (confirmed or cancelled)
     const statusChanged = reservation.status !== old.status;
     if (statusChanged && reservation.guestEmail && ['confirmed', 'cancelled'].includes(reservation.status)) {
       const business = await Business.findById(req.businessId).select('name brandColor email phone');
-      sendStatusUpdate(reservation, business, reservation.status);
+      await sendStatusUpdate(reservation, business, reservation.status);
     }
     if (statusChanged && reservation.status === 'cancelled') {
-      notifyStaff(req.businessId, reservation, 'cancelled');
+      await notifyStaff(req.businessId, reservation, 'cancelled');
     }
 
     res.json(reservation);

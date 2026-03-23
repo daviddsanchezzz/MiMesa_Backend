@@ -205,7 +205,7 @@ exports.getPublicSlots = async (req, res) => {
       const reservations = await Reservation.find({
         businessId,
         date,
-        status: { $nin: ['cancelled'] },
+        status: { $in: ['confirmed', 'seated'] },
       }).select('time people');
 
       const duration = biz.reservationDuration || 0; // minutes

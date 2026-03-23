@@ -145,7 +145,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 
   const contactInfo = [];
   if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Tel�fono: ${businessPhone}`);
+  if (businessPhone) contactInfo.push(`Telefono: ${businessPhone}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -154,7 +154,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 
   const cancelSection = status === 'cancelled' ? '' : `
     <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
-      Si deseas cancelar tu reserva, haz clic en el bot�n a continuaci�n:
+      Si deseas cancelar tu reserva, haz clic en el boton a continuacion:
     </p>
     <p style="margin:16px 0;text-align:center;">
       <a href="${cancelUrl}"
@@ -184,7 +184,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
     ${cancelSection}${contactSection}`;
 
   return {
-    subject: `${title} � ${businessName}`,
+    subject: `${title} - ${businessName}`,
     html: baseLayout(accent, body),
   };
 }
@@ -352,9 +352,189 @@ async function sendContactEmail({ name, email, subject, message }) {
   console.log('[contact] email sent OK, id:', result.data?.id);
 }
 
+function buildPendingEmail({ businessName, accentColor, guestName, date, time, people, businessEmail, businessPhone }) {
+  const accent = accentColor || '#4f46e5';
+  const contactInfo = [];
+  if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
+  if (businessPhone) contactInfo.push(`Telefono: ${businessPhone}`);
+  const contactSection = contactInfo.length > 0 ? `
+    <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
+      <strong>Contacto del restaurante:</strong><br>
+      ${contactInfo.join('<br>')}
+    </p>` : '';
+
+  const body = `
+    <p style="margin:0 0 20px;font-size:16px;color:#111827;">
+      Hola, <strong>${guestName}</strong>
+    </p>
+    <p style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;">
+      Hemos recibido tu reserva y ha quedado en estado <strong>pendiente de aprobacion</strong>.
+      Te confirmaremos en breve.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0"
+      style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
+      <tr><td>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          ${detailRow('Restaurante', businessName)}
+          ${detailRow('Fecha', fmtDate(date))}
+          ${detailRow('Hora', time)}
+          ${detailRow('Personas', `${people} ${people === 1 ? 'persona' : 'personas'}`)}
+          ${detailRow('Estado', 'Pendiente de aprobacion')}
+        </table>
+      </td></tr>
+    </table>${contactSection}`;
+
+  return {
+    subject: `Reserva pendiente - ${businessName}`,
+    html: baseLayout(accent, body),
+  };
+}
+
+function buildAlternativeProposalEmail({ businessName, accentColor, guestName, date, time, people, alternativeDate, alternativeTime, message, businessEmail, businessPhone }) {
+  const accent = accentColor || '#4f46e5';
+  const contactInfo = [];
+  if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
+  if (businessPhone) contactInfo.push(`Telefono: ${businessPhone}`);
+  const contactSection = contactInfo.length > 0 ? `
+    <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
+      <strong>Contacto del restaurante:</strong><br>
+      ${contactInfo.join('<br>')}
+    </p>` : '';
+
+  const body = `
+    <p style="margin:0 0 20px;font-size:16px;color:#111827;">
+      Hola, <strong>${guestName}</strong>
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;">
+      Te proponemos un horario alternativo para tu reserva.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0"
+      style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin-bottom:16px;">
+      <tr><td>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          ${detailRow('Reserva original', `${fmtDate(date)} · ${time} · ${people} ${people === 1 ? 'persona' : 'personas'}`)}
+          ${detailRow('Propuesta', `${fmtDate(alternativeDate)} · ${alternativeTime}`)}
+        </table>
+      </td></tr>
+    </table>
+    ${message ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;"><strong>Mensaje del restaurante:</strong><br>${message}</p>` : ''}
+    ${contactSection}`;
+
+  return {
+    subject: `Propuesta de nuevo horario - ${businessName}`,
+    html: baseLayout(accent, body),
+  };
+}
+
+function buildReminderEmail({ businessName, accentColor, guestName, date, time, people, reservationId, guestEmail, businessEmail, businessPhone }) {
+  const accent = accentColor || '#4f46e5';
+  const cancelUrl =
+    (process.env.FRONTEND_URL || process.env.BASE_URL || 'https://example.com') +
+    `/public/cancel?reservationId=${reservationId}&email=${encodeURIComponent(guestEmail)}`;
+
+  const contactInfo = [];
+  if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
+  if (businessPhone) contactInfo.push(`Telefono: ${businessPhone}`);
+  const contactSection = contactInfo.length > 0 ? `
+    <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
+      <strong>Contacto del restaurante:</strong><br>
+      ${contactInfo.join('<br>')}
+    </p>` : '';
+
+  const body = `
+    <p style="margin:0 0 20px;font-size:16px;color:#111827;">
+      Hola, <strong>${guestName}</strong>
+    </p>
+    <p style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;">
+      Te recordamos tu reserva de hoy/pronto en <strong>${businessName}</strong>.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0"
+      style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
+      <tr><td>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          ${detailRow('Fecha', fmtDate(date))}
+          ${detailRow('Hora', time)}
+          ${detailRow('Personas', `${people} ${people === 1 ? 'persona' : 'personas'}`)}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
+      Si no puedes asistir, cancela tu reserva desde el siguiente enlace:
+    </p>
+    <p style="margin:16px 0;text-align:center;">
+      <a href="${cancelUrl}"
+         style="display:inline-block;padding:12px 24px;background:${accent};color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+        Cancelar reserva
+      </a>
+    </p>${contactSection}`;
+
+  return {
+    subject: `Recordatorio de reserva - ${businessName}`,
+    html: baseLayout(accent, body),
+  };
+}
+
+async function sendReservationPendingEmail(reservation, business) {
+  const to = reservation.guestEmail;
+  if (!to || !process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
+  const { subject, html } = buildPendingEmail({
+    businessName: business.name,
+    accentColor: business.brandColor,
+    guestName: reservation.guestName,
+    date: reservation.date,
+    time: reservation.time,
+    people: reservation.people,
+    businessEmail: business.email,
+    businessPhone: business.phone,
+  });
+  await resend.emails.send({ from: fromBusiness(business.name), to, subject, html });
+}
+
+async function sendAlternativeProposalEmail(reservation, business) {
+  const to = reservation.guestEmail;
+  if (!to || !process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
+  const alt = reservation.proposedAlternative || {};
+  if (!alt.date || !alt.time) return;
+  const { subject, html } = buildAlternativeProposalEmail({
+    businessName: business.name,
+    accentColor: business.brandColor,
+    guestName: reservation.guestName,
+    date: reservation.date,
+    time: reservation.time,
+    people: reservation.people,
+    alternativeDate: alt.date,
+    alternativeTime: alt.time,
+    message: alt.message || '',
+    businessEmail: business.email,
+    businessPhone: business.phone,
+  });
+  await resend.emails.send({ from: fromBusiness(business.name), to, subject, html });
+}
+
+async function sendReservationReminderEmail(reservation, business) {
+  const to = reservation.guestEmail;
+  if (!to || !process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
+  const { subject, html } = buildReminderEmail({
+    businessName: business.name,
+    accentColor: business.brandColor,
+    guestName: reservation.guestName,
+    date: reservation.date,
+    time: reservation.time,
+    people: reservation.people,
+    reservationId: reservation._id,
+    guestEmail: reservation.guestEmail,
+    businessEmail: business.email,
+    businessPhone: business.phone,
+  });
+  await resend.emails.send({ from: fromBusiness(business.name), to, subject, html });
+}
+
 module.exports = {
   sendReservationConfirmation,
   sendStatusUpdate,
   sendStaffReservationNotification,
   sendContactEmail,
+  sendReservationPendingEmail,
+  sendAlternativeProposalEmail,
+  sendReservationReminderEmail,
 };

@@ -24,6 +24,8 @@ const businessData = (b) => ({
   maxReservationPeople: b.maxReservationPeople,
   maxPeoplePerSlot: b.maxPeoplePerSlot ?? null,
   reservationDuration: b.reservationDuration ?? null,
+  requireApprovalAbove: b.requireApprovalAbove ?? null,
+  reminderHoursBefore: b.reminderHoursBefore ?? 24,
   // Billing / plan
   plan:               b.plan               ?? 'free',
   subscriptionStatus: b.subscriptionStatus ?? null,
@@ -175,7 +177,7 @@ exports.getPublicBusiness = async (req, res) => {
 
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    const { brandColor, maxReservationPeople, maxPeoplePerSlot, name, phone, email, cif } = req.body;
+    const { brandColor, maxReservationPeople, maxPeoplePerSlot, name, phone, email, cif, requireApprovalAbove, reminderHoursBefore } = req.body;
     const updateData = {};
     if (name !== undefined) updateData.name = String(name).trim();
     if (phone !== undefined) updateData.phone = String(phone).trim();
@@ -184,6 +186,8 @@ exports.updateBusinessSettings = async (req, res) => {
     if (maxReservationPeople !== undefined) updateData.maxReservationPeople = maxReservationPeople;
     if (maxPeoplePerSlot !== undefined) updateData.maxPeoplePerSlot = maxPeoplePerSlot;
     if (req.body.reservationDuration !== undefined) updateData.reservationDuration = req.body.reservationDuration;
+    if (requireApprovalAbove !== undefined) updateData.requireApprovalAbove = requireApprovalAbove;
+    if (reminderHoursBefore !== undefined) updateData.reminderHoursBefore = reminderHoursBefore;
     if (email !== undefined) {
       const normalizedEmail = String(email).trim().toLowerCase();
       const exists = await Business.findOne({

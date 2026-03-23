@@ -19,6 +19,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^7.1.0",
     "mongoose": "^8.3.4",
+    "node-cron": "^4.2.1",
     "resend": "^6.9.3",
     "stripe": "^20.4.1"
   },

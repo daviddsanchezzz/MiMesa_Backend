@@ -7,6 +7,7 @@ const customerSchema = new mongoose.Schema({
   email:      { type: String, default: '', lowercase: true },
   notes:      { type: String, default: '' },
   visits:     { type: Number, default: 0 },
+  noShowCount:{ type: Number, default: 0 },
   // Marketing consent
   marketingSubscribed:     { type: Boolean, default: false },
   marketingSubscribedAt:   { type: Date,    default: null },
