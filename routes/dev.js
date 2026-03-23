@@ -7,6 +7,7 @@ const c              = require('../controllers/devController');
 router.use(requireSession, requireDev);
 
 router.get('/businesses',            c.listBusinesses);
+router.get('/users',                 c.listUsers);
 router.post('/businesses',           c.createBusiness);
 router.patch('/businesses/:id/plan', c.updatePlan);
 router.delete('/businesses/:id',     c.deleteBusiness);

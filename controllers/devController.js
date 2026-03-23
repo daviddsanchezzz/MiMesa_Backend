@@ -1,6 +1,7 @@
 const Business       = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
 const Reservation    = require('../models/Reservation');
+const AuthUser       = require('../models/AuthUser');
 
 // ── GET /api/dev/businesses ───────────────────────────────────────────────
 exports.listBusinesses = async (req, res) => {
@@ -27,6 +28,60 @@ exports.listBusinesses = async (req, res) => {
         totalReservations,
       };
     }));
+
+    res.json(enriched);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// —— GET /api/dev/users ————————————————————————————————————————————————————————————————
+exports.listUsers = async (req, res) => {
+  try {
+    const [users, memberships, businesses] = await Promise.all([
+      AuthUser.find().sort({ createdAt: -1 }).lean(),
+      BusinessMember.find().lean(),
+      Business.find().select('_id name').lean(),
+    ]);
+
+    const businessNameById = new Map(
+      businesses.map((b) => [String(b._id), b.name]),
+    );
+
+    const membershipsByUserId = memberships.reduce((acc, m) => {
+      if (!acc[m.userId]) acc[m.userId] = [];
+      acc[m.userId].push(m);
+      return acc;
+    }, {});
+
+    const enriched = users.map((u) => {
+      const userKeys = [];
+      if (u.id) userKeys.push(String(u.id));
+      if (u._id) userKeys.push(String(u._id));
+
+      const userMemberships = userKeys.flatMap((k) => membershipsByUserId[k] || []);
+      const uniqueMemberships = userMemberships.filter(
+        (m, index, arr) => arr.findIndex((x) => String(x._id) === String(m._id)) === index,
+      );
+
+      const businessItems = uniqueMemberships.map((m) => ({
+        businessId: m.businessId,
+        businessName: businessNameById.get(String(m.businessId)) || 'Negocio',
+        role: m.role || 'staff',
+        status: m.status || 'active',
+      }));
+
+      return {
+        id: u.id || String(u._id),
+        name: u.name || '',
+        email: u.email || '',
+        emailVerified: Boolean(u.emailVerified),
+        role: u.role || 'user',
+        createdAt: u.createdAt,
+        businessCount: businessItems.length,
+        businesses: businessItems,
+      };
+    });
 
     res.json(enriched);
   } catch (err) {
@@ -161,7 +216,6 @@ exports.inviteUser = async (req, res) => {
 // One-time migration: ensures every Business owner has a Membership record.
 exports.migrateMemberships = async (req, res) => {
   try {
-    const AuthUser   = require('../models/AuthUser');
     const businesses = await Business.find({ ownerId: { $ne: null } }).lean();
 
     let created = 0, skipped = 0;
