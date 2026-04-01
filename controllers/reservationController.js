@@ -292,6 +292,20 @@ exports.createReservation = async (req, res) => {
     const business = await Business.findById(req.businessId).select(
       'name brandColor email phone plan subscriptionStatus maxPeoplePerSlot reservationDuration requireApprovalAbove'
     );
+    // Dedup: reject if an identical reservation was created in the last 2 minutes
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+    const duplicate = await Reservation.findOne({
+      businessId: req.businessId,
+      date,
+      time,
+      people,
+      guestName: { $regex: new RegExp(`^${guestName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      createdAt: { $gte: twoMinutesAgo },
+    });
+    if (duplicate) {
+      return res.status(409).json({ message: 'Reserva duplicada. Ya existe una reserva idéntica creada hace menos de 2 minutos.' });
+    }
+
     const limitCheck = await checkReservationLimit(req.businessId, business);
     if (!limitCheck.allowed) {
       return res.status(403).json({
@@ -374,6 +388,20 @@ exports.createPublicReservation = async (req, res) => {
         message: 'Este restaurante ha alcanzado su limite de reservas este mes. Por favor, contacta directamente con el local.',
         limitReached: true,
       });
+    }
+
+    // Dedup: reject if an identical reservation was created in the last 2 minutes
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+    const duplicate = await Reservation.findOne({
+      businessId,
+      date,
+      time,
+      people,
+      guestName: { $regex: new RegExp(`^${(guestName || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      createdAt: { $gte: twoMinutesAgo },
+    });
+    if (duplicate) {
+      return res.status(409).json({ message: 'Tu reserva ya fue registrada. Por favor, no envíes el formulario más de una vez.' });
     }
 
     if (business.maxReservationPeople && Number(people) > business.maxReservationPeople) {
