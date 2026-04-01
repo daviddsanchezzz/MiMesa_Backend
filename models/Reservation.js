@@ -5,6 +5,7 @@ const reservationSchema = new mongoose.Schema({
   customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },
   roomId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Room',     default: null },
   tableId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Table',    default: null },
+  tableIds:   [{ type: mongoose.Schema.Types.ObjectId, ref: 'Table' }],
   // Guest data (always stored, used for display when no customer)
   guestName:  { type: String, required: true },
   guestPhone: { type: String, default: '' },

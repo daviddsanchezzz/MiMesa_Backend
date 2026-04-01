@@ -16,7 +16,8 @@ const { canUseFeature, checkReservationLimit } = require('../lib/planCapabilitie
 
 const POPULATE = [
   { path: 'customerId', select: 'name phone email visits noShowCount' },
-  { path: 'tableId', select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
+  { path: 'tableId',  select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
+  { path: 'tableIds', select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
   { path: 'roomId', select: 'name' },
 ];
 
@@ -207,12 +208,23 @@ async function suggestAlternativeSlot({ business, reservation }) {
 }
 
 async function updateTableStatusForReservation(reservation, businessId) {
-  const tableId = reservation.tableId?._id || reservation.tableId;
-  if (!tableId) return;
   let tableStatus = 'reserved';
   if (reservation.status === 'seated') tableStatus = 'occupied';
   if (['cancelled', 'no_show', 'pending'].includes(reservation.status)) tableStatus = 'free';
-  await Table.findOneAndUpdate({ _id: tableId, businessId }, { status: tableStatus });
+
+  // Collect all assigned table IDs (tableIds array takes precedence over legacy tableId)
+  const ids = new Set();
+  if (Array.isArray(reservation.tableIds) && reservation.tableIds.length > 0) {
+    for (const t of reservation.tableIds) {
+      const id = t?._id?.toString() || t?.toString();
+      if (id) ids.add(id);
+    }
+  } else {
+    const id = reservation.tableId?._id?.toString() || reservation.tableId?.toString();
+    if (id) ids.add(id);
+  }
+  if (ids.size === 0) return;
+  await Table.updateMany({ _id: { $in: [...ids] }, businessId }, { status: tableStatus });
 }
 
 exports.getReservations = async (req, res) => {
@@ -245,7 +257,9 @@ exports.getPendingReservations = async (req, res) => {
 
 exports.createReservation = async (req, res) => {
   try {
-    const { guestName, guestPhone, guestEmail, roomId, tableId, date, time, people, notes, consent } = req.body;
+    const { guestName, guestPhone, guestEmail, roomId, tableId, tableIds: rawTableIds, date, time, people, notes, consent } = req.body;
+    const tableIds = Array.isArray(rawTableIds) && rawTableIds.length > 0 ? rawTableIds : (tableId ? [tableId] : []);
+    const primaryTableId = tableIds[0] || tableId || null;
     const business = await Business.findById(req.businessId).select(
       'name brandColor email phone plan subscriptionStatus maxPeoplePerSlot reservationDuration requireApprovalAbove'
     );
@@ -276,7 +290,8 @@ exports.createReservation = async (req, res) => {
       guestPhone: guestPhone || '',
       guestEmail: guestEmail || '',
       roomId: roomId || null,
-      tableId: tableId || null,
+      tableId: primaryTableId,
+      tableIds,
       date,
       time,
       people,
@@ -581,16 +596,30 @@ exports.updateReservation = async (req, res) => {
       }
     }
 
+    // If tableIds is provided, sync tableId to the first element
+    const body = { ...req.body };
+    if (Array.isArray(body.tableIds)) {
+      body.tableId = body.tableIds[0] || null;
+    }
+
     const reservation = await Reservation.findOneAndUpdate(
       { _id: req.params.id, businessId: req.businessId },
-      req.body,
+      body,
       { new: true, runValidators: true }
     ).populate(POPULATE);
 
-    const oldTableId = old.tableId?.toString();
-    const newTableId = reservation.tableId?._id?.toString();
-    if (oldTableId && oldTableId !== newTableId) {
-      await Table.findOneAndUpdate({ _id: oldTableId, businessId: req.businessId }, { status: 'free' });
+    // Collect old and new table IDs to free tables that were removed
+    const oldIds = new Set([
+      ...(old.tableIds?.map(id => id.toString()) || []),
+      ...(old.tableId ? [old.tableId.toString()] : []),
+    ]);
+    const newIds = new Set([
+      ...(reservation.tableIds?.map(t => (t?._id || t).toString()) || []),
+      ...(reservation.tableId ? [(reservation.tableId?._id || reservation.tableId).toString()] : []),
+    ]);
+    const removedIds = [...oldIds].filter(id => !newIds.has(id));
+    if (removedIds.length > 0) {
+      await Table.updateMany({ _id: { $in: removedIds }, businessId: req.businessId }, { status: 'free' });
     }
     await updateTableStatusForReservation(reservation, req.businessId);
 
@@ -620,8 +649,12 @@ exports.deleteReservation = async (req, res) => {
   try {
     const reservation = await Reservation.findOneAndDelete({ _id: req.params.id, businessId: req.businessId });
     if (!reservation) return res.status(404).json({ message: 'Reservation not found' });
-    if (reservation.tableId) {
-      await Table.findOneAndUpdate({ _id: reservation.tableId, businessId: req.businessId }, { status: 'free' });
+    const idsToFree = new Set([
+      ...(reservation.tableIds?.map(id => id.toString()) || []),
+      ...(reservation.tableId ? [reservation.tableId.toString()] : []),
+    ]);
+    if (idsToFree.size > 0) {
+      await Table.updateMany({ _id: { $in: [...idsToFree] }, businessId: req.businessId }, { status: 'free' });
     }
     res.json({ message: 'Reservation deleted' });
   } catch (err) {
