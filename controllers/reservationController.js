@@ -219,7 +219,8 @@ exports.getReservations = async (req, res) => {
   try {
     const filter = { businessId: req.businessId };
     if (req.query.date) filter.date = req.query.date;
-    const reservations = await Reservation.find(filter).populate(POPULATE).sort('time');
+    else if (req.query.from && req.query.to) filter.date = { $gte: req.query.from, $lte: req.query.to };
+    const reservations = await Reservation.find(filter).populate(POPULATE).sort({ date: 1, time: 1 });
     res.json(reservations);
   } catch (err) {
     res.status(500).json({ message: err.message });
