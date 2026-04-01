@@ -232,6 +232,35 @@ exports.getReservations = async (req, res) => {
     const filter = { businessId: req.businessId };
     if (req.query.date) filter.date = req.query.date;
     else if (req.query.from && req.query.to) filter.date = { $gte: req.query.from, $lte: req.query.to };
+
+    // Auto-seat: transition confirmed reservations whose time has passed
+    const nowDate = new Date().toISOString().slice(0, 10);
+    const nowTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const toSeat = await Reservation.find({
+      businessId: req.businessId,
+      status: 'confirmed',
+      $or: [
+        { date: { $lt: nowDate } },
+        { date: nowDate, time: { $lte: nowTime } },
+      ],
+    });
+    if (toSeat.length > 0) {
+      await Reservation.updateMany(
+        { _id: { $in: toSeat.map(r => r._id) } },
+        { status: 'seated' }
+      );
+      // Update table statuses
+      for (const r of toSeat) {
+        const ids = new Set([
+          ...(r.tableIds?.map(id => id.toString()) || []),
+          ...(r.tableId ? [r.tableId.toString()] : []),
+        ]);
+        if (ids.size > 0) {
+          await Table.updateMany({ _id: { $in: [...ids] }, businessId: req.businessId }, { status: 'occupied' });
+        }
+      }
+    }
+
     const reservations = await Reservation.find(filter).populate(POPULATE).sort({ date: 1, time: 1 });
     res.json(reservations);
   } catch (err) {
