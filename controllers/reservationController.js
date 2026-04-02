@@ -5,6 +5,7 @@ const Shift = require('../models/Shift');
 const Vacation = require('../models/Vacation');
 const Business = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
+const stripeService = require('../services/stripe');
 const {
   sendReservationConfirmation,
   sendStatusUpdate,
@@ -367,6 +368,10 @@ exports.createPublicReservation = async (req, res) => {
     const {
       businessId, guestName, guestPhone, guestEmail, roomId, tableId,
       date, time, people, notes, consent, marketingConsent, marketingConsentText, promoCode: rawPromoCode,
+      // Datos de pago (opcionales — solo si el restaurante tiene pagos activos)
+      paymentIntentId,    // modo depósito: ID del PaymentIntent ya confirmado
+      setupIntentId,      // modo garantía: ID del SetupIntent ya confirmado
+      paymentMethodId,    // modo garantía: ID del PaymentMethod guardado
     } = req.body;
 
     const phone = (guestPhone || '').trim();
@@ -375,7 +380,7 @@ exports.createPublicReservation = async (req, res) => {
     if (!email) return res.status(400).json({ message: 'El email es obligatorio' });
 
     const business = await Business.findById(businessId).select(
-      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus'
+      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus stripeConnectId reservationPayment'
     );
     if (!business) return res.status(404).json({ message: 'Restaurante no encontrado' });
 
@@ -430,6 +435,54 @@ exports.createPublicReservation = async (req, res) => {
     }
 
     const customer = await findOrCreateCustomer(businessId, guestName, phone, email);
+
+    // ── Construir objeto de pago ───────────────────────────────────────────
+    const rp = business.reservationPayment || {};
+    const paymentMode = (business.stripeConnectId && rp.mode && rp.mode !== 'none') ? rp.mode : 'none';
+    let paymentData = { mode: 'none', status: 'none' };
+
+    if (paymentMode === 'deposit' && paymentIntentId) {
+      const numPeople = parseInt(people, 10) || 1;
+      const amount = rp.depositPerPerson ? rp.depositAmount * numPeople : rp.depositAmount;
+      paymentData = {
+        mode:                  'deposit',
+        status:                'captured',
+        amount,
+        currency:              rp.currency ?? 'eur',
+        stripePaymentIntentId: paymentIntentId,
+        capturedAt:            new Date(),
+      };
+    } else if (paymentMode === 'card_guarantee' && paymentMethodId) {
+      // Crear un customer de Stripe en la cuenta Connect para el huésped y adjuntar el PM
+      let stripeGuestCustomerId = null;
+      try {
+        const guestCustomer = await stripeService.createGuestCustomer({
+          stripeConnectId: business.stripeConnectId,
+          name:  guestName,
+          email: email || undefined,
+          metadata: { businessId: businessId.toString() },
+        });
+        stripeGuestCustomerId = guestCustomer.id;
+        await stripeService.attachPaymentMethod({
+          stripeConnectId:  business.stripeConnectId,
+          paymentMethodId,
+          customerId:       stripeGuestCustomerId,
+        });
+      } catch (err) {
+        console.error('[createPublicReservation] error adjuntando PM:', err.message);
+      }
+
+      paymentData = {
+        mode:                  'card_guarantee',
+        status:                'pending',
+        amount:                rp.noShowFeeAmount ?? 0,
+        currency:              rp.currency ?? 'eur',
+        stripeSetupIntentId:   setupIntentId || null,
+        stripePaymentMethodId: paymentMethodId,
+        stripeCustomerId:      stripeGuestCustomerId,
+      };
+    }
+
     const reservation = await Reservation.create({
       businessId,
       customerId: customer?._id || null,
@@ -450,6 +503,7 @@ exports.createPublicReservation = async (req, res) => {
       promoCodeId: resolvedPromoCodeId,
       status: decision.status,
       pendingReason: decision.pendingReason,
+      payment: paymentData,
     });
 
     if (resolvedPromoCodeId) {
@@ -509,15 +563,50 @@ exports.cancelPublicReservation = async (req, res) => {
     if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
     if (reservation.status === 'cancelled') return res.json({ message: 'Esta reserva ya ha sido cancelada anteriormente.' });
 
+    const business = await Business.findById(reservation.businessId)
+      .select('name brandColor email phone stripeConnectId reservationPayment');
+
+    // ── Reembolso automático si el modo es depósito y está dentro de la ventana ──
+    const rp = business?.reservationPayment || {};
+    const freeCancelHours = rp.freeCancellationHours ?? 24;
+    const payment = reservation.payment;
+
+    if (payment?.mode === 'deposit' && payment?.status === 'captured' && payment?.stripePaymentIntentId && business?.stripeConnectId) {
+      // Comprobar si la cancelación está dentro de la ventana gratuita
+      const reservationDateTime = new Date(`${reservation.date}T${reservation.time}:00`);
+      const hoursUntilReservation = (reservationDateTime - new Date()) / (1000 * 60 * 60);
+
+      if (hoursUntilReservation >= freeCancelHours) {
+        // Dentro de ventana → reembolso automático
+        try {
+          await stripeService.refundPaymentIntent({
+            stripeConnectId: business.stripeConnectId,
+            paymentIntentId: payment.stripePaymentIntentId,
+          });
+          reservation.payment.status = 'refunded';
+          reservation.payment.refundedAt = new Date();
+        } catch (err) {
+          console.error('[cancelPublicReservation] refund error:', err.message);
+          // No bloqueamos la cancelación si el reembolso falla
+        }
+      }
+      // Fuera de ventana → el restaurante se queda el depósito (no reembolsamos)
+    }
+
     reservation.status = 'cancelled';
     await reservation.save();
     await updateTableStatusForReservation(reservation, reservation.businessId);
 
-    const business = await Business.findById(reservation.businessId).select('name brandColor email phone');
     if (reservation.guestEmail && business) await sendStatusUpdate(reservation, business, 'cancelled');
     await notifyStaff(reservation.businessId, reservation, 'cancelled');
 
-    res.json({ message: 'Reserva cancelada correctamente' });
+    const refunded = reservation.payment?.status === 'refunded';
+    res.json({
+      message: refunded
+        ? 'Reserva cancelada correctamente. El depósito será reembolsado en 5-10 días hábiles.'
+        : 'Reserva cancelada correctamente.',
+      refunded,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

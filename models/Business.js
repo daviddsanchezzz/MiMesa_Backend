@@ -27,6 +27,20 @@ const businessSchema = new mongoose.Schema({
   trialEndsAt:          { type: Date,    default: null },
   currentPeriodEnd:     { type: Date,    default: null },
   cancelAtPeriodEnd:    { type: Boolean, default: false },
+
+  // ── Stripe Connect (pagos de clientes al restaurante) ────────────────────
+  stripeConnectId:      { type: String, default: null }, // acct_xxx
+  stripeConnectEnabled: { type: Boolean, default: false },
+
+  // ── Config de pagos en reservas ──────────────────────────────────────────
+  reservationPayment: {
+    mode:                   { type: String, enum: ['none', 'deposit', 'card_guarantee'], default: 'none' },
+    depositAmount:          { type: Number, default: 0 },   // céntimos, ej: 500 = 5€
+    depositPerPerson:       { type: Boolean, default: false }, // true = por persona, false = fijo
+    noShowFeeAmount:        { type: Number, default: 0 },   // céntimos
+    freeCancellationHours:  { type: Number, default: 24 },  // horas antes de la reserva
+    currency:               { type: String, default: 'eur' },
+  },
 }, { timestamps: true });
 
 businessSchema.pre('save', async function (next) {

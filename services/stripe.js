@@ -96,6 +96,130 @@ async function getSubscription(subscriptionId) {
   return getStripe().subscriptions.retrieve(subscriptionId);
 }
 
+// ---------- Stripe Connect (pagos de clientes al restaurante) ----------
+
+/**
+ * Genera la URL de OAuth para que el restaurante conecte su cuenta Stripe.
+ */
+function getConnectOAuthUrl({ businessId, redirectUri }) {
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id:     process.env.STRIPE_CONNECT_CLIENT_ID,
+    scope:         'read_write',
+    redirect_uri:  redirectUri,
+    state:         businessId.toString(),
+  });
+  return `https://connect.stripe.com/oauth/authorize?${params.toString()}`;
+}
+
+/**
+ * Intercambia el code OAuth por el stripeConnectId (acct_xxx) de la cuenta conectada.
+ */
+async function exchangeConnectCode(code) {
+  const response = await getStripe().oauth.token({
+    grant_type: 'authorization_code',
+    code,
+  });
+  return response.stripe_user_id; // acct_xxx
+}
+
+/**
+ * Desconecta la cuenta Stripe Connect del restaurante.
+ */
+async function deauthorizeConnectAccount(stripeConnectId) {
+  return getStripe().oauth.deauthorize({
+    client_id:      process.env.STRIPE_CONNECT_CLIENT_ID,
+    stripe_user_id: stripeConnectId,
+  });
+}
+
+// ---------- Payment Intents (depósito al reservar) ----------
+
+/**
+ * Crea un PaymentIntent en la cuenta conectada del restaurante.
+ * El dinero va directo a ellos; nosotros podemos añadir application_fee_amount si queremos.
+ */
+async function createReservationPaymentIntent({ stripeConnectId, amount, currency = 'eur', metadata = {} }) {
+  return getStripe().paymentIntents.create(
+    {
+      amount,
+      currency,
+      capture_method:       'automatic',
+      automatic_payment_methods: { enabled: true },
+      metadata,
+    },
+    { stripeAccount: stripeConnectId },
+  );
+}
+
+// ---------- Setup Intents (garantía con tarjeta) ----------
+
+/**
+ * Crea un SetupIntent en la cuenta conectada para guardar la tarjeta del huésped.
+ */
+async function createReservationSetupIntent({ stripeConnectId, metadata = {} }) {
+  return getStripe().setupIntents.create(
+    {
+      usage:    'off_session',
+      automatic_payment_methods: { enabled: true },
+      metadata,
+    },
+    { stripeAccount: stripeConnectId },
+  );
+}
+
+/**
+ * Crea un Customer de Stripe en la cuenta conectada (para asociar el PaymentMethod).
+ */
+async function createGuestCustomer({ stripeConnectId, name, email, metadata = {} }) {
+  return getStripe().customers.create(
+    { name, email, metadata },
+    { stripeAccount: stripeConnectId },
+  );
+}
+
+/**
+ * Adjunta un PaymentMethod a un Customer en la cuenta conectada.
+ */
+async function attachPaymentMethod({ stripeConnectId, paymentMethodId, customerId }) {
+  return getStripe().paymentMethods.attach(
+    paymentMethodId,
+    { customer: customerId },
+    { stripeAccount: stripeConnectId },
+  );
+}
+
+// ---------- Cobro de no-show ----------
+
+/**
+ * Cobra la tarjeta guardada de un huésped que no asistió.
+ */
+async function chargeNoShow({ stripeConnectId, paymentMethodId, customerId, amount, currency = 'eur', metadata = {} }) {
+  return getStripe().paymentIntents.create(
+    {
+      amount,
+      currency,
+      payment_method: paymentMethodId,
+      customer:       customerId,
+      confirm:        true,
+      off_session:    true,
+      metadata,
+    },
+    { stripeAccount: stripeConnectId },
+  );
+}
+
+// ---------- Reembolsos ----------
+
+/**
+ * Reembolsa un PaymentIntent (total o parcial) en la cuenta conectada.
+ */
+async function refundPaymentIntent({ stripeConnectId, paymentIntentId, amount }) {
+  const params = { payment_intent: paymentIntentId };
+  if (amount) params.amount = amount;
+  return getStripe().refunds.create(params, { stripeAccount: stripeConnectId });
+}
+
 // ---------- Helpers ----------
 
 /**
@@ -119,4 +243,15 @@ module.exports = {
   getSubscription,
   constructWebhookEvent,
   planFromPriceId,
+  // Connect
+  getConnectOAuthUrl,
+  exchangeConnectCode,
+  deauthorizeConnectAccount,
+  // Reservation payments
+  createReservationPaymentIntent,
+  createReservationSetupIntent,
+  createGuestCustomer,
+  attachPaymentMethod,
+  chargeNoShow,
+  refundPaymentIntent,
 };

@@ -156,6 +156,135 @@ exports.handleWebhook = async (req, res) => {
   res.json({ received: true });
 };
 
+// ── GET /api/stripe/connect/status ────────────────────────────────────────
+// Devuelve el estado de la cuenta Connect y la config de pagos del restaurante.
+exports.getConnectStatus = async (req, res) => {
+  try {
+    const business = await Business.findById(req.businessId)
+      .select('stripeConnectId stripeConnectEnabled reservationPayment');
+    if (!business) return res.status(404).json({ message: 'Business not found' });
+
+    res.json({
+      connected:      !!business.stripeConnectId,
+      stripeConnectId: business.stripeConnectId,
+      reservationPayment: business.reservationPayment ?? {},
+    });
+  } catch (err) {
+    console.error('[stripe connect status]', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── GET /api/stripe/connect/oauth-url ─────────────────────────────────────
+// Genera la URL de OAuth de Stripe Connect para que el restaurante conecte su cuenta.
+exports.getConnectOAuthUrl = async (req, res) => {
+  try {
+    if (!process.env.STRIPE_CONNECT_CLIENT_ID) {
+      return res.status(500).json({ message: 'Stripe Connect no está configurado en el servidor' });
+    }
+    const redirectUri = `${process.env.BACKEND_URL}/api/stripe/connect/callback`;
+    const url = stripeService.getConnectOAuthUrl({ businessId: req.businessId, redirectUri });
+    res.json({ url });
+  } catch (err) {
+    console.error('[stripe connect oauth-url]', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── GET /api/stripe/connect/callback ──────────────────────────────────────
+// Stripe redirige aquí con ?code=xxx&state=businessId tras autorizar.
+exports.handleConnectCallback = async (req, res) => {
+  const { code, state: businessId, error } = req.query;
+
+  if (error) {
+    return res.redirect(`${process.env.FRONTEND_URL}/configuracion?tab=pagos&connect=error`);
+  }
+
+  try {
+    const stripeConnectId = await stripeService.exchangeConnectCode(code);
+
+    await Business.findByIdAndUpdate(businessId, {
+      stripeConnectId,
+      stripeConnectEnabled: true,
+    });
+
+    res.redirect(`${process.env.FRONTEND_URL}/configuracion?tab=pagos&connect=success`);
+  } catch (err) {
+    console.error('[stripe connect callback]', err.message);
+    res.redirect(`${process.env.FRONTEND_URL}/configuracion?tab=pagos&connect=error`);
+  }
+};
+
+// ── DELETE /api/stripe/connect ────────────────────────────────────────────
+// Desconecta la cuenta Stripe Connect del restaurante.
+exports.disconnectConnect = async (req, res) => {
+  try {
+    const business = await Business.findById(req.businessId).select('stripeConnectId');
+    if (!business?.stripeConnectId) {
+      return res.status(400).json({ message: 'No hay cuenta Stripe conectada' });
+    }
+
+    try {
+      await stripeService.deauthorizeConnectAccount(business.stripeConnectId);
+    } catch (err) {
+      // Si ya está desconectada en Stripe, continuamos igualmente
+      console.warn('[stripe connect disconnect] deauthorize failed:', err.message);
+    }
+
+    await Business.findByIdAndUpdate(req.businessId, {
+      stripeConnectId:      null,
+      stripeConnectEnabled: false,
+      'reservationPayment.mode': 'none',
+    });
+
+    res.json({ message: 'Cuenta Stripe desconectada' });
+  } catch (err) {
+    console.error('[stripe connect disconnect]', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── PUT /api/stripe/connect/payment-settings ──────────────────────────────
+// Guarda la configuración de pagos en reservas del restaurante.
+exports.updatePaymentSettings = async (req, res) => {
+  try {
+    const business = await Business.findById(req.businessId).select('stripeConnectId');
+    if (!business) return res.status(404).json({ message: 'Business not found' });
+
+    const {
+      mode,
+      depositAmount,
+      depositPerPerson,
+      noShowFeeAmount,
+      freeCancellationHours,
+      currency,
+    } = req.body;
+
+    // Si activan un modo de pago, deben tener cuenta Connect
+    if (mode && mode !== 'none' && !business.stripeConnectId) {
+      return res.status(400).json({
+        message: 'Debes conectar tu cuenta Stripe antes de activar pagos en reservas',
+      });
+    }
+
+    const update = {};
+    if (mode                !== undefined) update['reservationPayment.mode']                = mode;
+    if (depositAmount       !== undefined) update['reservationPayment.depositAmount']       = Math.round(depositAmount * 100); // €→céntimos
+    if (depositPerPerson    !== undefined) update['reservationPayment.depositPerPerson']    = depositPerPerson;
+    if (noShowFeeAmount     !== undefined) update['reservationPayment.noShowFeeAmount']     = Math.round(noShowFeeAmount * 100);
+    if (freeCancellationHours !== undefined) update['reservationPayment.freeCancellationHours'] = freeCancellationHours;
+    if (currency            !== undefined) update['reservationPayment.currency']            = currency;
+
+    const updated = await Business.findByIdAndUpdate(req.businessId, update, { new: true })
+      .select('reservationPayment stripeConnectId stripeConnectEnabled');
+
+    res.json({ reservationPayment: updated.reservationPayment });
+  } catch (err) {
+    console.error('[stripe payment-settings]', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // ── Event handlers ─────────────────────────────────────────────────────────
 
 async function handleEvent(event) {

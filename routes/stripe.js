@@ -15,4 +15,12 @@ router.post('/portal',     requireAuth, requireRole('owner'), c.createPortalSess
 router.post('/cancel',     requireAuth, requireRole('owner'), c.cancelSubscription);
 router.post('/reactivate', requireAuth, requireRole('owner'), c.reactivateSubscription);
 
+// ── Stripe Connect (pagos de clientes al restaurante) ─────────────────────
+// Callback es público — Stripe redirige aquí sin sesión de usuario
+router.get('/connect/callback',          c.handleConnectCallback);
+router.get('/connect/status',            requireAuth,                    c.getConnectStatus);
+router.get('/connect/oauth-url',         requireAuth, requireRole('owner'), c.getConnectOAuthUrl);
+router.delete('/connect',                requireAuth, requireRole('owner'), c.disconnectConnect);
+router.put('/connect/payment-settings',  requireAuth, requireRole('owner'), c.updatePaymentSettings);
+
 module.exports = router;

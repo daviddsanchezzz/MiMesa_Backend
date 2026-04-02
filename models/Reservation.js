@@ -29,6 +29,22 @@ const reservationSchema = new mongoose.Schema({
   marketingConsent:      { type: Boolean, default: false },
   marketingConsentAt:    { type: Date,   default: null },
   marketingConsentText:  { type: String, default: '' },
+
+  // ── Pago ─────────────────────────────────────────────────────────────────
+  payment: {
+    // 'none' | 'deposit' | 'card_guarantee'  — snapshot del modo al crear la reserva
+    mode:                   { type: String, default: 'none' },
+    // 'none' | 'pending' | 'captured' | 'refunded' | 'failed'
+    status:                 { type: String, default: 'none' },
+    amount:                 { type: Number, default: 0 },  // céntimos cobrados/retenidos
+    currency:               { type: String, default: 'eur' },
+    stripePaymentIntentId:  { type: String, default: null }, // modo depósito
+    stripeSetupIntentId:    { type: String, default: null }, // modo garantía
+    stripePaymentMethodId:  { type: String, default: null }, // tarjeta guardada
+    stripeCustomerId:       { type: String, default: null }, // Stripe customer del huésped
+    capturedAt:             { type: Date,   default: null },
+    refundedAt:             { type: Date,   default: null },
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Reservation', reservationSchema);
