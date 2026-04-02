@@ -351,9 +351,6 @@ exports.createReservation = async (req, res) => {
       if (populated.status === 'pending') await sendReservationPendingEmail(populated, business);
       else await sendReservationConfirmation(populated, business);
     }
-    if (canUseFeature(business, 'staffNotifications')) {
-      await notifyStaff(req.businessId, populated, 'created');
-    }
 
     const payload = populated.toObject ? populated.toObject() : populated;
     if (payload.status === 'pending') {
