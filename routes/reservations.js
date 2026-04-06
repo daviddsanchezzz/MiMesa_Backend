@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const auth = require('../middleware/requireAuth');
 const requireRole = require('../middleware/requireRole');
+const requirePlan = require('../middleware/requirePlan');
 const {
   getReservations,
   getPendingReservations,
@@ -39,8 +40,8 @@ router.put('/:id/accept', requireRole('manager'), acceptPendingReservation);
 router.put('/:id/reject', requireRole('manager'), rejectPendingReservation);
 router.put('/:id/propose-alternative', requireRole('manager'), proposeAlternativeTime);
 router.put('/:id/no-show', requireRole('manager'), markNoShow);
-router.post('/:id/charge-noshow', requireRole('manager'), chargeNoShow);
-router.post('/:id/refund', requireRole('manager'), refundDeposit);
+router.post('/:id/charge-noshow', requireRole('manager'), requirePlan('reservationPayments'), chargeNoShow);
+router.post('/:id/refund',        requireRole('manager'), requirePlan('reservationPayments'), refundDeposit);
 router.put('/:id', updateReservation);
 router.delete('/:id', deleteReservation);
 

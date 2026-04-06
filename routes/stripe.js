@@ -1,6 +1,7 @@
 const router      = require('express').Router();
 const requireAuth = require('../middleware/requireAuth');
 const requireRole = require('../middleware/requireRole');
+const requirePlan = require('../middleware/requirePlan');
 const c           = require('../controllers/stripeController');
 
 // NOTE: /webhook is mounted directly in server.js with express.raw() BEFORE express.json().
@@ -18,9 +19,9 @@ router.post('/reactivate', requireAuth, requireRole('owner'), c.reactivateSubscr
 // ── Stripe Connect (pagos de clientes al restaurante) ─────────────────────
 // Callback es público — Stripe redirige aquí sin sesión de usuario
 router.get('/connect/callback',          c.handleConnectCallback);
-router.get('/connect/status',            requireAuth,                    c.getConnectStatus);
-router.get('/connect/oauth-url',         requireAuth, requireRole('owner'), c.getConnectOAuthUrl);
-router.delete('/connect',                requireAuth, requireRole('owner'), c.disconnectConnect);
-router.put('/connect/payment-settings',  requireAuth, requireRole('owner'), c.updatePaymentSettings);
+router.get('/connect/status',            requireAuth,                                                       c.getConnectStatus);
+router.get('/connect/oauth-url',         requireAuth, requireRole('owner'), requirePlan('reservationPayments'), c.getConnectOAuthUrl);
+router.delete('/connect',                requireAuth, requireRole('owner'), requirePlan('reservationPayments'), c.disconnectConnect);
+router.put('/connect/payment-settings',  requireAuth, requireRole('owner'), requirePlan('reservationPayments'), c.updatePaymentSettings);
 
 module.exports = router;
