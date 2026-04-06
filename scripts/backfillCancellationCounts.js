@@ -22,7 +22,7 @@ async function run() {
   const customers    = db.collection('customers');
 
   // ── 1. Backfill cancellationCount ──────────────────────────────────────────
-  const { ObjectId } = require('mongodb');
+  const { Types: { ObjectId } } = mongoose;
 
   const agg = await reservations.aggregate([
     { $match: { status: 'cancelled', customerId: { $exists: true, $ne: null } } },
