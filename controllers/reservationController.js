@@ -16,11 +16,21 @@ const {
 const { canUseFeature, checkReservationLimit } = require('../lib/planCapabilities');
 
 const POPULATE = [
-  { path: 'customerId', select: 'name phone email visits noShowCount' },
+  { path: 'customerId', select: 'name phone email visits noShowCount cancellationCount' },
   { path: 'tableId',  select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
   { path: 'tableIds', select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
   { path: 'roomId', select: 'name' },
 ];
+
+/**
+ * Normaliza teléfonos para matching: elimina todo lo que no sea dígito.
+ * "+34 609 626 912", "0034-609626912", "609626912" → solo dígitos.
+ * No asume ningún prefijo de país concreto.
+ */
+function normalizePhone(raw) {
+  if (!raw) return '';
+  return String(raw).replace(/\D/g, '');
+}
 
 function toMinutes(t) {
   const [h, m] = String(t || '00:00').split(':').map(Number);
@@ -44,21 +54,33 @@ function generateSlots(startTime, endTime) {
 }
 
 async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmail) {
-  const phone = (guestPhone || '').trim();
-  const email = (guestEmail || '').trim().toLowerCase();
-  const name = (guestName || '').trim();
+  const phone    = (guestPhone || '').trim();
+  const normPhone = normalizePhone(phone);
+  const email    = (guestEmail || '').trim().toLowerCase();
+  const name     = (guestName || '').trim();
 
   if (!phone && !email) return null;
 
   let customer = null;
   if (email) customer = await Customer.findOne({ businessId, email });
-  if (!customer && phone) customer = await Customer.findOne({ businessId, phone });
+  if (!customer && normPhone) {
+    // Buscar por normalizedPhone (nuevo) o por phone exacto (legacy)
+    customer = await Customer.findOne({
+      businessId,
+      $or: [
+        { normalizedPhone: normPhone },
+        { phone: phone },
+        { phone: normPhone },
+      ],
+    });
+  }
 
   if (!customer) {
     return Customer.create({
       businessId,
       name,
       phone,
+      normalizedPhone: normPhone,
       email,
     });
   }
@@ -67,6 +89,8 @@ async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmai
   if (name && customer.name !== name) update.name = name;
   if (phone && customer.phone !== phone) update.phone = phone;
   if (email && customer.email !== email) update.email = email;
+  // Rellenar normalizedPhone si falta (clientes legacy)
+  if (normPhone && !customer.normalizedPhone) update.normalizedPhone = normPhone;
   if (Object.keys(update).length > 0) {
     await Customer.updateOne({ _id: customer._id }, { $set: update });
     customer = { ...customer.toObject(), ...update };
@@ -79,6 +103,16 @@ async function notifyStaff(businessId, reservation, eventType) {
   try {
     const business = await Business.findById(businessId).select('name brandColor');
     if (!business) return;
+
+    // Fetch customer stats if linked
+    let customerStats = null;
+    const customerId = reservation.customerId?._id || reservation.customerId;
+    if (customerId) {
+      const c = await Customer.findById(customerId).select('noShowCount cancellationCount').lean();
+      if (c && (c.noShowCount > 0 || c.cancellationCount > 0)) {
+        customerStats = { noShowCount: c.noShowCount || 0, cancellationCount: c.cancellationCount || 0 };
+      }
+    }
 
     const members = await BusinessMember.find({
       businessId,
@@ -98,7 +132,7 @@ async function notifyStaff(businessId, reservation, eventType) {
     )];
 
     if (recipients.length === 0) return;
-    await sendStaffReservationNotification(recipients, reservation, business, eventType);
+    await sendStaffReservationNotification(recipients, reservation, business, eventType, customerStats);
   } catch (err) {
     console.error('[reservations] notifyStaff failed:', err.message);
   }
@@ -597,6 +631,10 @@ exports.cancelPublicReservation = async (req, res) => {
     await reservation.save();
     await updateTableStatusForReservation(reservation, reservation.businessId);
 
+    if (reservation.customerId) {
+      await Customer.findByIdAndUpdate(reservation.customerId, { $inc: { cancellationCount: 1 } });
+    }
+
     if (reservation.guestEmail && business) await sendStatusUpdate(reservation, business, 'cancelled');
     await notifyStaff(reservation.businessId, reservation, 'cancelled');
 
@@ -768,6 +806,9 @@ exports.updateReservation = async (req, res) => {
 
     if (reservation.status === 'seated' && old.status !== 'seated' && reservation.customerId) {
       await Customer.findByIdAndUpdate(reservation.customerId._id, { $inc: { visits: 1 } });
+    }
+    if (reservation.status === 'cancelled' && old.status !== 'cancelled' && reservation.customerId) {
+      await Customer.findByIdAndUpdate(reservation.customerId._id, { $inc: { cancellationCount: 1 } });
     }
     if (reservation.status === 'no_show' && old.status !== 'no_show' && reservation.customerId) {
       await Customer.findByIdAndUpdate(reservation.customerId._id, { $inc: { noShowCount: 1 } });

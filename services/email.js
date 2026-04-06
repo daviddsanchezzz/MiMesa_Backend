@@ -247,7 +247,7 @@ async function sendStatusUpdate(reservation, business, newStatus) {
   }
 }
 
-async function sendStaffReservationNotification(recipients, reservation, business, eventType) {
+async function sendStaffReservationNotification(recipients, reservation, business, eventType, customerStats = null) {
   if (!Array.isArray(recipients) || recipients.length === 0) return;
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
 
@@ -257,6 +257,22 @@ async function sendStaffReservationNotification(recipients, reservation, busines
   const tableName = reservation.tableId?.name || 'Sin mesa';
   const guestEmail = reservation.guestEmail || '-';
   const guestPhone = reservation.guestPhone || '-';
+
+  const customerHistoryBlock = customerStats
+    ? `
+      <table width="100%" cellpadding="0" cellspacing="0"
+        style="background:#fefce8;border:1px solid #fde047;border-radius:12px;padding:12px 20px;margin-top:16px;">
+        <tr><td>
+          <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#713f12;text-transform:uppercase;letter-spacing:0.05em;">
+            Historial del cliente
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            ${customerStats.noShowCount > 0 ? detailRow('No-shows', String(customerStats.noShowCount)) : ''}
+            ${customerStats.cancellationCount > 0 ? detailRow('Cancelaciones', String(customerStats.cancellationCount)) : ''}
+          </table>
+        </td></tr>
+      </table>`
+    : '';
 
   const html = baseLayout(
     business.brandColor || '#4f46e5',
@@ -277,6 +293,7 @@ async function sendStaffReservationNotification(recipients, reservation, busines
           </table>
         </td></tr>
       </table>
+      ${customerHistoryBlock}
     `
   );
 

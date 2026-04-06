@@ -14,7 +14,7 @@ const Customer   = require('../models/Customer');
 const stripe     = require('../services/stripe');
 
 const POPULATE = [
-  { path: 'customerId', select: 'name phone email visits noShowCount' },
+  { path: 'customerId', select: 'name phone email visits noShowCount cancellationCount' },
   { path: 'tableId',  select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
   { path: 'tableIds', select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
   { path: 'roomId', select: 'name' },

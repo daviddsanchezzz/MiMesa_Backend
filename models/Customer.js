@@ -6,8 +6,10 @@ const customerSchema = new mongoose.Schema({
   phone:      { type: String, default: '' },
   email:      { type: String, default: '', lowercase: true },
   notes:      { type: String, default: '' },
-  visits:     { type: Number, default: 0 },
-  noShowCount:{ type: Number, default: 0 },
+  visits:            { type: Number, default: 0 },
+  noShowCount:       { type: Number, default: 0 },
+  cancellationCount: { type: Number, default: 0 },
+  normalizedPhone:   { type: String, default: '', index: true },
   // Marketing consent
   marketingSubscribed:     { type: Boolean, default: false },
   marketingSubscribedAt:   { type: Date,    default: null },
