@@ -96,41 +96,50 @@ async function getSubscription(subscriptionId) {
   return getStripe().subscriptions.retrieve(subscriptionId);
 }
 
-// ---------- Stripe Connect (pagos de clientes al restaurante) ----------
+// ---------- Stripe Connect (Account Links — flujo actual) ----------
 
 /**
- * Genera la URL de OAuth para que el restaurante conecte su cuenta Stripe.
+ * Crea una cuenta Connect Express vacía para el restaurante.
+ * Devuelve el acct_xxx que guardamos en Business.stripeConnectId.
  */
-function getConnectOAuthUrl({ businessId, redirectUri }) {
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id:     process.env.STRIPE_CONNECT_CLIENT_ID,
-    scope:         'read_write',
-    redirect_uri:  redirectUri,
-    state:         businessId.toString(),
+async function createConnectAccount({ businessId, email }) {
+  return getStripe().accounts.create({
+    type:    'express',
+    country: 'ES',
+    email,
+    capabilities: {
+      card_payments: { requested: true },
+      transfers:     { requested: true },
+    },
+    metadata: { businessId: businessId.toString() },
   });
-  return `https://connect.stripe.com/oauth/authorize?${params.toString()}`;
 }
 
 /**
- * Intercambia el code OAuth por el stripeConnectId (acct_xxx) de la cuenta conectada.
+ * Genera el enlace de onboarding para que el restaurante complete sus datos bancarios.
+ * Tras completarlo, Stripe redirige a returnUrl.
  */
-async function exchangeConnectCode(code) {
-  const response = await getStripe().oauth.token({
-    grant_type: 'authorization_code',
-    code,
+async function createAccountLink({ stripeConnectId, refreshUrl, returnUrl }) {
+  return getStripe().accountLinks.create({
+    account:     stripeConnectId,
+    refresh_url: refreshUrl,
+    return_url:  returnUrl,
+    type:        'account_onboarding',
   });
-  return response.stripe_user_id; // acct_xxx
 }
 
 /**
- * Desconecta la cuenta Stripe Connect del restaurante.
+ * Comprueba si la cuenta Connect tiene pagos y transferencias habilitados.
  */
-async function deauthorizeConnectAccount(stripeConnectId) {
-  return getStripe().oauth.deauthorize({
-    client_id:      process.env.STRIPE_CONNECT_CLIENT_ID,
-    stripe_user_id: stripeConnectId,
-  });
+async function getConnectAccount(stripeConnectId) {
+  return getStripe().accounts.retrieve(stripeConnectId);
+}
+
+/**
+ * Desconecta (elimina) la cuenta Connect del restaurante.
+ */
+async function deleteConnectAccount(stripeConnectId) {
+  return getStripe().accounts.del(stripeConnectId);
 }
 
 // ---------- Payment Intents (depósito al reservar) ----------
@@ -209,15 +218,54 @@ async function chargeNoShow({ stripeConnectId, paymentMethodId, customerId, amou
   );
 }
 
+// ---------- Verificación de intents ----------
+
+/**
+ * Verifica en Stripe que un PaymentIntent fue efectivamente cobrado (status=succeeded)
+ * y que el importe coincide con el esperado. Lanza error si no.
+ */
+async function verifyPaymentIntent({ stripeConnectId, paymentIntentId, expectedAmount }) {
+  const intent = await getStripe().paymentIntents.retrieve(
+    paymentIntentId,
+    { stripeAccount: stripeConnectId },
+  );
+  if (intent.status !== 'succeeded') {
+    throw new Error(`PaymentIntent ${paymentIntentId} no está completado (status: ${intent.status})`);
+  }
+  if (expectedAmount && intent.amount !== expectedAmount) {
+    throw new Error(`Importe no coincide: esperado ${expectedAmount}, recibido ${intent.amount}`);
+  }
+  return intent;
+}
+
+/**
+ * Verifica en Stripe que un SetupIntent fue completado correctamente (status=succeeded).
+ * Devuelve el SetupIntent con el paymentMethod adjunto.
+ */
+async function verifySetupIntent({ stripeConnectId, setupIntentId }) {
+  const intent = await getStripe().setupIntents.retrieve(
+    setupIntentId,
+    { stripeAccount: stripeConnectId },
+  );
+  if (intent.status !== 'succeeded') {
+    throw new Error(`SetupIntent ${setupIntentId} no está completado (status: ${intent.status})`);
+  }
+  return intent;
+}
+
 // ---------- Reembolsos ----------
 
 /**
  * Reembolsa un PaymentIntent (total o parcial) en la cuenta conectada.
+ * Usa idempotency key para evitar dobles reembolsos ante reintentos.
  */
 async function refundPaymentIntent({ stripeConnectId, paymentIntentId, amount }) {
   const params = { payment_intent: paymentIntentId };
   if (amount) params.amount = amount;
-  return getStripe().refunds.create(params, { stripeAccount: stripeConnectId });
+  return getStripe().refunds.create(params, {
+    stripeAccount:  stripeConnectId,
+    idempotencyKey: `refund-${paymentIntentId}${amount ? `-${amount}` : ''}`,
+  });
 }
 
 // ---------- Helpers ----------
@@ -234,6 +282,13 @@ function planFromPriceId(priceId) {
 }
 
 module.exports = {
+  verifyPaymentIntent,
+  verifySetupIntent,
+  // Connect
+  createConnectAccount,
+  createAccountLink,
+  getConnectAccount,
+  deleteConnectAccount,
   createCustomer,
   getOrCreateCustomer,
   createCheckoutSession,
@@ -243,10 +298,6 @@ module.exports = {
   getSubscription,
   constructWebhookEvent,
   planFromPriceId,
-  // Connect
-  getConnectOAuthUrl,
-  exchangeConnectCode,
-  deauthorizeConnectAccount,
   // Reservation payments
   createReservationPaymentIntent,
   createReservationSetupIntent,

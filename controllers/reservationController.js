@@ -475,9 +475,23 @@ exports.createPublicReservation = async (req, res) => {
     const paymentMode = (business.stripeConnectId && rp.mode && rp.mode !== 'none') ? rp.mode : 'none';
     let paymentData = { mode: 'none', status: 'none' };
 
-    if (paymentMode === 'deposit' && paymentIntentId) {
+    if (paymentMode === 'deposit') {
+      if (!paymentIntentId) {
+        return res.status(400).json({ message: 'Se requiere pago para completar la reserva' });
+      }
       const numPeople = parseInt(people, 10) || 1;
       const amount = rp.depositPerPerson ? rp.depositAmount * numPeople : rp.depositAmount;
+      // Verificar con Stripe que el pago fue efectivamente cobrado
+      try {
+        await stripeService.verifyPaymentIntent({
+          stripeConnectId: business.stripeConnectId,
+          paymentIntentId,
+          expectedAmount:  amount,
+        });
+      } catch (err) {
+        console.error('[createPublicReservation] PaymentIntent inválido:', err.message);
+        return res.status(402).json({ message: 'El pago no se ha completado correctamente. Por favor, inténtalo de nuevo.' });
+      }
       paymentData = {
         mode:                  'deposit',
         status:                'captured',
@@ -486,7 +500,20 @@ exports.createPublicReservation = async (req, res) => {
         stripePaymentIntentId: paymentIntentId,
         capturedAt:            new Date(),
       };
-    } else if (paymentMode === 'card_guarantee' && paymentMethodId) {
+    } else if (paymentMode === 'card_guarantee') {
+      if (!setupIntentId || !paymentMethodId) {
+        return res.status(400).json({ message: 'Se requieren datos de tarjeta para completar la reserva' });
+      }
+      // Verificar con Stripe que el SetupIntent está completado
+      try {
+        await stripeService.verifySetupIntent({
+          stripeConnectId: business.stripeConnectId,
+          setupIntentId,
+        });
+      } catch (err) {
+        console.error('[createPublicReservation] SetupIntent inválido:', err.message);
+        return res.status(402).json({ message: 'No se ha podido guardar la tarjeta. Por favor, inténtalo de nuevo.' });
+      }
       // Crear un customer de Stripe en la cuenta Connect para el huésped y adjuntar el PM
       let stripeGuestCustomerId = null;
       try {
@@ -504,6 +531,7 @@ exports.createPublicReservation = async (req, res) => {
         });
       } catch (err) {
         console.error('[createPublicReservation] error adjuntando PM:', err.message);
+        // No bloqueamos la reserva si falla la asociación, pero el PM queda registrado
       }
 
       paymentData = {
@@ -511,7 +539,7 @@ exports.createPublicReservation = async (req, res) => {
         status:                'pending',
         amount:                rp.noShowFeeAmount ?? 0,
         currency:              rp.currency ?? 'eur',
-        stripeSetupIntentId:   setupIntentId || null,
+        stripeSetupIntentId:   setupIntentId,
         stripePaymentMethodId: paymentMethodId,
         stripeCustomerId:      stripeGuestCustomerId,
       };
