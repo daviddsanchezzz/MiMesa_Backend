@@ -3,13 +3,13 @@ const Business = require('../models/Business');
 const Reservation = require('../models/Reservation');
 const Vacation = require('../models/Vacation');
 
-// Generate 30-min time slots within a window
-function generateSlots(startTime, endTime) {
+// Generate time slots within a window at a given interval (minutes)
+function generateSlots(startTime, endTime, interval = 30) {
   const [sh, sm] = startTime.split(':').map(Number);
   let [eh, em]   = endTime.split(':').map(Number);
   if (eh === 0 && em === 0) { eh = 24; em = 0; } // midnight as end
   const slots = [];
-  for (let t = sh * 60 + sm; t < eh * 60 + em; t += 30) {
+  for (let t = sh * 60 + sm; t < eh * 60 + em; t += interval) {
     const h = Math.floor(t / 60) % 24;
     const m = t % 60;
     slots.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
@@ -67,19 +67,15 @@ exports.getSlots = async (req, res) => {
       s.startDate && s.endDate && date >= s.startDate && date <= s.endDate
     );
 
-    // Specific overrides general by name
-    const byName = {};
-    general.forEach(s  => { byName[s.name] = s; });
-    specific.forEach(s => { byName[s.name] = s; }); // wins
-
-    const applicable = Object.values(byName);
+    // If ANY specific shift exists for this date, use only specifics (full override)
+    const applicable = specific.length > 0 ? specific : general;
     if (!applicable.length) return res.json([]);
 
     const slots = [];
     applicable.forEach(shift => {
       const times = shift.subShifts.length
         ? shift.subShifts.map(ss => ({ time: ss.time, label: ss.label || ss.time }))
-        : generateSlots(shift.startTime, shift.endTime).map(t => ({ time: t, label: t }));
+        : generateSlots(shift.startTime, shift.endTime, shift.interval || 30).map(t => ({ time: t, label: t }));
 
       times.forEach(({ time, label }) =>
         slots.push({ shiftId: shift._id, shiftName: shift.name, time, label })
@@ -95,7 +91,7 @@ exports.getSlots = async (req, res) => {
 
 exports.createShift = async (req, res) => {
   try {
-    const { name, startTime, endTime, days, subShifts, startDate, endDate } = req.body;
+    const { name, startTime, endTime, days, subShifts, startDate, endDate, interval } = req.body;
     if (!name?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' });
     if (!startTime)    return res.status(400).json({ message: 'La hora de inicio es obligatoria' });
     if (!endTime)      return res.status(400).json({ message: 'La hora de fin es obligatoria' });
@@ -112,6 +108,7 @@ exports.createShift = async (req, res) => {
       businessId: req.businessId,
       name: name.trim(), startTime, endTime, days,
       startDate: startDate || null, endDate: endDate || null,
+      interval: interval || 30,
       subShifts: subShifts || [],
     });
     res.status(201).json(shift);
@@ -122,7 +119,7 @@ exports.createShift = async (req, res) => {
 
 exports.updateShift = async (req, res) => {
   try {
-    const { name, startTime, endTime, days, subShifts, startDate, endDate } = req.body;
+    const { name, startTime, endTime, days, subShifts, startDate, endDate, interval } = req.body;
     if (!name?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' });
     if (!startTime)    return res.status(400).json({ message: 'La hora de inicio es obligatoria' });
     if (!endTime)      return res.status(400).json({ message: 'La hora de fin es obligatoria' });
@@ -139,6 +136,7 @@ exports.updateShift = async (req, res) => {
       { _id: req.params.id, businessId: req.businessId },
       { name: name.trim(), startTime, endTime, days,
         startDate: startDate || null, endDate: endDate || null,
+        interval: interval || 30,
         subShifts: subShifts || [] },
       { new: true, runValidators: true }
     );
@@ -178,19 +176,15 @@ exports.getPublicSlots = async (req, res) => {
       s.startDate && s.endDate && date >= s.startDate && date <= s.endDate
     );
 
-    // Specific overrides general by name
-    const byName = {};
-    general.forEach(s  => { byName[s.name] = s; });
-    specific.forEach(s => { byName[s.name] = s; }); // wins
-
-    const applicable = Object.values(byName);
+    // If ANY specific shift exists for this date, use only specifics (full override)
+    const applicable = specific.length > 0 ? specific : general;
     if (!applicable.length) return res.json([]);
 
     const slots = [];
     applicable.forEach(shift => {
       const times = shift.subShifts.length
         ? shift.subShifts.map(ss => ({ time: ss.time, label: ss.label || ss.time }))
-        : generateSlots(shift.startTime, shift.endTime).map(t => ({ time: t, label: t }));
+        : generateSlots(shift.startTime, shift.endTime, shift.interval || 30).map(t => ({ time: t, label: t }));
 
       times.forEach(({ time, label }) =>
         slots.push({ shiftId: shift._id, shiftName: shift.name, time, label })
