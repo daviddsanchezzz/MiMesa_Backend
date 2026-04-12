@@ -17,6 +17,17 @@ function generateSlots(startTime, endTime, interval = 30) {
   return slots;
 }
 
+// Returns true if two shifts overlap in time (using their startTime/endTime)
+function shiftsOverlap(a, b) {
+  const toMin = (t) => {
+    const [h, m] = t.split(':').map(Number);
+    return (h === 0 && m === 0) ? 24 * 60 : h * 60 + m;
+  };
+  const aStart = toMin(a.startTime), aEnd = toMin(a.endTime);
+  const bStart = toMin(b.startTime), bEnd = toMin(b.endTime);
+  return aStart < bEnd && aEnd > bStart;
+}
+
 // Check for naming conflicts (same name, same type / overlapping date range)
 async function checkConflict(businessId, name, startDate, endDate, excludeId = null) {
   const isSpecific = !!(startDate && endDate);
@@ -67,8 +78,9 @@ exports.getSlots = async (req, res) => {
       s.startDate && s.endDate && date >= s.startDate && date <= s.endDate
     );
 
-    // If ANY specific shift exists for this date, use only specifics (full override)
-    const applicable = specific.length > 0 ? specific : general;
+    // A specific shift overrides only the general shifts whose time range overlaps with it
+    const overriddenGenerals = general.filter(g => specific.some(s => shiftsOverlap(g, s)));
+    const applicable = [...specific, ...general.filter(g => !overriddenGenerals.includes(g))];
     if (!applicable.length) return res.json([]);
 
     const slots = [];
@@ -176,8 +188,9 @@ exports.getPublicSlots = async (req, res) => {
       s.startDate && s.endDate && date >= s.startDate && date <= s.endDate
     );
 
-    // If ANY specific shift exists for this date, use only specifics (full override)
-    const applicable = specific.length > 0 ? specific : general;
+    // A specific shift overrides only the general shifts whose time range overlaps with it
+    const overriddenGenerals = general.filter(g => specific.some(s => shiftsOverlap(g, s)));
+    const applicable = [...specific, ...general.filter(g => !overriddenGenerals.includes(g))];
     if (!applicable.length) return res.json([]);
 
     const slots = [];
