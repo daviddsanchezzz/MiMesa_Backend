@@ -379,7 +379,7 @@ exports.getAssignments = async (req, res) => {
         date: { $gte: weekStart, $lte: weekEnd },
       })
         .populate('shiftId', 'name startTime endTime')
-        .populate('employeeId', 'firstName lastName status position')
+        .populate('employeeId', 'firstName lastName status position positionId')
         .sort({ date: 1, startTime: 1, createdAt: 1 })
         .lean(),
     ]);
@@ -427,7 +427,7 @@ exports.createAssignment = async (req, res) => {
 
     const populated = await StaffAssignment.findById(assignment._id)
       .populate('shiftId', 'name startTime endTime')
-      .populate('employeeId', 'firstName lastName status position');
+      .populate('employeeId', 'firstName lastName status position positionId');
 
     res.status(201).json(populated);
   } catch (err) {
@@ -458,7 +458,7 @@ exports.updateAssignment = async (req, res) => {
       { new: true, runValidators: true },
     )
       .populate('shiftId', 'name startTime endTime')
-      .populate('employeeId', 'firstName lastName status position');
+      .populate('employeeId', 'firstName lastName status position positionId');
 
     if (!assignment) return res.status(404).json({ message: 'Asignacion no encontrada' });
     res.json(assignment);
