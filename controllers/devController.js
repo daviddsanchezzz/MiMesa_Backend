@@ -2,6 +2,11 @@ const Business       = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
 const Reservation    = require('../models/Reservation');
 const AuthUser       = require('../models/AuthUser');
+const { getModuleAccess } = require('../lib/planCapabilities');
+
+const MODULE_CATALOG = [
+  { key: 'staff', name: 'Personal', description: 'Gestion de empleados y planificacion de turnos' },
+];
 
 // ── GET /api/dev/businesses ───────────────────────────────────────────────
 exports.listBusinesses = async (req, res) => {
@@ -22,6 +27,10 @@ exports.listBusinesses = async (req, res) => {
         phone:              b.phone || '',
         plan:               b.plan || 'free',
         subscriptionStatus: b.subscriptionStatus || null,
+        modules: MODULE_CATALOG.reduce((acc, m) => {
+          acc[m.key] = getModuleAccess(b, m.key);
+          return acc;
+        }, {}),
         createdAt:          b.createdAt,
         memberCount,
         reservationsLast30d,
@@ -33,6 +42,10 @@ exports.listBusinesses = async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+};
+
+exports.getModuleCatalog = async (req, res) => {
+  res.json(MODULE_CATALOG);
 };
 
 // —— GET /api/dev/users ————————————————————————————————————————————————————————————————
@@ -132,6 +145,44 @@ exports.updatePlan = async (req, res) => {
     if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
 
     res.json({ id: business._id, plan: business.plan, subscriptionStatus: business.subscriptionStatus });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.updateBusinessModule = async (req, res) => {
+  try {
+    const { moduleKey } = req.params;
+    const { enabled } = req.body;
+
+    if (!MODULE_CATALOG.some((m) => m.key === moduleKey)) {
+      return res.status(400).json({ message: 'Modulo invalido' });
+    }
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: 'enabled debe ser booleano' });
+    }
+
+    const setPath = `moduleOverrides.${moduleKey}`;
+    const business = await Business.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          [setPath]: {
+            enabled,
+            updatedAt: new Date(),
+            updatedBy: req.user?.id || null,
+          },
+        },
+      },
+      { new: true },
+    );
+
+    if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
+
+    res.json({
+      id: business._id,
+      module: getModuleAccess(business, moduleKey),
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

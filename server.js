@@ -118,6 +118,7 @@ app.use('/api/pricing',      require('./routes/pricing'));
 app.use('/api/marketing',    require('./routes/marketing'));
 app.use('/api/promos',       require('./routes/promos'));
 app.use('/api/analytics',    require('./routes/analytics'));
+app.use('/api/staff',        require('./routes/staff'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

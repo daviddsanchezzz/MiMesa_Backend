@@ -41,6 +41,13 @@ const businessSchema = new mongoose.Schema({
     freeCancellationHours:  { type: Number, default: 24 },  // horas antes de la reserva
     currency:               { type: String, default: 'eur' },
   },
+
+  // Module-level tenant overrides, e.g.:
+  // moduleOverrides.staff.enabled = false
+  moduleOverrides: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
 }, { timestamps: true });
 
 businessSchema.pre('save', async function (next) {

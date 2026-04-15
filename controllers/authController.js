@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const Business = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
 const { isDev } = require('../middleware/requireDev');
+const { getAllModuleAccess } = require('../lib/planCapabilities');
 
 const signAccessToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '15m' });
@@ -33,6 +34,7 @@ const businessData = (b) => ({
   currentPeriodEnd:   b.currentPeriodEnd   ?? null,
   cancelAtPeriodEnd:  b.cancelAtPeriodEnd  ?? false,
   stripeCustomerId:   b.stripeCustomerId   ?? null,
+  modules:            getAllModuleAccess(b),
 });
 
 exports.register = async (req, res) => {
