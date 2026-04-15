@@ -30,6 +30,7 @@ const reservationSchema = new mongoose.Schema({
   marketingConsentAt:    { type: Date,   default: null },
   marketingConsentText:  { type: String, default: '' },
 
+  
   // ── Pago ─────────────────────────────────────────────────────────────────
   payment: {
     // 'none' | 'deposit' | 'card_guarantee'  — snapshot del modo al crear la reserva
