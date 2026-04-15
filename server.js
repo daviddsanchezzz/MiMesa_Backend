@@ -85,7 +85,10 @@ app.use('/api/betterauth/forget-password', authLimiter);
 
 // ── MongoDB + Better Auth bootstrap ─────────────────────────────────────────
 // Connect Mongoose for business data, then spin up Better Auth with native client
-connectDB();
+connectDB().catch((err) => {
+  console.error('[server] MongoDB connection failed:', err.message);
+  process.exit(1);
+});
 
 getMongoClient().then((mongoClient) => {
   const { toNodeHandler } = require('better-auth/node');
@@ -127,3 +130,4 @@ app.listen(PORT, () => {
   startSchedulers();
   console.log(`Server running on port ${PORT}`);
 });
+

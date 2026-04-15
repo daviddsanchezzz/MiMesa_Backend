@@ -3,7 +3,17 @@ const BusinessMember = require('../models/BusinessMember');
 const Business       = require('../models/Business');
 const { Resend }     = require('resend');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let _warnedMissingResendKey = false;
+function getResendClient() {
+  if (!process.env.RESEND_API_KEY) {
+    if (!_warnedMissingResendKey) {
+      console.warn('[invitations] RESEND_API_KEY is not configured. Invitation emails are disabled.');
+      _warnedMissingResendKey = true;
+    }
+    return null;
+  }
+  return new Resend(process.env.RESEND_API_KEY);
+}
 
 function resolveFrontendBaseUrl(req) {
   const candidates = [
@@ -26,6 +36,10 @@ function resolveInviteFrom() {
 }
 
 async function sendEmailOrThrow(payload) {
+  const resend = getResendClient();
+  if (!resend) {
+    throw new Error('RESEND_API_KEY no configurada en el servidor');
+  }
   const result = await resend.emails.send(payload);
   if (result?.error) {
     throw new Error(result.error.message || 'Error enviando email con Resend');
