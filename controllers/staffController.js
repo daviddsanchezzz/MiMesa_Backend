@@ -61,14 +61,41 @@ function isValidHexColor(value = '') {
   return /^#([A-Fa-f0-9]{6})$/.test(String(value).trim());
 }
 
-async function resolveEmployeePosition({ businessId, positionId, position }) {
-  if (positionId) {
-    const row = await StaffPosition.findOne({ _id: positionId, businessId }).lean();
-    if (!row) return { error: 'Puesto no encontrado' };
-    if (row.status !== 'active') return { error: 'El puesto esta inactivo' };
-    return { positionId: row._id, position: row.name, positionColor: row.color };
+async function resolveEmployeePosition({ businessId, positionIds, positionId, position }) {
+  let requested = [];
+
+  if (Array.isArray(positionIds)) requested = positionIds.filter(Boolean).map(String);
+  if (!requested.length && positionId) requested = [String(positionId)];
+  requested = [...new Set(requested)];
+
+  if (requested.length) {
+    const rows = await StaffPosition.find({
+      _id: { $in: requested },
+      businessId,
+      status: 'active',
+    }).lean();
+
+    if (rows.length !== requested.length) {
+      return { error: 'Uno o varios puestos no son validos o estan inactivos' };
+    }
+
+    const rowById = new Map(rows.map((row) => [String(row._id), row]));
+    const ordered = requested.map((id) => rowById.get(id)).filter(Boolean);
+
+    return {
+      positionIds: ordered.map((row) => row._id),
+      positionId: ordered[0]?._id || null,
+      position: ordered[0]?.name || '',
+      positions: ordered,
+    };
   }
-  return { positionId: null, position: String(position || '').trim(), positionColor: null };
+
+  return {
+    positionIds: [],
+    positionId: null,
+    position: String(position || '').trim(),
+    positions: [],
+  };
 }
 
 async function getActiveCompensationMap(businessId, employeeIds) {
@@ -106,9 +133,23 @@ exports.getEmployees = async (req, res) => {
     const positionMap = new Map(positions.map((p) => [String(p._id), p]));
 
     res.json(employees.map((employee) => {
-      const positionRef = employee.positionId ? positionMap.get(String(employee.positionId)) : null;
+      const ids = Array.isArray(employee.positionIds) && employee.positionIds.length
+        ? employee.positionIds.map(String)
+        : employee.positionId
+          ? [String(employee.positionId)]
+          : [];
+      const resolvedPositions = ids.map((id) => positionMap.get(id)).filter(Boolean);
+      const positionRef = resolvedPositions[0] || null;
       return {
         ...employee,
+        positionIds: resolvedPositions.map((p) => p._id),
+        positions: resolvedPositions.map((p) => ({
+          _id: p._id,
+          name: p.name,
+          color: p.color,
+          status: p.status,
+        })),
+        positionId: positionRef?._id || null,
         position: positionRef?.name || employee.position || '',
         positionColor: positionRef?.color || null,
         positionStatus: positionRef?.status || null,
@@ -213,6 +254,7 @@ exports.createEmployee = async (req, res) => {
       lastName = '',
       phone = '',
       email = '',
+      positionIds = [],
       positionId = null,
       position = '',
       notes = '',
@@ -222,6 +264,7 @@ exports.createEmployee = async (req, res) => {
 
     const resolvedPosition = await resolveEmployeePosition({
       businessId: req.businessId,
+      positionIds,
       positionId,
       position,
     });
@@ -233,6 +276,7 @@ exports.createEmployee = async (req, res) => {
       lastName: String(lastName).trim(),
       phone: String(phone).trim(),
       email: String(email).trim().toLowerCase(),
+      positionIds: resolvedPosition.positionIds,
       positionId: resolvedPosition.positionId,
       position: resolvedPosition.position,
       notes: String(notes),
@@ -254,13 +298,15 @@ exports.updateEmployee = async (req, res) => {
     if (payload.email !== undefined) payload.email = String(payload.email).trim().toLowerCase();
     if (payload.position !== undefined) payload.position = String(payload.position).trim();
 
-    if (payload.positionId !== undefined || payload.position !== undefined) {
+    if (payload.positionIds !== undefined || payload.positionId !== undefined || payload.position !== undefined) {
       const resolvedPosition = await resolveEmployeePosition({
         businessId: req.businessId,
+        positionIds: payload.positionIds,
         positionId: payload.positionId,
         position: payload.position,
       });
       if (resolvedPosition.error) return res.status(400).json({ message: resolvedPosition.error });
+      payload.positionIds = resolvedPosition.positionIds;
       payload.positionId = resolvedPosition.positionId;
       payload.position = resolvedPosition.position;
     }
