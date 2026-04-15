@@ -6,6 +6,7 @@ const staffEmployeeSchema = new mongoose.Schema({
   lastName: { type: String, default: '', trim: true },
   phone: { type: String, default: '', trim: true },
   email: { type: String, default: '', lowercase: true, trim: true },
+  positionId: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffPosition', default: null, index: true },
   position: { type: String, default: '', trim: true },
   status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
   notes: { type: String, default: '' },

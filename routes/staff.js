@@ -6,6 +6,11 @@ const c = require('../controllers/staffController');
 
 router.use(requireAuth, requireRole('manager'), requireModule('staff'));
 
+router.get('/positions', c.getPositions);
+router.post('/positions', c.createPosition);
+router.put('/positions/:id', c.updatePosition);
+router.patch('/positions/:id/status', c.setPositionStatus);
+
 router.get('/employees', c.getEmployees);
 router.post('/employees', c.createEmployee);
 router.put('/employees/:id', c.updateEmployee);

@@ -1,6 +1,7 @@
 const StaffEmployee = require('../models/StaffEmployee');
 const StaffCompensation = require('../models/StaffCompensation');
 const StaffAssignment = require('../models/StaffAssignment');
+const StaffPosition = require('../models/StaffPosition');
 const Shift = require('../models/Shift');
 
 function isValidIsoDate(date) {
@@ -52,6 +53,24 @@ function assignmentMinutes(assignment, shiftById) {
   return Math.max(endMin - startMin, 0);
 }
 
+function normalizePositionName(name = '') {
+  return String(name).trim().toLowerCase();
+}
+
+function isValidHexColor(value = '') {
+  return /^#([A-Fa-f0-9]{6})$/.test(String(value).trim());
+}
+
+async function resolveEmployeePosition({ businessId, positionId, position }) {
+  if (positionId) {
+    const row = await StaffPosition.findOne({ _id: positionId, businessId }).lean();
+    if (!row) return { error: 'Puesto no encontrado' };
+    if (row.status !== 'active') return { error: 'El puesto esta inactivo' };
+    return { positionId: row._id, position: row.name, positionColor: row.color };
+  }
+  return { positionId: null, position: String(position || '').trim(), positionColor: null };
+}
+
 async function getActiveCompensationMap(businessId, employeeIds) {
   if (!employeeIds.length) return new Map();
 
@@ -77,17 +96,113 @@ exports.getEmployees = async (req, res) => {
     if (!includeInactive) filter.status = 'active';
 
     const employees = await StaffEmployee.find(filter).sort({ firstName: 1, lastName: 1 }).lean();
-    const compensationMap = await getActiveCompensationMap(
-      req.businessId,
-      employees.map((e) => e._id),
-    );
+    const [compensationMap, positions] = await Promise.all([
+      getActiveCompensationMap(
+        req.businessId,
+        employees.map((e) => e._id),
+      ),
+      StaffPosition.find({ businessId: req.businessId }).select('_id name color status').lean(),
+    ]);
+    const positionMap = new Map(positions.map((p) => [String(p._id), p]));
 
-    res.json(employees.map((employee) => ({
-      ...employee,
-      activeCompensation: compensationMap.get(String(employee._id)) || null,
-    })));
+    res.json(employees.map((employee) => {
+      const positionRef = employee.positionId ? positionMap.get(String(employee.positionId)) : null;
+      return {
+        ...employee,
+        position: positionRef?.name || employee.position || '',
+        positionColor: positionRef?.color || null,
+        positionStatus: positionRef?.status || null,
+        activeCompensation: compensationMap.get(String(employee._id)) || null,
+      };
+    }));
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getPositions = async (req, res) => {
+  try {
+    const includeInactive = req.query.includeInactive === 'true';
+    const filter = { businessId: req.businessId };
+    if (!includeInactive) filter.status = 'active';
+    const rows = await StaffPosition.find(filter).sort({ name: 1 }).lean();
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.createPosition = async (req, res) => {
+  try {
+    const { name, color = '#64748B' } = req.body || {};
+    if (!name?.trim()) return res.status(400).json({ message: 'El nombre del puesto es obligatorio' });
+    if (!isValidHexColor(color)) return res.status(400).json({ message: 'Color invalido (usa formato #RRGGBB)' });
+
+    const row = await StaffPosition.create({
+      businessId: req.businessId,
+      name: String(name).trim(),
+      color: String(color).toUpperCase(),
+      normalizedName: normalizePositionName(name),
+      status: 'active',
+    });
+    res.status(201).json(row);
+  } catch (err) {
+    if (String(err?.message || '').includes('duplicate key')) {
+      return res.status(409).json({ message: 'Ya existe un puesto con ese nombre' });
+    }
+    res.status(400).json({ message: err.message });
+  }
+};
+
+exports.updatePosition = async (req, res) => {
+  try {
+    const payload = { ...req.body };
+    if (payload.name !== undefined) {
+      if (!String(payload.name).trim()) return res.status(400).json({ message: 'El nombre del puesto es obligatorio' });
+      payload.name = String(payload.name).trim();
+      payload.normalizedName = normalizePositionName(payload.name);
+    }
+    if (payload.color !== undefined) {
+      if (!isValidHexColor(payload.color)) return res.status(400).json({ message: 'Color invalido (usa formato #RRGGBB)' });
+      payload.color = String(payload.color).toUpperCase();
+    }
+
+    const row = await StaffPosition.findOneAndUpdate(
+      { _id: req.params.id, businessId: req.businessId },
+      payload,
+      { new: true, runValidators: true },
+    );
+    if (!row) return res.status(404).json({ message: 'Puesto no encontrado' });
+
+    if (payload.name !== undefined) {
+      await StaffEmployee.updateMany(
+        { businessId: req.businessId, positionId: row._id },
+        { $set: { position: row.name } },
+      );
+    }
+
+    res.json(row);
+  } catch (err) {
+    if (String(err?.message || '').includes('duplicate key')) {
+      return res.status(409).json({ message: 'Ya existe un puesto con ese nombre' });
+    }
+    res.status(400).json({ message: err.message });
+  }
+};
+
+exports.setPositionStatus = async (req, res) => {
+  try {
+    const { status } = req.body || {};
+    if (!['active', 'inactive'].includes(status)) return res.status(400).json({ message: 'Estado invalido' });
+    const row = await StaffPosition.findOneAndUpdate(
+      { _id: req.params.id, businessId: req.businessId },
+      { status },
+      { new: true },
+    );
+    if (!row) return res.status(404).json({ message: 'Puesto no encontrado' });
+    res.json(row);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 };
 
@@ -98,11 +213,19 @@ exports.createEmployee = async (req, res) => {
       lastName = '',
       phone = '',
       email = '',
+      positionId = null,
       position = '',
       notes = '',
     } = req.body || {};
 
     if (!firstName?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' });
+
+    const resolvedPosition = await resolveEmployeePosition({
+      businessId: req.businessId,
+      positionId,
+      position,
+    });
+    if (resolvedPosition.error) return res.status(400).json({ message: resolvedPosition.error });
 
     const employee = await StaffEmployee.create({
       businessId: req.businessId,
@@ -110,7 +233,8 @@ exports.createEmployee = async (req, res) => {
       lastName: String(lastName).trim(),
       phone: String(phone).trim(),
       email: String(email).trim().toLowerCase(),
-      position: String(position).trim(),
+      positionId: resolvedPosition.positionId,
+      position: resolvedPosition.position,
       notes: String(notes),
       status: 'active',
     });
@@ -129,6 +253,17 @@ exports.updateEmployee = async (req, res) => {
     if (payload.phone !== undefined) payload.phone = String(payload.phone).trim();
     if (payload.email !== undefined) payload.email = String(payload.email).trim().toLowerCase();
     if (payload.position !== undefined) payload.position = String(payload.position).trim();
+
+    if (payload.positionId !== undefined || payload.position !== undefined) {
+      const resolvedPosition = await resolveEmployeePosition({
+        businessId: req.businessId,
+        positionId: payload.positionId,
+        position: payload.position,
+      });
+      if (resolvedPosition.error) return res.status(400).json({ message: resolvedPosition.error });
+      payload.positionId = resolvedPosition.positionId;
+      payload.position = resolvedPosition.position;
+    }
 
     const employee = await StaffEmployee.findOneAndUpdate(
       { _id: req.params.id, businessId: req.businessId },
