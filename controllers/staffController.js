@@ -261,8 +261,6 @@ exports.createAssignment = async (req, res) => {
       employeeId,
       date,
       shiftId = null,
-      startTime = '',
-      endTime = '',
       roleLabel = '',
       notes = '',
     } = req.body || {};
@@ -276,17 +274,18 @@ exports.createAssignment = async (req, res) => {
     }).lean();
     if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
 
-    if (!shiftId && (!isValidTime(startTime) || !isValidTime(endTime))) {
-      return res.status(400).json({ message: 'Debes indicar shiftId o un rango horario valido' });
-    }
+    if (!shiftId) return res.status(400).json({ message: 'shiftId es obligatorio' });
+
+    const shift = await Shift.findOne({ _id: shiftId, businessId: req.businessId }).lean();
+    if (!shift) return res.status(404).json({ message: 'Turno no encontrado' });
 
     const assignment = await StaffAssignment.create({
       businessId: req.businessId,
       employeeId,
       date,
       shiftId,
-      startTime: startTime || '',
-      endTime: endTime || '',
+      startTime: '',
+      endTime: '',
       roleLabel: String(roleLabel).trim(),
       notes: String(notes),
     });
@@ -306,6 +305,16 @@ exports.updateAssignment = async (req, res) => {
     const payload = { ...req.body };
     if (payload.date && !isValidIsoDate(payload.date)) {
       return res.status(400).json({ message: 'date invalida' });
+    }
+    if (payload.startTime !== undefined || payload.endTime !== undefined) {
+      return res.status(400).json({ message: 'No se permite editar rango horario manual' });
+    }
+    if (payload.shiftId !== undefined) {
+      if (!payload.shiftId) {
+        return res.status(400).json({ message: 'shiftId no puede ser vacio' });
+      }
+      const shift = await Shift.findOne({ _id: payload.shiftId, businessId: req.businessId }).lean();
+      if (!shift) return res.status(404).json({ message: 'Turno no encontrado' });
     }
 
     const assignment = await StaffAssignment.findOneAndUpdate(
