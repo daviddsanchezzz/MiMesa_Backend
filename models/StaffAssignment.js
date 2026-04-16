@@ -8,6 +8,7 @@ const staffAssignmentSchema = new mongoose.Schema({
   startTime: { type: String, default: '' }, // HH:MM
   endTime: { type: String, default: '' },   // HH:MM
   roleLabel: { type: String, default: '' },
+  customPrice: { type: Number, default: null, min: 0 },
   notes: { type: String, default: '' },
 }, { timestamps: true });
 
