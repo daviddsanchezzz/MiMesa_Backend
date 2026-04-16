@@ -54,6 +54,20 @@ function assignmentMinutes(assignment, shiftById) {
   return Math.max(endMin - startMin, 0);
 }
 
+function assignmentCost(assignment, comp, shiftById) {
+  if (assignment?.customPrice !== null && assignment?.customPrice !== undefined) {
+    const parsed = Number(assignment.customPrice);
+    if (Number.isFinite(parsed) && parsed >= 0) return Number(parsed.toFixed(2));
+  }
+  if (!comp) return 0;
+  if (comp.paymentType === 'hourly') {
+    const hours = assignmentMinutes(assignment, shiftById) / 60;
+    return Number((hours * Number(comp.baseAmount || 0)).toFixed(2));
+  }
+  if (comp.paymentType === 'per_shift') return Number(Number(comp.baseAmount || 0).toFixed(2));
+  return null;
+}
+
 function normalizePositionName(name = '') {
   return String(name).trim().toLowerCase();
 }
@@ -615,10 +629,8 @@ exports.getWeeklyCosts = async (req, res) => {
       let currency = comp?.currency || 'EUR';
 
       if (comp) {
-        if (comp.paymentType === 'hourly') {
-          weeklyCost = hours * comp.baseAmount;
-        } else if (comp.paymentType === 'per_shift') {
-          weeklyCost = rows.length * comp.baseAmount;
+        if (comp.paymentType === 'hourly' || comp.paymentType === 'per_shift') {
+          weeklyCost = rows.reduce((sum, row) => sum + assignmentCost(row, comp, shiftById), 0);
         } else if (comp.paymentType === 'monthly_fixed') {
           weeklyCost = comp.baseAmount / 4.33;
         }
@@ -704,8 +716,9 @@ exports.getMonthlyCosts = async (req, res) => {
 
         let monthlyCost = 0;
         if (comp) {
-          if (comp.paymentType === 'hourly') monthlyCost = hours * comp.baseAmount;
-          else if (comp.paymentType === 'per_shift') monthlyCost = rows.length * comp.baseAmount;
+          if (comp.paymentType === 'hourly' || comp.paymentType === 'per_shift') {
+            monthlyCost = rows.reduce((sum, row) => sum + assignmentCost(row, comp, shiftById), 0);
+          }
           else if (comp.paymentType === 'monthly_fixed') monthlyCost = comp.baseAmount;
         }
 
@@ -780,8 +793,9 @@ exports.getBalances = async (req, res) => {
 
       let totalEarned = 0;
       if (comp) {
-        if (comp.paymentType === 'hourly') totalEarned = hours * comp.baseAmount;
-        else if (comp.paymentType === 'per_shift') totalEarned = rows.length * comp.baseAmount;
+        if (comp.paymentType === 'hourly' || comp.paymentType === 'per_shift') {
+          totalEarned = rows.reduce((sum, row) => sum + assignmentCost(row, comp, shiftById), 0);
+        }
         else if (comp.paymentType === 'monthly_fixed') {
           // Pro-rate: count unique months with at least one assignment
           const months = new Set(rows.map((r) => r.date.slice(0, 7)));
