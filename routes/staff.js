@@ -25,5 +25,8 @@ router.put('/assignments/:id', c.updateAssignment);
 router.delete('/assignments/:id', c.deleteAssignment);
 
 router.get('/costs', c.getWeeklyCosts);
+router.get('/costs/monthly', c.getMonthlyCosts);
+router.get('/balances', c.getBalances);
+router.post('/payments', c.createPayment);
 
 module.exports = router;
