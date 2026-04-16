@@ -437,6 +437,23 @@ exports.getAssignments = async (req, res) => {
   }
 };
 
+// GET /staff/employees/:id/assignments  — todos los turnos de un empleado
+exports.getEmployeeAssignments = async (req, res) => {
+  try {
+    const employee = await StaffEmployee.findOne({ _id: req.params.id, businessId: req.businessId }).lean();
+    if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
+
+    const assignments = await StaffAssignment.find({ businessId: req.businessId, employeeId: req.params.id })
+      .populate('shiftId', 'name startTime endTime')
+      .sort({ date: -1, createdAt: -1 })
+      .lean();
+
+    res.json({ assignments });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 exports.createAssignment = async (req, res) => {
   try {
     const {

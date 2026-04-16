@@ -18,6 +18,7 @@ router.patch('/employees/:id/status', c.setEmployeeStatus);
 
 router.get('/employees/:id/compensations', c.getEmployeeCompensations);
 router.post('/employees/:id/compensations', c.createEmployeeCompensation);
+router.get('/employees/:id/assignments', c.getEmployeeAssignments);
 
 router.get('/assignments', c.getAssignments);
 router.post('/assignments', c.createAssignment);
