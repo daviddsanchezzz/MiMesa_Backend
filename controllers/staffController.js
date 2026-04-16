@@ -461,6 +461,7 @@ exports.createAssignment = async (req, res) => {
       date,
       shiftId = null,
       roleLabel = '',
+      customPrice = null,
       notes = '',
     } = req.body || {};
 
@@ -478,6 +479,15 @@ exports.createAssignment = async (req, res) => {
     const shift = await Shift.findOne({ _id: shiftId, businessId: req.businessId }).lean();
     if (!shift) return res.status(404).json({ message: 'Turno no encontrado' });
 
+    let normalizedCustomPrice = null;
+    if (customPrice !== null && customPrice !== undefined && customPrice !== '') {
+      const parsed = Number(customPrice);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return res.status(400).json({ message: 'customPrice debe ser un numero mayor o igual a 0' });
+      }
+      normalizedCustomPrice = Number(parsed.toFixed(2));
+    }
+
     const assignment = await StaffAssignment.create({
       businessId: req.businessId,
       employeeId,
@@ -486,6 +496,7 @@ exports.createAssignment = async (req, res) => {
       startTime: '',
       endTime: '',
       roleLabel: String(roleLabel).trim(),
+      customPrice: normalizedCustomPrice,
       notes: String(notes),
     });
 
@@ -514,6 +525,17 @@ exports.updateAssignment = async (req, res) => {
       }
       const shift = await Shift.findOne({ _id: payload.shiftId, businessId: req.businessId }).lean();
       if (!shift) return res.status(404).json({ message: 'Turno no encontrado' });
+    }
+    if (payload.customPrice !== undefined) {
+      if (payload.customPrice === null || payload.customPrice === '') {
+        payload.customPrice = null;
+      } else {
+        const parsed = Number(payload.customPrice);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          return res.status(400).json({ message: 'customPrice debe ser un numero mayor o igual a 0' });
+        }
+        payload.customPrice = Number(parsed.toFixed(2));
+      }
     }
 
     const assignment = await StaffAssignment.findOneAndUpdate(
