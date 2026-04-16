@@ -2,6 +2,7 @@ const StaffEmployee = require('../models/StaffEmployee');
 const StaffCompensation = require('../models/StaffCompensation');
 const StaffAssignment = require('../models/StaffAssignment');
 const StaffPosition = require('../models/StaffPosition');
+const StaffPayment = require('../models/StaffPayment');
 const Shift = require('../models/Shift');
 
 function isValidIsoDate(date) {
@@ -613,6 +614,187 @@ exports.getWeeklyCosts = async (req, res) => {
       totalsByCurrency,
       monthlyEstimateByCurrency,
     });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /staff/costs/monthly?month=YYYY-MM
+exports.getMonthlyCosts = async (req, res) => {
+  try {
+    const monthRaw = req.query.month; // e.g. "2026-04"
+    if (!monthRaw || !/^\d{4}-\d{2}$/.test(monthRaw)) {
+      return res.status(400).json({ message: 'month requerido (YYYY-MM)' });
+    }
+    const [year, month] = monthRaw.split('-').map(Number);
+    const monthStart = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const monthEnd = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+    const [employees, assignments] = await Promise.all([
+      StaffEmployee.find({ businessId: req.businessId }).lean(),
+      StaffAssignment.find({
+        businessId: req.businessId,
+        date: { $gte: monthStart, $lte: monthEnd },
+      }).lean(),
+    ]);
+
+    const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
+    const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId })
+      .select('startTime endTime').lean();
+    const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
+
+    const compensationMap = await getActiveCompensationMap(req.businessId, employees.map((e) => e._id));
+
+    const assignmentsByEmployee = assignments.reduce((acc, row) => {
+      const key = String(row.employeeId);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(row);
+      return acc;
+    }, {});
+
+    const employeeCosts = employees
+      .filter((e) => e.status === 'active' || (assignmentsByEmployee[String(e._id)] || []).length > 0)
+      .map((employee) => {
+        const key = String(employee._id);
+        const comp = compensationMap.get(key);
+        const rows = assignmentsByEmployee[key] || [];
+        const totalMinutes = rows.reduce((sum, row) => sum + assignmentMinutes(row, shiftById), 0);
+        const hours = Number((totalMinutes / 60).toFixed(2));
+        const currency = comp?.currency || 'EUR';
+
+        let monthlyCost = 0;
+        if (comp) {
+          if (comp.paymentType === 'hourly') monthlyCost = hours * comp.baseAmount;
+          else if (comp.paymentType === 'per_shift') monthlyCost = rows.length * comp.baseAmount;
+          else if (comp.paymentType === 'monthly_fixed') monthlyCost = comp.baseAmount;
+        }
+
+        return {
+          employeeId: employee._id,
+          employeeName: `${employee.firstName} ${employee.lastName || ''}`.trim(),
+          employeeStatus: employee.status,
+          assignments: rows.length,
+          totalHours: hours,
+          compensation: comp || null,
+          currency,
+          monthlyCost: Number(monthlyCost.toFixed(2)),
+        };
+      });
+
+    const totalsByCurrency = employeeCosts.reduce((acc, row) => {
+      acc[row.currency] = Number(((acc[row.currency] || 0) + row.monthlyCost).toFixed(2));
+      return acc;
+    }, {});
+
+    res.json({ month: monthRaw, monthStart, monthEnd, employeeCosts, totalsByCurrency });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /staff/balances  — acumulado no pagado por empleado
+exports.getBalances = async (req, res) => {
+  try {
+    const employees = await StaffEmployee.find({ businessId: req.businessId }).lean();
+    if (!employees.length) return res.json({ balances: [] });
+
+    const employeeIds = employees.map((e) => e._id);
+
+    const [assignments, payments] = await Promise.all([
+      StaffAssignment.find({ businessId: req.businessId }).lean(),
+      StaffPayment.find({ businessId: req.businessId, employeeId: { $in: employeeIds } }).lean(),
+    ]);
+
+    const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
+    const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId })
+      .select('startTime endTime').lean();
+    const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
+
+    const compensationMap = await getActiveCompensationMap(req.businessId, employeeIds);
+
+    const assignmentsByEmployee = assignments.reduce((acc, row) => {
+      const key = String(row.employeeId);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(row);
+      return acc;
+    }, {});
+
+    const paidByEmployee = payments.reduce((acc, p) => {
+      const key = String(p.employeeId);
+      if (!acc[key]) acc[key] = { amount: 0, currency: p.currency, lastPaidAt: null };
+      acc[key].amount = Number((acc[key].amount + p.amount).toFixed(2));
+      if (!acc[key].lastPaidAt || p.paidAt > acc[key].lastPaidAt) {
+        acc[key].lastPaidAt = p.paidAt;
+        acc[key].currency = p.currency;
+      }
+      return acc;
+    }, {});
+
+    const balances = employees.map((employee) => {
+      const key = String(employee._id);
+      const comp = compensationMap.get(key);
+      const rows = assignmentsByEmployee[key] || [];
+      const totalMinutes = rows.reduce((sum, row) => sum + assignmentMinutes(row, shiftById), 0);
+      const hours = Number((totalMinutes / 60).toFixed(2));
+      const currency = comp?.currency || paidByEmployee[key]?.currency || 'EUR';
+
+      let totalEarned = 0;
+      if (comp) {
+        if (comp.paymentType === 'hourly') totalEarned = hours * comp.baseAmount;
+        else if (comp.paymentType === 'per_shift') totalEarned = rows.length * comp.baseAmount;
+        else if (comp.paymentType === 'monthly_fixed') {
+          // Pro-rate: count unique months with at least one assignment
+          const months = new Set(rows.map((r) => r.date.slice(0, 7)));
+          totalEarned = months.size * comp.baseAmount;
+        }
+      }
+
+      const totalPaid = paidByEmployee[key]?.amount || 0;
+      const balance = Number((totalEarned - totalPaid).toFixed(2));
+      const lastPaidAt = paidByEmployee[key]?.lastPaidAt || null;
+
+      return {
+        employeeId: employee._id,
+        employeeName: `${employee.firstName} ${employee.lastName || ''}`.trim(),
+        employeeStatus: employee.status,
+        assignments: rows.length,
+        totalHours: hours,
+        compensation: comp || null,
+        currency,
+        totalEarned: Number(totalEarned.toFixed(2)),
+        totalPaid,
+        balance,
+        lastPaidAt,
+      };
+    });
+
+    res.json({ balances });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /staff/payments  — registrar pago (opcionalmente por empleado o global)
+exports.createPayment = async (req, res) => {
+  try {
+    const { employeeId, amount, currency = 'EUR', notes = '' } = req.body;
+    if (!employeeId) return res.status(400).json({ message: 'employeeId requerido' });
+    if (typeof amount !== 'number' || amount <= 0) return res.status(400).json({ message: 'amount debe ser un número positivo' });
+
+    const employee = await StaffEmployee.findOne({ _id: employeeId, businessId: req.businessId }).lean();
+    if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
+
+    const payment = await StaffPayment.create({
+      businessId: req.businessId,
+      employeeId,
+      amount,
+      currency: String(currency).toUpperCase(),
+      notes,
+      paidAt: new Date(),
+    });
+
+    res.status(201).json(payment);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
