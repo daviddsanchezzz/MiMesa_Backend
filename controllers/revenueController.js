@@ -7,6 +7,25 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Returns today as YYYY-MM-DD in local time (avoids UTC offset shifting the date)
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Generates every date between from and to (inclusive) as YYYY-MM-DD strings.
+// Uses noon UTC to avoid DST edge cases when iterating.
+function generateDateRange(from, to) {
+  const dates = [];
+  const cur = new Date(`${from}T12:00:00Z`);
+  const end = new Date(`${to}T12:00:00Z`);
+  while (cur <= end) {
+    dates.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return dates;
+}
+
 async function getTicketAverage(businessId) {
   const biz = await Business.findById(businessId).select('ticketAverage').lean();
   return biz?.ticketAverage ?? 25;
@@ -78,11 +97,11 @@ async function getDashboard(req, res) {
       .sort((a, b) => b.amount - a.amount);
 
     // ── Per-day breakdown ────────────────────────────────────────────────────
-    const allDates = new Set([
-      ...Object.keys(estimatedByDate),
-      ...actuals.map((a) => a.date),
-    ]);
-    const days = Array.from(allDates).sort().map((date) => {
+    // Only show up to today — no future rows
+    const today = todayIso();
+    const effectiveTo = to > today ? today : to;
+    // Every calendar day in range, descending (today first)
+    const days = generateDateRange(from, effectiveTo).reverse().map((date) => {
       const est = estimatedByDate[date];
       const act = actualByDate[date];
       return {
