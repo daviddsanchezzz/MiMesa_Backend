@@ -1,0 +1,150 @@
+const DailyRevenue = require('../models/DailyRevenue');
+const Reservation  = require('../models/Reservation');
+const Business     = require('../models/Business');
+const Expense      = require('../models/Expense');
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function getTicketAverage(businessId) {
+  const biz = await Business.findById(businessId).select('ticketAverage').lean();
+  return biz?.ticketAverage ?? 25;
+}
+
+// Build per-day estimated revenue from reservations
+async function buildEstimatedByDate(businessId, from, to, ticketAverage) {
+  const reservations = await Reservation.find({
+    businessId,
+    date: { $gte: from, $lte: to },
+    status: { $in: ['confirmed', 'seated'] },
+  }).select('date people').lean();
+
+  const byDate = {};
+  for (const r of reservations) {
+    if (!byDate[r.date]) byDate[r.date] = { covers: 0, reservations: 0 };
+    byDate[r.date].covers += r.people || 0;
+    byDate[r.date].reservations += 1;
+  }
+  return byDate;
+}
+
+// ── Controllers ───────────────────────────────────────────────────────────────
+
+// GET /api/revenue/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD
+async function getDashboard(req, res) {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ message: 'Se requieren los parámetros from y to' });
+
+    const ticketAverage = await getTicketAverage(req.businessId);
+    const estimatedByDate = await buildEstimatedByDate(req.businessId, from, to, ticketAverage);
+
+    // Actual revenues entered manually
+    const actuals = await DailyRevenue.find({
+      businessId: req.businessId,
+      date: { $gte: from, $lte: to },
+    }).lean();
+    const actualByDate = {};
+    for (const a of actuals) actualByDate[a.date] = a;
+
+    // Expenses in period
+    const expenses = await Expense.find({
+      businessId: req.businessId,
+      expenseDate: { $gte: from, $lte: to },
+    }).lean();
+
+    // ── Totals ───────────────────────────────────────────────────────────────
+    const totalCovers = Object.values(estimatedByDate).reduce((s, d) => s + d.covers, 0);
+    const estimatedRevenue = Number((totalCovers * ticketAverage).toFixed(2));
+
+    const totalActual = actuals.reduce((s, a) => s + (a.actualRevenue ?? 0), 0);
+    const actualRevenue = actuals.some((a) => a.actualRevenue !== null)
+      ? Number(totalActual.toFixed(2))
+      : null;
+
+    const totalExpenses = Number(expenses.reduce((s, e) => s + (e.amount || 0), 0).toFixed(2));
+
+    const revenueBase = actualRevenue !== null ? actualRevenue : estimatedRevenue;
+    const estimatedProfit = Number((revenueBase - totalExpenses).toFixed(2));
+
+    // ── Expenses by category ─────────────────────────────────────────────────
+    const byCat = {};
+    for (const e of expenses) {
+      byCat[e.category] = (byCat[e.category] || 0) + (e.amount || 0);
+    }
+    const expensesByCategory = Object.entries(byCat)
+      .map(([category, amount]) => ({ category, amount: Number(amount.toFixed(2)) }))
+      .sort((a, b) => b.amount - a.amount);
+
+    // ── Per-day breakdown ────────────────────────────────────────────────────
+    const allDates = new Set([
+      ...Object.keys(estimatedByDate),
+      ...actuals.map((a) => a.date),
+    ]);
+    const days = Array.from(allDates).sort().map((date) => {
+      const est = estimatedByDate[date];
+      const act = actualByDate[date];
+      return {
+        date,
+        covers: est?.covers ?? 0,
+        reservations: est?.reservations ?? 0,
+        estimatedRevenue: est ? Number((est.covers * ticketAverage).toFixed(2)) : 0,
+        actualRevenue: act?.actualRevenue ?? null,
+        notes: act?.notes ?? '',
+      };
+    });
+
+    res.json({
+      ticketAverage,
+      estimatedRevenue,
+      actualRevenue,
+      totalExpenses,
+      estimatedProfit,
+      profitBasis: actualRevenue !== null ? 'actual' : 'estimated',
+      expensesByCategory,
+      totalCovers,
+      days,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+// PUT /api/revenue/actual  { date, actualRevenue, notes }
+async function upsertActual(req, res) {
+  try {
+    const { date, actualRevenue, notes } = req.body;
+    if (!date || !DATE_RE.test(date)) return res.status(400).json({ message: 'Fecha inválida' });
+
+    const doc = await DailyRevenue.findOneAndUpdate(
+      { businessId: req.businessId, date },
+      {
+        actualRevenue: actualRevenue !== '' && actualRevenue !== null
+          ? Number(actualRevenue)
+          : null,
+        notes: notes || '',
+      },
+      { upsert: true, new: true },
+    );
+    res.json(doc);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+// PUT /api/revenue/ticket-average  { ticketAverage }
+async function updateTicketAverage(req, res) {
+  try {
+    const { ticketAverage } = req.body;
+    const val = Number(ticketAverage);
+    if (isNaN(val) || val < 0) return res.status(400).json({ message: 'Valor inválido' });
+
+    await Business.findByIdAndUpdate(req.businessId, { ticketAverage: val });
+    res.json({ ticketAverage: val });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+module.exports = { getDashboard, upsertActual, updateTicketAverage };

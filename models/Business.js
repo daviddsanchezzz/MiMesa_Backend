@@ -42,6 +42,9 @@ const businessSchema = new mongoose.Schema({
     currency:               { type: String, default: 'eur' },
   },
 
+  // ── Finanzas config ──────────────────────────────────────────────────────────
+  ticketAverage: { type: Number, default: 25, min: 0 }, // euros por comensal
+
   // Module-level tenant overrides, e.g.:
   // moduleOverrides.staff.enabled = false
   moduleOverrides: {
