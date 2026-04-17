@@ -125,6 +125,7 @@ app.use('/api/staff',        require('./routes/staff'));
 app.use('/api/suppliers',    require('./routes/suppliers'));
 app.use('/api/expenses',     require('./routes/expenses'));
 app.use('/api/revenue',      require('./routes/revenue'));
+app.use('/api/categories',   require('./routes/categories'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
