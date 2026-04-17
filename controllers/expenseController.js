@@ -85,19 +85,49 @@ async function createExpense(req, res) {
 
 async function updateExpense(req, res) {
   try {
+    const { scope = 'single', category, amount, expenseDate, supplierId, notes, attachmentUrl } = req.body;
+
     const expense = await Expense.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!expense) return res.status(404).json({ message: 'Gasto no encontrado' });
 
-    const { category, amount, expenseDate, supplierId, notes, attachmentUrl } = req.body;
-    if (category !== undefined)    expense.category    = category;
-    if (amount !== undefined)      expense.amount      = Number(amount);
-    if (expenseDate !== undefined) expense.expenseDate = expenseDate;
-    if (supplierId !== undefined)  expense.supplierId  = supplierId || null;
-    if (notes !== undefined)       expense.notes       = notes;
+    if (category !== undefined)      expense.category      = category;
+    if (amount !== undefined)        expense.amount        = Number(amount);
+    if (expenseDate !== undefined)   expense.expenseDate   = expenseDate;
+    if (supplierId !== undefined)    expense.supplierId    = supplierId || null;
+    if (notes !== undefined)         expense.notes         = notes;
     if (attachmentUrl !== undefined) expense.attachmentUrl = attachmentUrl;
     // isRecurring / recurringExpenseId are not editable after creation
 
     await expense.save();
+
+    // Propagate to template + sibling expenses for 'future' and 'all' scopes
+    if (scope !== 'single' && expense.recurringExpenseId) {
+      // Fields shared between Expense and RecurringExpense
+      const shared = {};
+      if (category !== undefined)   shared.category   = category;
+      if (amount !== undefined)     shared.amount     = Number(amount);
+      if (supplierId !== undefined) shared.supplierId = supplierId || null;
+      if (notes !== undefined)      shared.notes      = notes;
+
+      if (Object.keys(shared).length > 0) {
+        await RecurringExpense.updateOne(
+          { _id: expense.recurringExpenseId, businessId: req.businessId },
+          { $set: shared },
+        );
+
+        const siblingFilter = {
+          businessId: req.businessId,
+          recurringExpenseId: expense.recurringExpenseId,
+          _id: { $ne: expense._id },
+        };
+        if (scope === 'future') {
+          // Only expenses dated after this one (this one is already saved above)
+          siblingFilter.expenseDate = { $gt: expense.expenseDate };
+        }
+        await Expense.updateMany(siblingFilter, { $set: shared });
+      }
+    }
+
     const populated = await Expense.findById(expense._id)
       .populate('supplierId', 'name')
       .populate('recurringExpenseId', 'dayOfMonth')
@@ -110,8 +140,35 @@ async function updateExpense(req, res) {
 
 async function deleteExpense(req, res) {
   try {
+    const { scope = 'single' } = req.query;
+
     const expense = await Expense.findOneAndDelete({ _id: req.params.id, businessId: req.businessId });
     if (!expense) return res.status(404).json({ message: 'Gasto no encontrado' });
+
+    if (scope !== 'single' && expense.recurringExpenseId) {
+      const templateId = expense.recurringExpenseId;
+
+      if (scope === 'future') {
+        // Delete this and all future instances
+        await Expense.deleteMany({
+          businessId: req.businessId,
+          recurringExpenseId: templateId,
+          expenseDate: { $gte: expense.expenseDate },
+        });
+        // Unlink any remaining past instances so they don't reference a missing template
+        await Expense.updateMany(
+          { businessId: req.businessId, recurringExpenseId: templateId },
+          { $set: { recurringExpenseId: null } },
+        );
+      } else if (scope === 'all') {
+        // Delete every instance linked to this template
+        await Expense.deleteMany({ businessId: req.businessId, recurringExpenseId: templateId });
+      }
+
+      // Remove the template in both cases so the cron stops generating new ones
+      await RecurringExpense.findOneAndDelete({ _id: templateId, businessId: req.businessId });
+    }
+
     res.json({ message: 'Gasto eliminado' });
   } catch (err) {
     res.status(500).json({ message: err.message });
