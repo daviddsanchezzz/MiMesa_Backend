@@ -14,8 +14,9 @@ const expenseSchema = new mongoose.Schema({
   expenseDate:   { type: String, required: true },  // YYYY-MM-DD
   notes:         { type: String, default: '' },
   attachmentUrl: { type: String, default: '' },
-  isRecurring:   { type: Boolean, default: false },
-  createdBy:     { type: String, default: null },   // Better Auth user ID
+  isRecurring:        { type: Boolean, default: false },
+  recurringExpenseId: { type: mongoose.Schema.Types.ObjectId, ref: 'RecurringExpense', default: null },
+  createdBy:          { type: String, default: null }, // Better Auth user ID or 'system' for cron
 }, { timestamps: true });
 
 expenseSchema.index({ businessId: 1, expenseDate: -1 });

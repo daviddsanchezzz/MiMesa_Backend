@@ -1,8 +1,10 @@
 const cron = require('node-cron');
 const Reservation = require('../models/Reservation');
-const Business = require('../models/Business');
+const Business    = require('../models/Business');
 const ReminderLog = require('../models/ReminderLog');
-const { canUseFeature } = require('../lib/planCapabilities');
+const Expense          = require('../models/Expense');
+const RecurringExpense = require('../models/RecurringExpense');
+const { canUseFeature, canUseModule } = require('../lib/planCapabilities');
 const { sendReservationReminderEmail } = require('./email');
 
 let started = false;
@@ -69,18 +71,95 @@ async function runReservationReminders() {
   }
 }
 
+// ── Recurring expenses ────────────────────────────────────────────────────────
+// Runs daily. For each active template whose dayOfMonth <= today's day,
+// creates an expense for this month if one hasn't been generated yet.
+// If the server was down on the 4th and restarts on the 6th, the expense is
+// still created — with expenseDate set to the 4th (the correct accounting date).
+
+async function generateRecurringExpenses() {
+  const now          = new Date();
+  const todayDay     = now.getDate();                                   // e.g. 6
+  const curYear      = now.getFullYear();
+  const curMonthNum  = String(now.getMonth() + 1).padStart(2, '0');
+  const daysInMonth  = new Date(curYear, now.getMonth() + 1, 0).getDate();
+  const monthStart   = `${curYear}-${curMonthNum}-01`;
+  const monthEnd     = `${curYear}-${curMonthNum}-${String(daysInMonth).padStart(2, '0')}`;
+
+  // Only businesses with an active/trialing subscription
+  const businesses = await Business.find({
+    subscriptionStatus: { $in: ['active', 'trialing'] },
+  }).select('plan subscriptionStatus moduleOverrides').lean();
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const business of businesses) {
+    if (!canUseModule(business, 'expenses')) continue;
+
+    // Templates whose day has already passed (or is today) this month
+    const templates = await RecurringExpense.find({
+      businessId: business._id,
+      isActive:   true,
+      dayOfMonth: { $lte: todayDay },
+    }).lean();
+
+    for (const tpl of templates) {
+      // Already generated this month for this template?
+      const exists = await Expense.findOne({
+        businessId:         business._id,
+        recurringExpenseId: tpl._id,
+        expenseDate:        { $gte: monthStart, $lte: monthEnd },
+      }).lean();
+
+      if (exists) { skipped++; continue; }
+
+      // Use the template's dayOfMonth as the accounting date (capped to month length)
+      const day        = Math.min(tpl.dayOfMonth, daysInMonth);
+      const targetDate = `${curYear}-${curMonthNum}-${String(day).padStart(2, '0')}`;
+
+      await Expense.create({
+        businessId:         tpl.businessId,
+        supplierId:         tpl.supplierId ?? null,
+        category:           tpl.category,
+        amount:             tpl.amount,
+        currency:           tpl.currency || 'EUR',
+        expenseDate:        targetDate,
+        notes:              tpl.notes || '',
+        attachmentUrl:      '',
+        isRecurring:        true,
+        recurringExpenseId: tpl._id,
+        createdBy:          'system',
+      });
+      created++;
+    }
+  }
+
+  console.log(`[scheduler] recurring expenses: ${created} created, ${skipped} skipped`);
+}
+
 function startSchedulers() {
   if (started) return;
   started = true;
+  // Reservation reminders: every 15 minutes
   cron.schedule('*/15 * * * *', () => {
     runReservationReminders().catch((err) => {
       console.error('[scheduler] reservation reminders failed:', err.message);
     });
   });
   console.log('[scheduler] started reservation reminder job (every 15 minutes)');
+
+  // Recurring expenses: every day at 05:00
+  cron.schedule('0 5 * * *', () => {
+    generateRecurringExpenses().catch((err) => {
+      console.error('[scheduler] recurring expenses failed:', err.message);
+    });
+  });
+  console.log('[scheduler] started recurring expenses job (daily at 05:00)');
 }
 
 module.exports = {
   startSchedulers,
   runReservationReminders,
+  generateRecurringExpenses,
 };
