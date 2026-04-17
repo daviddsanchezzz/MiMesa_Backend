@@ -459,7 +459,7 @@ exports.getEmployeeAssignments = async (req, res) => {
 
     const assignments = await StaffAssignment.find({ businessId: req.businessId, employeeId: req.params.id })
       .populate('shiftId', 'name startTime endTime')
-      .sort({ date: -1, createdAt: -1 })
+      .sort({ date: 1, createdAt: 1 })
       .lean();
 
     res.json({ assignments });
