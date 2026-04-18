@@ -546,10 +546,96 @@ async function sendReservationReminderEmail(reservation, business) {
   await resend.emails.send({ from: fromBusiness(business.name), to, subject, html });
 }
 
+async function sendPendingApprovalStaffNotification(recipients, reservation, business) {
+  if (!Array.isArray(recipients) || recipients.length === 0) return;
+  if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
+
+  const subject = `Reserva pendiente de aprobación - ${business.name}`;
+  const appUrl = process.env.APP_URL || 'https://app.tableo.app';
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reserva pendiente</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
+          <tr>
+            <td style="background:#d97706;padding:24px 32px;">
+              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">⏳ Reserva pendiente de aprobación</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 32px;">
+              <p style="margin:0 0 20px;font-size:14px;color:#374151;">
+                Una nueva reserva requiere tu aprobación antes de confirmarse.
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px 20px;margin-bottom:20px;">
+                <tr><td>
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    ${detailRow('Cliente', reservation.guestName || '-')}
+                    ${detailRow('Fecha', fmtDate(reservation.date))}
+                    ${detailRow('Hora', reservation.time || '-')}
+                    ${detailRow('Personas', String(reservation.people || '-'))}
+                    ${reservation.guestPhone ? detailRow('Teléfono', reservation.guestPhone) : ''}
+                    ${reservation.guestEmail ? detailRow('Email', reservation.guestEmail) : ''}
+                    ${reservation.pendingReason === 'large_group' ? detailRow('Motivo', 'Grupo grande') : ''}
+                    ${reservation.pendingReason === 'slot_capacity' ? detailRow('Motivo', 'Capacidad del slot') : ''}
+                  </table>
+                </td></tr>
+              </table>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="${appUrl}/reservas"
+                      style="display:inline-block;background:#d97706;color:#ffffff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:10px;text-decoration:none;">
+                      Revisar reserva
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f9fafb;padding:16px 32px 20px;border-top:1px solid #e5e7eb;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
+                Este correo ha sido generado automáticamente, por favor no respondas a este mensaje.
+              </p>
+              <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
+                Powered by <a href="${process.env.LANDING_URL || 'https://tableo.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  try {
+    await resend.emails.send({
+      from: fromBusiness(business.name),
+      to: recipients,
+      subject,
+      html,
+    });
+  } catch (err) {
+    console.error('[email] sendPendingApprovalStaffNotification failed:', err.message);
+  }
+}
+
 module.exports = {
   sendReservationConfirmation,
   sendStatusUpdate,
   sendStaffReservationNotification,
+  sendPendingApprovalStaffNotification,
   sendContactEmail,
   sendReservationPendingEmail,
   sendAlternativeProposalEmail,

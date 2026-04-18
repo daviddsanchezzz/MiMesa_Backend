@@ -10,6 +10,7 @@ const {
   sendReservationConfirmation,
   sendStatusUpdate,
   sendStaffReservationNotification,
+  sendPendingApprovalStaffNotification,
   sendReservationPendingEmail,
   sendAlternativeProposalEmail,
 } = require('../services/email');
@@ -135,6 +136,34 @@ async function notifyStaff(businessId, reservation, eventType) {
     await sendStaffReservationNotification(recipients, reservation, business, eventType, customerStats);
   } catch (err) {
     console.error('[reservations] notifyStaff failed:', err.message);
+  }
+}
+
+async function notifyStaffPending(businessId, reservation) {
+  try {
+    const business = await Business.findById(businessId).select('name brandColor email');
+    if (!business) return;
+
+    const members = await BusinessMember.find({
+      businessId,
+      status: { $ne: 'invited' },
+      userEmail: { $ne: '' },
+    }).select('userEmail notificationPreferences role');
+
+    const recipients = [...new Set(
+      members
+        .filter((m) => {
+          const prefs = m.notificationPreferences || {};
+          return prefs.newReservationEmail !== false;
+        })
+        .map((m) => m.userEmail)
+        .filter(Boolean)
+    )];
+
+    if (recipients.length === 0) return;
+    await sendPendingApprovalStaffNotification(recipients, reservation, business);
+  } catch (err) {
+    console.error('[reservations] notifyStaffPending failed:', err.message);
   }
 }
 
@@ -386,6 +415,9 @@ exports.createReservation = async (req, res) => {
       if (populated.status === 'pending') await sendReservationPendingEmail(populated, business);
       else await sendReservationConfirmation(populated, business);
     }
+    if (populated.status === 'pending') {
+      await notifyStaffPending(req.businessId, populated);
+    }
 
     const payload = populated.toObject ? populated.toObject() : populated;
     if (payload.status === 'pending') {
@@ -590,7 +622,9 @@ exports.createPublicReservation = async (req, res) => {
       if (populated.status === 'pending') await sendReservationPendingEmail(populated, business);
       else await sendReservationConfirmation(populated, business);
     }
-    if (canUseFeature(business, 'staffNotifications')) {
+    if (populated.status === 'pending') {
+      await notifyStaffPending(businessId, populated);
+    } else if (canUseFeature(business, 'staffNotifications')) {
       await notifyStaff(businessId, populated, 'created');
     }
 
