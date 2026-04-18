@@ -181,7 +181,7 @@ exports.getPositions = async (req, res) => {
     const includeInactive = req.query.includeInactive === 'true';
     const filter = { businessId: req.businessId };
     if (!includeInactive) filter.status = 'active';
-    const rows = await StaffPosition.find(filter).sort({ name: 1 }).lean();
+    const rows = await StaffPosition.find(filter).sort({ order: 1, name: 1 }).lean();
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -259,6 +259,21 @@ exports.setPositionStatus = async (req, res) => {
     res.json(row);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+};
+
+exports.reorderPositions = async (req, res) => {
+  try {
+    const { ids } = req.body; // array of position ids in the desired order
+    if (!Array.isArray(ids)) return res.status(400).json({ message: 'ids must be an array' });
+    await Promise.all(
+      ids.map((id, index) =>
+        StaffPosition.updateOne({ _id: id, businessId: req.businessId }, { order: index }),
+      ),
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };
 

@@ -6,6 +6,7 @@ const staffPositionSchema = new mongoose.Schema({
   color: { type: String, default: '#64748B', trim: true },
   status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
   normalizedName: { type: String, required: true, trim: true },
+  order: { type: Number, default: 0 },
 }, { timestamps: true });
 
 staffPositionSchema.index({ businessId: 1, normalizedName: 1 }, { unique: true });

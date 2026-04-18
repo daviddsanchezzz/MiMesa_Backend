@@ -8,6 +8,7 @@ router.use(requireAuth, requireRole('manager'), requireModule('staff'));
 
 router.get('/positions', c.getPositions);
 router.post('/positions', c.createPosition);
+router.patch('/positions/reorder', c.reorderPositions);
 router.put('/positions/:id', c.updatePosition);
 router.patch('/positions/:id/status', c.setPositionStatus);
 
