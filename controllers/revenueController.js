@@ -2,6 +2,7 @@ const DailyRevenue = require('../models/DailyRevenue');
 const Reservation  = require('../models/Reservation');
 const Business     = require('../models/Business');
 const Expense      = require('../models/Expense');
+const { calculateStaffCostForRange } = require('../lib/staffCosts');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -67,11 +68,15 @@ async function getDashboard(req, res) {
     const actualByDate = {};
     for (const a of actuals) actualByDate[a.date] = a;
 
-    // Expenses in period
+    // Expenses in period — exclude 'staff' (comes from the staff module instead)
     const expenses = await Expense.find({
       businessId: req.businessId,
       expenseDate: { $gte: from, $lte: to },
+      category: { $ne: 'staff' },
     }).lean();
+
+    // Staff cost calculated directly from the staff module (read-through)
+    const staffCost = await calculateStaffCostForRange(req.businessId, from, to);
 
     // ── Totals ───────────────────────────────────────────────────────────────
     const totalCovers = Object.values(estimatedByDate).reduce((s, d) => s + d.covers, 0);
@@ -82,7 +87,8 @@ async function getDashboard(req, res) {
       ? Number(totalActual.toFixed(2))
       : null;
 
-    const totalExpenses = Number(expenses.reduce((s, e) => s + (e.amount || 0), 0).toFixed(2));
+    const manualExpensesTotal = Number(expenses.reduce((s, e) => s + (e.amount || 0), 0).toFixed(2));
+    const totalExpenses = Number((manualExpensesTotal + staffCost).toFixed(2));
 
     const revenueBase = actualRevenue !== null ? actualRevenue : estimatedRevenue;
     const estimatedProfit = Number((revenueBase - totalExpenses).toFixed(2));
@@ -91,6 +97,10 @@ async function getDashboard(req, res) {
     const byCat = {};
     for (const e of expenses) {
       byCat[e.category] = (byCat[e.category] || 0) + (e.amount || 0);
+    }
+    // Inject staff cost from the staff module (only if > 0)
+    if (staffCost > 0) {
+      byCat['staff'] = (byCat['staff'] || 0) + staffCost;
     }
     const expensesByCategory = Object.entries(byCat)
       .map(([category, amount]) => ({ category, amount: Number(amount.toFixed(2)) }))
