@@ -7,6 +7,7 @@ const Vacation       = require('../models/Vacation');
 const Reservation    = require('../models/Reservation');
 const Customer       = require('../models/Customer');
 const Invitation     = require('../models/Invitation');
+const { sendNewBusinessOwnerNotification } = require('../services/email');
 
 // POST /api/businesses
 // Creates a new Business and makes the authenticated user its owner.
@@ -32,6 +33,16 @@ exports.createBusiness = async (req, res) => {
       status:    'active',
       userName:  req.user.name || '',
       userEmail: req.user.email,
+    });
+
+    await sendNewBusinessOwnerNotification({
+      business,
+      owner: {
+        id: req.user.id,
+        name: req.user.name || '',
+        email: req.user.email || '',
+        phone: req.user.phone || '',
+      },
     });
 
     res.status(201).json({

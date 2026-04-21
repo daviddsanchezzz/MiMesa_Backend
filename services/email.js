@@ -631,6 +631,89 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
   }
 }
 
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function sendNewBusinessOwnerNotification({ business, owner }) {
+  if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
+  const to = (process.env.DEV_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+  if (to.length === 0) return;
+
+  const safeBusinessName = escapeHtml(business?.name || '-');
+  const safeBusinessEmail = escapeHtml(business?.email || '-');
+  const safeBusinessPhone = escapeHtml(business?.phone || '-');
+  const safeBusinessCif = escapeHtml(business?.cif || '-');
+  const safeBusinessId = escapeHtml(String(business?._id || '-'));
+
+  const safeOwnerName = escapeHtml(owner?.name || '-');
+  const safeOwnerEmail = escapeHtml(owner?.email || '-');
+  const safeOwnerId = escapeHtml(owner?.id || '-');
+  const safeOwnerPhone = escapeHtml(owner?.phone || '-');
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
+        <tr><td style="background:#4f46e5;padding:24px 32px;">
+          <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Nuevo negocio creado en Tableo</p>
+        </td></tr>
+        <tr><td style="padding:28px 32px;">
+          <p style="margin:0 0 18px;font-size:14px;color:#374151;line-height:1.6;">
+            Se ha unido una nueva empresa a la plataforma.
+          </p>
+
+          <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Empresa</p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px;margin-bottom:16px;">
+            <tr><td>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                ${detailRow('Nombre', safeBusinessName)}
+                ${detailRow('Email', safeBusinessEmail)}
+                ${detailRow('Teléfono', safeBusinessPhone)}
+                ${detailRow('CIF/NIF', safeBusinessCif)}
+                ${detailRow('Business ID', safeBusinessId)}
+              </table>
+            </td></tr>
+          </table>
+
+          <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Owner</p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px;">
+            <tr><td>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                ${detailRow('Nombre', safeOwnerName)}
+                ${detailRow('Email', safeOwnerEmail)}
+                ${detailRow('Teléfono', safeOwnerPhone)}
+                ${detailRow('User ID', safeOwnerId)}
+              </table>
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  try {
+    await resend.emails.send({
+      from: process.env.RESEND_FROM_SYSTEM || 'Tableo <onboarding@resend.dev>',
+      to,
+      subject: `[Tableo] Nueva empresa: ${business?.name || 'Sin nombre'}`,
+      html,
+    });
+  } catch (err) {
+    console.error('[email] sendNewBusinessOwnerNotification failed:', err.message);
+  }
+}
+
 module.exports = {
   sendReservationConfirmation,
   sendStatusUpdate,
@@ -640,4 +723,5 @@ module.exports = {
   sendReservationPendingEmail,
   sendAlternativeProposalEmail,
   sendReservationReminderEmail,
+  sendNewBusinessOwnerNotification,
 };
