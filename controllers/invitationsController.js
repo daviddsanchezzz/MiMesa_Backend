@@ -2,6 +2,7 @@ const Invitation     = require('../models/Invitation');
 const BusinessMember = require('../models/BusinessMember');
 const Business       = require('../models/Business');
 const { Resend }     = require('resend');
+const { sendTrackedEmail } = require('../services/emailDelivery');
 
 let _warnedMissingResendKey = false;
 function getResendClient() {
@@ -40,7 +41,12 @@ async function sendEmailOrThrow(payload) {
   if (!resend) {
     throw new Error('RESEND_API_KEY no configurada en el servidor');
   }
-  const result = await resend.emails.send(payload);
+  const result = await sendTrackedEmail({
+    resend,
+    payload,
+    source: 'invitation.send',
+    metadata: { to: payload?.to },
+  });
   if (result?.error) {
     throw new Error(result.error.message || 'Error enviando email con Resend');
   }

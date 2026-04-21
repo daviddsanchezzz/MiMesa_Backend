@@ -3,6 +3,7 @@ const BusinessMember = require('../models/BusinessMember');
 const Reservation    = require('../models/Reservation');
 const AuthUser       = require('../models/AuthUser');
 const { getModuleAccess } = require('../lib/planCapabilities');
+const { sendTrackedEmail } = require('../services/emailDelivery');
 
 const MODULE_CATALOG = [
   { key: 'staff', name: 'Personal', description: 'Gestion de empleados y planificacion de turnos' },
@@ -230,7 +231,11 @@ exports.inviteUser = async (req, res) => {
 
     const inviteUrl = `${process.env.FRONTEND_URL}/invite?token=${invitation.token}`;
 
-    await resend.emails.send({
+    await sendTrackedEmail({
+      resend,
+      source: 'dev.invite_user',
+      metadata: { invitedEmail: email, invitationId: String(invitation._id) },
+      payload: {
       from:    process.env.RESEND_FROM_INVITE || 'Tableo <onboarding@resend.dev>',
       to:      email,
       subject: 'Te han dado acceso a Tableo',
@@ -250,6 +255,7 @@ exports.inviteUser = async (req, res) => {
           <p style="color:#aaa;font-size:12px;margin-top:32px">El enlace caduca en 7 días.</p>
         </div>
       `,
+      },
     });
 
     res.status(201).json({

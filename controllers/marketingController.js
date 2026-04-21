@@ -2,6 +2,7 @@ const Customer         = require('../models/Customer');
 const MarketingCampaign = require('../models/MarketingCampaign');
 const Business         = require('../models/Business');
 const { Resend }       = require('resend');
+const { sendTrackedEmail } = require('../services/emailDelivery');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -113,7 +114,15 @@ exports.sendCampaign = async (req, res) => {
 </html>`;
 
       try {
-        const result = await resend.emails.send({ from, to: customer.email, subject, html });
+        const result = await sendTrackedEmail({
+          resend,
+          source: 'marketing.campaign',
+          metadata: {
+            businessId: String(req.businessId),
+            customerId: String(customer._id),
+          },
+          payload: { from, to: customer.email, subject, html },
+        });
         if (result.error) errors.push(customer.email);
         else sent++;
       } catch {
