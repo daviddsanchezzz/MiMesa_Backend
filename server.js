@@ -82,6 +82,18 @@ app.use('/api/auth/register',        authLimiter);
 app.use('/api/betterauth/sign-in',   authLimiter);
 app.use('/api/betterauth/sign-up',   authLimiter);
 app.use('/api/betterauth/forget-password', authLimiter);
+app.use('/api/betterauth/forgot-password', authLimiter);
+app.use('/api/betterauth/request-password-reset', authLimiter);
+
+// Compatibility aliases for legacy frontend versions:
+// /forget-password and /forgot-password now map to Better Auth's
+// canonical /request-password-reset endpoint.
+app.use('/api/betterauth', (req, res, next) => {
+  if (req.path === '/forget-password' || req.path === '/forgot-password') {
+    req.url = req.url.replace(req.path, '/request-password-reset');
+  }
+  next();
+});
 
 // ── MongoDB + Better Auth bootstrap ─────────────────────────────────────────
 // Connect Mongoose for business data, then spin up Better Auth with native client
@@ -134,4 +146,3 @@ app.listen(PORT, () => {
   startSchedulers();
   console.log(`Server running on port ${PORT}`);
 });
-
