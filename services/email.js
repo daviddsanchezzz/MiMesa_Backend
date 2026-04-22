@@ -95,7 +95,7 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
 
   const contactInfo = [];
   if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`TelÃ©fono: ${businessPhone}`);
+  if (businessPhone) contactInfo.push(`Teléfono: ${businessPhone}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -612,7 +612,7 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
                     ${detailRow('Fecha', fmtDate(reservation.date))}
                     ${detailRow('Hora', reservation.time || '-')}
                     ${detailRow('Personas', String(reservation.people || '-'))}
-                    ${reservation.guestPhone ? detailRow('TelÃ©fono', reservation.guestPhone) : ''}
+                    ${reservation.guestPhone ? detailRow('Teléfono', reservation.guestPhone) : ''}
                     ${reservation.guestEmail ? detailRow('Email', reservation.guestEmail) : ''}
                     ${reservation.pendingReason === 'large_group' ? detailRow('Motivo', 'Grupo grande') : ''}
                     ${reservation.pendingReason === 'slot_capacity' ? detailRow('Motivo', 'Capacidad del slot') : ''}
@@ -709,7 +709,7 @@ async function sendNewBusinessOwnerNotification({ business, owner }) {
               <table width="100%" cellpadding="0" cellspacing="0">
                 ${detailRow('Nombre', safeBusinessName)}
                 ${detailRow('Email', safeBusinessEmail)}
-                ${detailRow('TelÃ©fono', safeBusinessPhone)}
+                ${detailRow('Teléfono', safeBusinessPhone)}
                 ${detailRow('CIF/NIF', safeBusinessCif)}
                 ${detailRow('Business ID', safeBusinessId)}
               </table>
@@ -722,7 +722,7 @@ async function sendNewBusinessOwnerNotification({ business, owner }) {
               <table width="100%" cellpadding="0" cellspacing="0">
                 ${detailRow('Nombre', safeOwnerName)}
                 ${detailRow('Email', safeOwnerEmail)}
-                ${detailRow('TelÃ©fono', safeOwnerPhone)}
+                ${detailRow('Teléfono', safeOwnerPhone)}
                 ${detailRow('User ID', safeOwnerId)}
               </table>
             </td></tr>
