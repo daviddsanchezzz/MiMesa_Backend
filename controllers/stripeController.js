@@ -7,8 +7,13 @@ const { getEffectivePlan, checkReservationLimit } = require('../lib/planCapabili
 // Creates a Stripe Checkout session with 14-day trial and returns the redirect URL.
 exports.createCheckoutSession = async (req, res) => {
   try {
-    const { priceId } = req.body;
-    if (!priceId) return res.status(400).json({ message: 'priceId is required' });
+    const bodyPriceId = req.body?.priceId;
+    const priceId = bodyPriceId || process.env.STRIPE_PRICE_BASIC;
+    if (!priceId) {
+      return res.status(400).json({
+        message: 'No hay precio configurado para Basic. Define STRIPE_PRICE_BASIC en backend.',
+      });
+    }
 
     const business   = await Business.findById(req.businessId);
     if (!business)   return res.status(404).json({ message: 'Business not found' });
