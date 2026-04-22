@@ -7,6 +7,7 @@ const { sendTrackedEmail } = require('../services/emailDelivery');
 
 const MODULE_CATALOG = [
   { key: 'staff', name: 'Personal', description: 'Gestion de empleados y planificacion de turnos' },
+  { key: 'expenses', name: 'Finanzas', description: 'Control de gastos, categorias, proveedores y analitica financiera' },
 ];
 
 // ── GET /api/dev/businesses ───────────────────────────────────────────────
