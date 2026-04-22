@@ -660,7 +660,7 @@ exports.cancelPublicReservation = async (req, res) => {
     if (reservation.status === 'cancelled') return res.json({ message: 'Esta reserva ya ha sido cancelada anteriormente.' });
 
     const business = await Business.findById(reservation.businessId)
-      .select('name brandColor email phone stripeConnectId reservationPayment');
+      .select('name brandColor email phone stripeConnectId reservationPayment plan subscriptionStatus');
 
     // ── Reembolso automático si el modo es depósito y está dentro de la ventana ──
     const rp = business?.reservationPayment || {};
@@ -697,7 +697,7 @@ exports.cancelPublicReservation = async (req, res) => {
       await Customer.findByIdAndUpdate(reservation.customerId, { $inc: { cancellationCount: 1 } });
     }
 
-    if (reservation.guestEmail && business) await sendStatusUpdate(reservation, business, 'cancelled');
+    if (reservation.guestEmail && business && canUseFeature(business, 'autoEmails')) await sendStatusUpdate(reservation, business, 'cancelled');
     await notifyStaff(reservation.businessId, reservation, 'cancelled');
 
     const refunded = reservation.payment?.status === 'refunded';
@@ -729,7 +729,7 @@ exports.acceptPendingReservation = async (req, res) => {
     const populated = await reservation.populate(POPULATE);
     await updateTableStatusForReservation(populated, req.businessId);
 
-    if (reservation.guestEmail && business) await sendStatusUpdate(populated, business, 'confirmed');
+    if (reservation.guestEmail && business && canUseFeature(business, 'autoEmails')) await sendStatusUpdate(populated, business, 'confirmed');
     res.json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -753,7 +753,7 @@ exports.rejectPendingReservation = async (req, res) => {
     const populated = await reservation.populate(POPULATE);
     await updateTableStatusForReservation(populated, req.businessId);
 
-    if (reservation.guestEmail && business) await sendStatusUpdate(populated, business, 'cancelled');
+    if (reservation.guestEmail && business && canUseFeature(business, 'autoEmails')) await sendStatusUpdate(populated, business, 'cancelled');
     await notifyStaff(req.businessId, populated, 'cancelled');
     res.json(populated);
   } catch (err) {
@@ -878,8 +878,10 @@ exports.updateReservation = async (req, res) => {
 
     const statusChanged = reservation.status !== old.status;
     if (statusChanged && reservation.guestEmail && ['confirmed', 'cancelled'].includes(reservation.status)) {
-      const business = await Business.findById(req.businessId).select('name brandColor email phone');
-      await sendStatusUpdate(reservation, business, reservation.status);
+      const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus');
+      if (canUseFeature(business, 'autoEmails')) {
+        await sendStatusUpdate(reservation, business, reservation.status);
+      }
     }
     if (statusChanged && reservation.status === 'cancelled') {
       await notifyStaff(req.businessId, reservation, 'cancelled');
