@@ -27,6 +27,7 @@ exports.listBusinesses = async (req, res) => {
         name:               b.name,
         email:              b.email,
         phone:              b.phone || '',
+        address:            b.address || '',
         plan:               b.plan || 'free',
         subscriptionStatus: b.subscriptionStatus || null,
         modules: MODULE_CATALOG.reduce((acc, m) => {
@@ -107,7 +108,7 @@ exports.listUsers = async (req, res) => {
 // ── POST /api/dev/businesses ──────────────────────────────────────────────
 exports.createBusiness = async (req, res) => {
   try {
-    const { name, email, phone = '', plan = 'free' } = req.body;
+    const { name, email, phone = '', address = '', plan = 'free' } = req.body;
     if (!name || !email) return res.status(400).json({ message: 'Nombre y email son obligatorios' });
 
     const VALID_PLANS = ['free', 'basic', 'pro'];
@@ -120,6 +121,7 @@ exports.createBusiness = async (req, res) => {
       name,
       email: email.toLowerCase(),
       phone,
+      address,
       plan,
       subscriptionStatus: plan === 'free' ? null : 'active',
     });

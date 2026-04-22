@@ -14,7 +14,7 @@ const { sendNewBusinessOwnerNotification } = require('../services/email');
 // Uses requireSession — works for users with no membership yet.
 exports.createBusiness = async (req, res) => {
   try {
-    const { name, email, phone = '', cif = '' } = req.body;
+    const { name, email, phone = '', address = '', cif = '' } = req.body;
     if (!name) return res.status(400).json({ message: 'El nombre del negocio es obligatorio' });
     if (!email) return res.status(400).json({ message: 'El email del restaurante es obligatorio' });
 
@@ -22,6 +22,7 @@ exports.createBusiness = async (req, res) => {
       name,
       email: email.toLowerCase(),
       phone,
+      address,
       cif,
       ownerId: req.user.id,
     });

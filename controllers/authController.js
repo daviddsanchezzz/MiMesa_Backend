@@ -21,7 +21,7 @@ const setRefreshCookie = (res, token) => {
 
 const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
-  phone: b.phone, cif: b.cif, brandColor: b.brandColor,
+  phone: b.phone, address: b.address, cif: b.cif, brandColor: b.brandColor,
   maxReservationPeople: b.maxReservationPeople,
   maxPeoplePerSlot: b.maxPeoplePerSlot ?? null,
   reservationDuration: b.reservationDuration ?? null,
@@ -169,7 +169,7 @@ exports.me = async (req, res) => {
 
 exports.getPublicBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id).select('name email phone brandColor maxReservationPeople maxPeoplePerSlot reservationDuration');
+    const business = await Business.findById(req.params.id).select('name email phone address brandColor maxReservationPeople maxPeoplePerSlot reservationDuration');
     if (!business) return res.status(404).json({ message: 'Business not found' });
     res.json(business);
   } catch (err) {
@@ -179,10 +179,11 @@ exports.getPublicBusiness = async (req, res) => {
 
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    const { brandColor, maxReservationPeople, maxPeoplePerSlot, name, phone, email, cif, requireApprovalAbove, reminderHoursBefore } = req.body;
+    const { brandColor, maxReservationPeople, maxPeoplePerSlot, name, phone, address, email, cif, requireApprovalAbove, reminderHoursBefore } = req.body;
     const updateData = {};
     if (name !== undefined) updateData.name = String(name).trim();
     if (phone !== undefined) updateData.phone = String(phone).trim();
+    if (address !== undefined) updateData.address = String(address).trim();
     if (cif !== undefined) updateData.cif = String(cif).trim();
     if (brandColor !== undefined) updateData.brandColor = brandColor;
     if (maxReservationPeople !== undefined) updateData.maxReservationPeople = maxReservationPeople;
