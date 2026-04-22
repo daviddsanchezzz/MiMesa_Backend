@@ -1,7 +1,7 @@
-const BusinessMember = require('../models/BusinessMember');
+﻿const BusinessMember = require('../models/BusinessMember');
 const AuthUser       = require('../models/AuthUser');
 
-// ── GET /api/members ──────────────────────────────────────────────────────
+// -- GET /api/members -------------------------------------------------------
 // List all members of the current business.
 exports.listMembers = async (req, res) => {
   try {
@@ -15,7 +15,7 @@ exports.listMembers = async (req, res) => {
   }
 };
 
-// ── POST /api/members ─────────────────────────────────────────────────────
+// -- POST /api/members ------------------------------------------------------
 // Add a registered user to this business by email.
 // The user must already have a Better Auth account.
 exports.addMember = async (req, res) => {
@@ -23,9 +23,12 @@ exports.addMember = async (req, res) => {
     const { email, role = 'staff' } = req.body;
     if (!email) return res.status(400).json({ message: 'El email es obligatorio' });
 
-    const VALID_ADD_ROLES = ['manager', 'staff'];
+    const VALID_ADD_ROLES = ['owner', 'manager', 'staff'];
     if (!VALID_ADD_ROLES.includes(role)) {
       return res.status(400).json({ message: `Rol inválido. Usa: ${VALID_ADD_ROLES.join(', ')}` });
+    }
+    if (role === 'owner' && req.role !== 'owner') {
+      return res.status(403).json({ message: 'Solo un owner puede asignar el rol owner' });
     }
 
     // Look up the Better Auth user by email
@@ -63,7 +66,7 @@ exports.addMember = async (req, res) => {
   }
 };
 
-// ── PUT /api/members/:memberId ────────────────────────────────────────────
+// -- PUT /api/members/:memberId ---------------------------------------------
 // Change a member's role. Only owners can do this.
 exports.updateRole = async (req, res) => {
   try {
@@ -92,7 +95,7 @@ exports.updateRole = async (req, res) => {
   }
 };
 
-// ── DELETE /api/members/:memberId ─────────────────────────────────────────
+// -- DELETE /api/members/:memberId ------------------------------------------
 // Remove a member from this business. Cannot remove the owner.
 exports.removeMember = async (req, res) => {
   try {
@@ -116,7 +119,7 @@ exports.removeMember = async (req, res) => {
   }
 };
 
-// —— PUT /api/members/:memberId/notifications ——————————————————————————————
+// -- PUT /api/members/:memberId/notifications ------------------------------
 // Authenticated users can only update their own notification preferences.
 exports.updateNotifications = async (req, res) => {
   try {
@@ -149,3 +152,5 @@ exports.updateNotifications = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+

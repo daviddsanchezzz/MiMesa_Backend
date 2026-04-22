@@ -1,4 +1,4 @@
-const Invitation     = require('../models/Invitation');
+﻿const Invitation     = require('../models/Invitation');
 const BusinessMember = require('../models/BusinessMember');
 const Business       = require('../models/Business');
 const { Resend }     = require('resend');
@@ -53,7 +53,7 @@ async function sendEmailOrThrow(payload) {
   return result;
 }
 
-// ── POST /api/invitations ─────────────────────────────────────────────────
+// -- POST /api/invitations ---------------------------------------------------
 exports.createInvitation = async (req, res) => {
   try {
     const { name, email, role = 'staff', businessId: bodyBusinessId } = req.body;
@@ -66,9 +66,12 @@ exports.createInvitation = async (req, res) => {
     const type = isPlatform ? 'platform' : 'business';
 
     if (!isPlatform) {
-      const VALID_ROLES = ['manager', 'staff'];
+      const VALID_ROLES = ['owner', 'manager', 'staff'];
       if (!VALID_ROLES.includes(role)) {
-        return res.status(400).json({ message: 'Rol inválido. Usa: manager, staff' });
+        return res.status(400).json({ message: 'Rol invalido. Usa: owner, manager, staff' });
+      }
+      if (role === 'owner' && req.role !== 'owner') {
+        return res.status(403).json({ message: 'Solo un owner puede invitar con rol owner' });
       }
     }
 
@@ -139,7 +142,7 @@ exports.createInvitation = async (req, res) => {
             <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 8px">
               <strong>${business.name}</strong> te ha invitado a unirte a su equipo en Tableo
-              con el rol de <strong>${role === 'manager' ? 'Manager' : 'Staff'}</strong>.
+              con el rol de <strong>${role === 'owner' ? 'Propietario' : role === 'manager' ? 'Encargado' : 'Personal'}</strong>.
             </p>
             <p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 24px">
               Haz clic en el botón para activar tu cuenta. El enlace caduca en 7 días.
@@ -173,7 +176,7 @@ exports.createInvitation = async (req, res) => {
   }
 };
 
-// ── GET /api/invitations ──────────────────────────────────────────────────
+// -- GET /api/invitations ----------------------------------------------------
 exports.listInvitations = async (req, res) => {
   try {
     const invitations = await Invitation.find({
@@ -187,7 +190,7 @@ exports.listInvitations = async (req, res) => {
   }
 };
 
-// ── DELETE /api/invitations/:id ───────────────────────────────────────────
+// -- DELETE /api/invitations/:id ---------------------------------------------
 exports.cancelInvitation = async (req, res) => {
   try {
     const invitation = await Invitation.findOne({
@@ -203,8 +206,8 @@ exports.cancelInvitation = async (req, res) => {
   }
 };
 
-// ── GET /api/invitations/public/:token ────────────────────────────────────
-// Public — used by the AcceptInvite page to prefill name/email/business.
+// -- GET /api/invitations/public/:token --------------------------------------
+// Public - used by the AcceptInvite page to prefill name/email/business.
 exports.getPublicInvitation = async (req, res) => {
   try {
     const invitation = await Invitation.findOne({
@@ -231,7 +234,7 @@ exports.getPublicInvitation = async (req, res) => {
   }
 };
 
-// ── POST /api/invitations/accept/:token ───────────────────────────────────
+// -- POST /api/invitations/accept/:token -------------------------------------
 // Token-authenticated: no session required. The invite token is the credential.
 // The frontend calls this right after signUp/signIn; cross-origin cookies are
 // unreliable at that moment, so we look up the user by email instead.
@@ -282,3 +285,4 @@ exports.acceptInvitation = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
