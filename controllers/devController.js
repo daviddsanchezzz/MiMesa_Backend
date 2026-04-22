@@ -4,6 +4,10 @@ const Reservation    = require('../models/Reservation');
 const AuthUser       = require('../models/AuthUser');
 const { getModuleAccess } = require('../lib/planCapabilities');
 const { sendTrackedEmail } = require('../services/emailDelivery');
+const { fromNodeHeaders } = require('better-auth/node');
+const mongoose = require('mongoose');
+const { getAuth } = require('../lib/auth');
+const { isDev } = require('../middleware/requireDev');
 
 const MODULE_CATALOG = [
   { key: 'staff', name: 'Personal', description: 'Gestion de empleados y planificacion de turnos' },
@@ -102,6 +106,87 @@ exports.listUsers = async (req, res) => {
     res.json(enriched);
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+// -- POST /api/dev/users/:id/impersonate -------------------------------------
+exports.impersonateUser = async (req, res) => {
+  try {
+    const targetId = String(req.params.id || '');
+    const actorId = String(req.user?.id || '');
+
+    if (!targetId) return res.status(400).json({ message: 'Usuario invalido' });
+    if (!actorId) return res.status(401).json({ message: 'No autorizado' });
+    if (targetId === actorId) return res.status(400).json({ message: 'No puedes impersonarte a ti mismo' });
+
+    const targetUser = await AuthUser.findOne({ id: targetId }).lean();
+    if (!targetUser) return res.status(404).json({ message: 'Usuario no encontrado' });
+    if (isDev(targetUser.email)) return res.status(400).json({ message: 'No se puede impersonar a otro usuario dev' });
+
+    const auth = getAuth();
+    const response = await auth.api.impersonateUser({
+      body: { userId: targetId },
+      headers: fromNodeHeaders(req.headers),
+      asResponse: true,
+    });
+
+    if (!response?.ok) {
+      let msg = 'No se pudo impersonar al usuario';
+      try {
+        const payload = await response.json();
+        msg = payload?.message || msg;
+      } catch {
+        // ignore
+      }
+      return res.status(response?.status || 400).json({ message: msg });
+    }
+
+    const token = response.headers.get('set-auth-token');
+    if (!token) {
+      return res.status(500).json({ message: 'No se recibio token de sesion para impersonacion' });
+    }
+
+    return res.json({
+      token,
+      user: {
+        id: targetUser.id,
+        name: targetUser.name || '',
+        email: targetUser.email || '',
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Error interno' });
+  }
+};
+
+// -- DELETE /api/dev/users/:id ----------------------------------------------
+exports.deleteUser = async (req, res) => {
+  try {
+    const targetId = String(req.params.id || '');
+    const actorId = String(req.user?.id || '');
+
+    if (!targetId) return res.status(400).json({ message: 'Usuario invalido' });
+    if (targetId === actorId) return res.status(400).json({ message: 'No puedes eliminar tu propio usuario' });
+
+    const targetUser = await AuthUser.findOne({ id: targetId }).lean();
+    if (!targetUser) return res.status(404).json({ message: 'Usuario no encontrado' });
+    if (isDev(targetUser.email)) return res.status(400).json({ message: 'No se puede eliminar un usuario dev' });
+
+    const ownsBusinesses = await Business.exists({ ownerId: targetId });
+    if (ownsBusinesses) {
+      return res.status(409).json({ message: 'No puedes eliminar un usuario que todavia es owner de un negocio' });
+    }
+
+    await Promise.all([
+      BusinessMember.deleteMany({ userId: targetId }),
+      mongoose.connection.db.collection('session').deleteMany({ userId: targetId }),
+      mongoose.connection.db.collection('account').deleteMany({ userId: targetId }),
+      mongoose.connection.db.collection('user').deleteOne({ id: targetId }),
+    ]);
+
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Error interno' });
   }
 };
 
