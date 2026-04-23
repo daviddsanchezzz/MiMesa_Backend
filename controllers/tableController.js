@@ -2,6 +2,10 @@ const Table    = require('../models/Table');
 const Business = require('../models/Business');
 const { getCapabilities, markLockedEntities } = require('../lib/planCapabilities');
 
+function normalizeShape(shape) {
+  return ['circle', 'square', 'rect'].includes(shape) ? shape : null;
+}
+
 async function getBusinessCaps(businessId) {
   const business = await Business.findById(businessId).select('plan subscriptionStatus').lean();
   return getCapabilities(business ?? {});
@@ -39,8 +43,14 @@ exports.createTable = async (req, res) => {
       });
     }
 
-    const { name, capacity, roomId } = req.body;
-    const table = await Table.create({ businessId: req.businessId, name, capacity, roomId: roomId || null });
+    const { name, capacity, roomId, shape } = req.body;
+    const table = await Table.create({
+      businessId: req.businessId,
+      name,
+      capacity,
+      roomId: roomId || null,
+      shape: normalizeShape(shape),
+    });
     await table.populate('roomId', 'name capacity');
     res.status(201).json({ ...table.toObject(), isLocked: false });
   } catch (err) {
@@ -98,6 +108,7 @@ exports.bulkCreateTables = async (req, res) => {
       businessId: req.businessId,
       name:       String(t.name).trim(),
       capacity:   Number(t.capacity) || 2,
+      shape:      normalizeShape(t.shape),
       roomId:     t.roomId || null,
     }));
     const created = await Table.insertMany(docs);
