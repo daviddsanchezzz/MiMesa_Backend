@@ -6,6 +6,10 @@ function normalizeShape(shape) {
   return ['circle', 'square', 'rect'].includes(shape) ? shape : null;
 }
 
+function normalizeAngle(angle) {
+  return Number(angle) === 90 ? 90 : 0;
+}
+
 async function getBusinessCaps(businessId) {
   const business = await Business.findById(businessId).select('plan subscriptionStatus').lean();
   return getCapabilities(business ?? {});
@@ -43,13 +47,14 @@ exports.createTable = async (req, res) => {
       });
     }
 
-    const { name, capacity, roomId, shape } = req.body;
+    const { name, capacity, roomId, shape, angle } = req.body;
     const table = await Table.create({
       businessId: req.businessId,
       name,
       capacity,
       roomId: roomId || null,
       shape: normalizeShape(shape),
+      angle: normalizeAngle(angle),
     });
     await table.populate('roomId', 'name capacity');
     res.status(201).json({ ...table.toObject(), isLocked: false });
@@ -63,6 +68,9 @@ exports.updateTable = async (req, res) => {
     const payload = { ...req.body };
     if (Object.prototype.hasOwnProperty.call(payload, 'shape')) {
       payload.shape = normalizeShape(payload.shape);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'angle')) {
+      payload.angle = normalizeAngle(payload.angle);
     }
     const table = await Table.findOneAndUpdate(
       { _id: req.params.id, businessId: req.businessId },
@@ -113,6 +121,7 @@ exports.bulkCreateTables = async (req, res) => {
       name:       String(t.name).trim(),
       capacity:   Number(t.capacity) || 2,
       shape:      normalizeShape(t.shape),
+      angle:      normalizeAngle(t.angle),
       roomId:     t.roomId || null,
     }));
     const created = await Table.insertMany(docs);
