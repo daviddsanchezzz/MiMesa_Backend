@@ -5,6 +5,7 @@ const Shift = require('../models/Shift');
 const Vacation = require('../models/Vacation');
 const Business = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
+const Exception = require('../models/Exception');
 const stripeService = require('../services/stripe');
 const {
   sendReservationConfirmation,
@@ -23,6 +24,7 @@ const POPULATE = [
   { path: 'tableIds', select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
   { path: 'roomId', select: 'name' },
 ];
+const BLOCKING_EXCEPTION_TYPES = ['closed', 'full', 'call'];
 
 /**
  * Normaliza teléfonos para matching: elimina todo lo que no sea dígito.
@@ -211,7 +213,7 @@ async function evaluateReservationStatus({ business, businessId, date, time, peo
   return { status: 'confirmed', pendingReason: 'none' };
 }
 
-async function getApplicableSlotsForDate(businessId, date) {
+async function getApplicableShiftSlotsForDate(businessId, date) {
   const dayOfWeek = new Date(`${date}T12:00:00Z`).getDay();
   const allShifts = await Shift.find({ businessId, days: dayOfWeek }).sort({ startTime: 1 });
   const general = allShifts.filter((s) => !s.startDate && !s.endDate);
@@ -225,9 +227,44 @@ async function getApplicableSlotsForDate(businessId, date) {
     const times = shift.subShifts.length
       ? shift.subShifts.map((ss) => ss.time)
       : generateSlots(shift.startTime, shift.endTime);
-    times.forEach((t) => slots.push(t));
+    times.forEach((t) => slots.push({ shiftName: shift.name, time: t }));
   });
-  return [...new Set(slots)].sort();
+  const unique = new Map();
+  slots.forEach((s) => {
+    const key = `${s.shiftName}__${s.time}`;
+    if (!unique.has(key)) unique.set(key, s);
+  });
+  return [...unique.values()].sort((a, b) => a.time.localeCompare(b.time));
+}
+
+async function getApplicableSlotsForDate(businessId, date) {
+  const withShift = await getApplicableShiftSlotsForDate(businessId, date);
+  return [...new Set(withShift.map((s) => s.time))].sort();
+}
+
+async function getExceptionBlocksForShift({ businessId, date, shiftName, roomId = null }) {
+  const rows = await Exception.find({ businessId, date, shiftName }).select('type roomId message').lean();
+  const blocking = rows.find((r) => BLOCKING_EXCEPTION_TYPES.includes(r.type));
+  if (blocking) {
+    return {
+      blocked: true,
+      type: blocking.type,
+      message: blocking.message || null,
+    };
+  }
+
+  if (roomId) {
+    const roomBlocked = rows.find((r) => r.type === 'close_room' && r.roomId && String(r.roomId) === String(roomId));
+    if (roomBlocked) {
+      return {
+        blocked: true,
+        type: 'close_room',
+        message: roomBlocked.message || null,
+      };
+    }
+  }
+
+  return { blocked: false, type: null, message: null };
 }
 
 async function suggestAlternativeSlot({ business, reservation }) {
@@ -246,11 +283,20 @@ async function suggestAlternativeSlot({ business, reservation }) {
     }).select('_id');
     if (closed) continue;
 
-    const slots = await getApplicableSlotsForDate(businessId, date);
+    const slots = await getApplicableShiftSlotsForDate(businessId, date);
     if (slots.length === 0) continue;
 
-    for (const time of slots) {
+    for (const slot of slots) {
+      const { time, shiftName } = slot;
       if (date === reservation.date && time === reservation.time) continue;
+
+      const blocked = await getExceptionBlocksForShift({
+        businessId,
+        date,
+        shiftName,
+      });
+      if (blocked.blocked) continue;
+
       if (!business.maxPeoplePerSlot) return { date, time };
 
       const used = await getSlotLoad({
@@ -470,6 +516,45 @@ exports.createPublicReservation = async (req, res) => {
 
     if (business.maxReservationPeople && Number(people) > business.maxReservationPeople) {
       return res.status(400).json({ message: `No se permiten mas de ${business.maxReservationPeople} personas por reserva` });
+    }
+
+    const shiftSlots = await getApplicableShiftSlotsForDate(businessId, date);
+    const selectedSlot = shiftSlots.find((s) => s.time === time);
+    if (!selectedSlot) {
+      return res.status(400).json({ message: 'Ese horario no esta disponible para la fecha seleccionada' });
+    }
+
+    const exceptionCheck = await getExceptionBlocksForShift({
+      businessId,
+      date,
+      shiftName: selectedSlot.shiftName,
+      roomId: roomId || null,
+    });
+    if (exceptionCheck.blocked) {
+      if (exceptionCheck.type === 'call') {
+        return res.status(400).json({
+          message: exceptionCheck.message || (business.phone
+            ? `Este turno solo admite reservas por telefono (${business.phone})`
+            : 'Este turno solo admite reservas por telefono'),
+          code: 'EXCEPTION_CALL',
+        });
+      }
+      if (exceptionCheck.type === 'full') {
+        return res.status(400).json({
+          message: exceptionCheck.message || 'Este turno esta completo',
+          code: 'EXCEPTION_FULL',
+        });
+      }
+      if (exceptionCheck.type === 'close_room') {
+        return res.status(400).json({
+          message: exceptionCheck.message || 'La sala seleccionada esta cerrada para este turno',
+          code: 'EXCEPTION_ROOM_CLOSED',
+        });
+      }
+      return res.status(400).json({
+        message: exceptionCheck.message || 'El restaurante esta cerrado en este turno',
+        code: 'EXCEPTION_CLOSED',
+      });
     }
 
     const decision = await evaluateReservationStatus({ business, businessId, date, time, people });
