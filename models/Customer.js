@@ -6,6 +6,7 @@ const customerSchema = new mongoose.Schema({
   phone:      { type: String, default: '' },
   email:      { type: String, default: '', lowercase: true },
   notes:      { type: String, default: '' },
+  vip:        { type: Boolean, default: false },
   visits:            { type: Number, default: 0 },
   noShowCount:       { type: Number, default: 0 },
   cancellationCount: { type: Number, default: 0 },
