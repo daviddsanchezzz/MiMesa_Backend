@@ -12,6 +12,7 @@
 
 require('dotenv').config();
 const mongoose = require('mongoose');
+const { toStoredNormalizedPhone } = require('../lib/phoneMatching');
 
 async function run() {
   await mongoose.connect(process.env.MONGO_URI);
@@ -67,7 +68,7 @@ async function run() {
 
   let phonesUpdated = 0;
   for (const c of withoutPhone) {
-    const normalized = String(c.phone).replace(/\D/g, '');
+    const normalized = toStoredNormalizedPhone(c.phone);
     if (normalized) {
       await customers.updateOne({ _id: c._id }, { $set: { normalizedPhone: normalized } });
       phonesUpdated++;

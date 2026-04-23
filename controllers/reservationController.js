@@ -15,6 +15,7 @@ const {
   sendAlternativeProposalEmail,
 } = require('../services/email');
 const { canUseFeature, checkReservationLimit } = require('../lib/planCapabilities');
+const { getPhoneMatchCandidates, toStoredNormalizedPhone } = require('../lib/phoneMatching');
 
 const POPULATE = [
   { path: 'customerId', select: 'name phone email visits noShowCount cancellationCount' },
@@ -28,11 +29,6 @@ const POPULATE = [
  * "+34 609 626 912", "0034-609626912", "609626912" → solo dígitos.
  * No asume ningún prefijo de país concreto.
  */
-function normalizePhone(raw) {
-  if (!raw) return '';
-  return String(raw).replace(/\D/g, '');
-}
-
 function toMinutes(t) {
   const [h, m] = String(t || '00:00').split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
@@ -56,7 +52,8 @@ function generateSlots(startTime, endTime) {
 
 async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmail) {
   const phone    = (guestPhone || '').trim();
-  const normPhone = normalizePhone(phone);
+  const normPhone = toStoredNormalizedPhone(phone);
+  const phoneCandidates = getPhoneMatchCandidates(phone);
   const email    = (guestEmail || '').trim().toLowerCase();
   const name     = (guestName || '').trim();
 
@@ -64,16 +61,15 @@ async function findOrCreateCustomer(businessId, guestName, guestPhone, guestEmai
 
   let customer = null;
   if (email) customer = await Customer.findOne({ businessId, email });
-  if (!customer && normPhone) {
-    // Buscar por normalizedPhone (nuevo) o por phone exacto (legacy)
+  if (!customer && phoneCandidates.length > 0) {
+    // Buscar por normalizedPhone y phone legacy con variantes de prefijo/pais
     customer = await Customer.findOne({
       businessId,
       $or: [
-        { normalizedPhone: normPhone },
-        { phone: phone },
-        { phone: normPhone },
+        { normalizedPhone: { $in: phoneCandidates } },
+        { phone: { $in: [phone, ...phoneCandidates] } },
       ],
-    });
+    }).sort({ createdAt: 1 });
   }
 
   if (!customer) {
