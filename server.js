@@ -59,10 +59,17 @@ app.use(cors({
 // Stripe signature verification requires the raw request body (Buffer).
 // express.raw() captures it without parsing; express.json() would destroy it.
 // Stripe webhook needs raw body for signature verification
+const stripeWebhookHandler = require('./controllers/stripeController').handleWebhook;
 app.post(
   '/api/stripe/webhook',
   express.raw({ type: 'application/json' }),
-  require('./controllers/stripeController').handleWebhook,
+  stripeWebhookHandler,
+);
+// Backward-compat alias (some Stripe CLI setups still forward here)
+app.post(
+  '/api/webhooks/stripe',
+  express.raw({ type: 'application/json' }),
+  stripeWebhookHandler,
 );
 
 // ── Body / cookie parsing ────────────────────────────────────────────────────

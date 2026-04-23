@@ -7,11 +7,11 @@ const { getEffectivePlan, checkReservationLimit } = require('../lib/planCapabili
 // Creates a Stripe Checkout session with 14-day trial and returns the redirect URL.
 exports.createCheckoutSession = async (req, res) => {
   try {
-    const bodyPriceId = req.body?.priceId;
-    const priceId = bodyPriceId || process.env.STRIPE_PRICE_BASIC;
+    const planMap = { basic: process.env.STRIPE_PRICE_BASIC, pro: process.env.STRIPE_PRICE_PRO };
+    const priceId = planMap[req.body?.plan] || req.body?.priceId || process.env.STRIPE_PRICE_BASIC;
     if (!priceId) {
       return res.status(400).json({
-        message: 'No hay precio configurado para Basic. Define STRIPE_PRICE_BASIC en backend.',
+        message: 'No hay precio configurado. Define STRIPE_PRICE_BASIC en backend.',
       });
     }
 
@@ -73,10 +73,15 @@ exports.cancelSubscription = async (req, res) => {
       return res.status(400).json({ message: 'La suscripción ya está programada para cancelarse' });
     }
 
-    await stripeService.cancelSubscriptionAtPeriodEnd(business.stripeSubscriptionId);
-    // Stripe will fire customer.subscription.updated — we update DB there.
-    // Optimistically update to avoid UI lag:
-    await Business.findByIdAndUpdate(req.businessId, { cancelAtPeriodEnd: true });
+    const sub = await stripeService.cancelSubscriptionAtPeriodEnd(business.stripeSubscriptionId);
+    // Stripe will also fire customer.subscription.updated, but we optimistically
+    // persist dates to avoid UI placeholders like "Cancela el —".
+    await Business.findByIdAndUpdate(req.businessId, {
+      cancelAtPeriodEnd: sub.cancel_at_period_end ?? true,
+      currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end * 1000) : null,
+      trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
+      subscriptionStatus: sub.status || business.subscriptionStatus,
+    });
 
     res.json({ message: 'Suscripción programada para cancelar al final del período' });
   } catch (err) {
@@ -97,12 +102,57 @@ exports.reactivateSubscription = async (req, res) => {
       return res.status(400).json({ message: 'La suscripción no está pendiente de cancelación' });
     }
 
-    await stripeService.reactivateSubscription(business.stripeSubscriptionId);
-    await Business.findByIdAndUpdate(req.businessId, { cancelAtPeriodEnd: false });
+    const sub = await stripeService.reactivateSubscription(business.stripeSubscriptionId);
+    await Business.findByIdAndUpdate(req.businessId, {
+      cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+      currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end * 1000) : null,
+      trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
+      subscriptionStatus: sub.status || business.subscriptionStatus,
+    });
 
     res.json({ message: 'Suscripción reactivada' });
   } catch (err) {
     console.error('[stripe reactivate]', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── POST /api/stripe/change-plan ──────────────────────────────────────────
+// Changes the price on an existing subscription (no new checkout session).
+// During trial: no immediate charge, trial continues with new plan.
+// Upgrade (basic→pro): prorated invoice charged immediately.
+// Downgrade (pro→basic): no refund, plan changes immediately.
+exports.changePlan = async (req, res) => {
+  try {
+    const { plan } = req.body;
+    const planMap = { basic: process.env.STRIPE_PRICE_BASIC, pro: process.env.STRIPE_PRICE_PRO };
+    const newPriceId = planMap[plan];
+    if (!newPriceId) return res.status(400).json({ message: 'Plan inválido' });
+
+    const business = await Business.findById(req.businessId);
+    if (!business?.stripeSubscriptionId) {
+      return res.status(400).json({ message: 'No hay suscripción activa' });
+    }
+    if (!['active', 'trialing'].includes(business.subscriptionStatus)) {
+      return res.status(400).json({ message: 'No hay suscripción activa para cambiar' });
+    }
+    if (business.plan === plan) {
+      return res.status(400).json({ message: 'Ya estás en ese plan' });
+    }
+
+    const isTrialing = business.subscriptionStatus === 'trialing';
+    const isUpgrade  = plan === 'pro';
+    // During trial: no charge. Upgrade: charge difference. Downgrade: no refund.
+    const prorationBehavior = isTrialing ? 'none' : (isUpgrade ? 'always_invoice' : 'none');
+
+    await stripeService.changePlan(business.stripeSubscriptionId, newPriceId, { prorationBehavior });
+
+    // Optimistically update plan in DB — webhook will confirm
+    await Business.findByIdAndUpdate(req.businessId, { plan });
+
+    res.json({ message: 'Plan actualizado' });
+  } catch (err) {
+    console.error('[stripe change-plan]', err.message);
     res.status(500).json({ message: err.message });
   }
 };
@@ -112,18 +162,19 @@ exports.reactivateSubscription = async (req, res) => {
 exports.getBillingStatus = async (req, res) => {
   try {
     const business = await Business.findById(req.businessId)
-      .select('plan subscriptionStatus trialEndsAt currentPeriodEnd cancelAtPeriodEnd stripeCustomerId stripeSubscriptionId');
+      .select('plan subscriptionStatus trialEndsAt currentPeriodStart currentPeriodEnd cancelAtPeriodEnd stripeCustomerId stripeSubscriptionId');
     if (!business) return res.status(404).json({ message: 'Business not found' });
 
     const effectivePlan = getEffectivePlan(business);
     const limitResult   = await checkReservationLimit(req.businessId, business);
 
     res.json({
-      plan:               effectivePlan,
-      subscriptionStatus: business.subscriptionStatus,
-      trialEndsAt:        business.trialEndsAt,
-      currentPeriodEnd:   business.currentPeriodEnd,
-      cancelAtPeriodEnd:  business.cancelAtPeriodEnd,
+      plan:                effectivePlan,
+      subscriptionStatus:  business.subscriptionStatus,
+      trialEndsAt:         business.trialEndsAt,
+      currentPeriodStart:  business.currentPeriodStart,
+      currentPeriodEnd:    business.currentPeriodEnd,
+      cancelAtPeriodEnd:   business.cancelAtPeriodEnd,
       hasStripeCustomer:  !!business.stripeCustomerId,
       usage: {
         reservations: {
@@ -357,23 +408,35 @@ async function handleEvent(event) {
       const priceId = sub.items?.data?.[0]?.price?.id;
       const plan    = stripeService.planFromPriceId(priceId);
 
+      // ── Logging (temporary — remove once currentPeriodEnd is confirmed stable) ──
+      log(
+        `businessId=${businessId} status=${sub.status} plan=${plan}` +
+        ` cancelAtPeriodEnd=${sub.cancel_at_period_end}` +
+        ` | sub.current_period_start=${sub.current_period_start}` +
+        ` | sub.current_period_end=${sub.current_period_end}` +
+        ` | sub.trial_end=${sub.trial_end}`
+      );
+
+      // sub.current_period_end is the single source of truth for billing period dates.
+      // It is always set by Stripe (never 0) for active/trialing subscriptions.
       const update = {
         subscriptionStatus:  sub.status,
         cancelAtPeriodEnd:   sub.cancel_at_period_end ?? false,
-        currentPeriodEnd:    sub.current_period_end
-                               ? new Date(sub.current_period_end * 1000)
-                               : null,
-        trialEndsAt:         sub.trial_end
-                               ? new Date(sub.trial_end * 1000)
-                               : null,
+        trialEndsAt:         sub.trial_end ? new Date(sub.trial_end * 1000) : null,
       };
+
+      if (sub.current_period_end) {
+        update.currentPeriodEnd   = new Date(sub.current_period_end * 1000);
+      }
+      if (sub.current_period_start) {
+        update.currentPeriodStart = new Date(sub.current_period_start * 1000);
+      }
 
       // Only update plan if subscription is in a good state
       if (['active', 'trialing'].includes(sub.status)) {
         update.plan = plan;
       }
 
-      log(`businessId=${businessId} status=${sub.status} plan=${plan} cancelAtPeriodEnd=${sub.cancel_at_period_end}`);
       await Business.findByIdAndUpdate(businessId, update);
       break;
     }
@@ -386,16 +449,36 @@ async function handleEvent(event) {
       const businessId = await resolveBusinessIdFromInvoice(invoice);
       if (!businessId) { log('businessId not found'); break; }
 
-      const priceId = invoice.lines?.data?.[0]?.price?.id;
-      const plan    = stripeService.planFromPriceId(priceId);
-      const periodEnd = invoice.lines?.data?.[0]?.period?.end;
+      // Find the subscription line item — only present in recurring invoices,
+      // NOT in proration invoices (billing_reason: subscription_update).
+      // Using this as the discriminator prevents proration invoices from
+      // overwriting currentPeriodEnd that subscription.updated already set.
+      const subLine     = invoice.lines?.data?.find(l => l.type === 'subscription');
+      const priceId     = subLine?.price?.id ?? invoice.lines?.data?.[0]?.price?.id;
+      const plan        = stripeService.planFromPriceId(priceId);
 
-      log(`businessId=${businessId} plan=${plan}`);
-      await Business.findByIdAndUpdate(businessId, {
-        subscriptionStatus: 'active',
-        plan,
-        currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : undefined,
-      });
+      // ── Logging (temporary) ──
+      log(
+        `businessId=${businessId} plan=${plan}` +
+        ` billing_reason=${invoice.billing_reason}` +
+        ` | invoice.period_start=${invoice.period_start}` +
+        ` | invoice.period_end=${invoice.period_end}` +
+        ` | subLine.period.start=${subLine?.period?.start}` +
+        ` | subLine.period.end=${subLine?.period?.end}` +
+        ` | subLine found=${!!subLine}`
+      );
+
+      const dbUpdate = { subscriptionStatus: 'active', plan };
+
+      // Only update period dates from a subscription line item.
+      // Proration invoices (upgrade mid-cycle) have no subscription line —
+      // their currentPeriodEnd is already correct from customer.subscription.updated.
+      if (subLine?.period?.end) {
+        dbUpdate.currentPeriodEnd   = new Date(subLine.period.end   * 1000);
+        dbUpdate.currentPeriodStart = new Date((subLine.period.start ?? invoice.period_start) * 1000);
+      }
+
+      await Business.findByIdAndUpdate(businessId, dbUpdate);
       break;
     }
 

@@ -1,13 +1,14 @@
-const Shift = require('../models/Shift');
+const Shift    = require('../models/Shift');
 const Business = require('../models/Business');
 const Reservation = require('../models/Reservation');
 const Vacation = require('../models/Vacation');
+const { getCapabilities, markLockedEntities } = require('../lib/planCapabilities');
 
 // Generate time slots within a window at a given interval (minutes)
 function generateSlots(startTime, endTime, interval = 30) {
   const [sh, sm] = startTime.split(':').map(Number);
   let [eh, em]   = endTime.split(':').map(Number);
-  if (eh === 0 && em === 0) { eh = 24; em = 0; } // midnight as end
+  if (eh === 0 && em === 0) { eh = 24; em = 0; }
   const slots = [];
   for (let t = sh * 60 + sm; t < eh * 60 + em; t += interval) {
     const h = Math.floor(t / 60) % 24;
@@ -17,7 +18,6 @@ function generateSlots(startTime, endTime, interval = 30) {
   return slots;
 }
 
-// Returns true if two shifts overlap in time (using their startTime/endTime)
 function shiftsOverlap(a, b) {
   const toMin = (t) => {
     const [h, m] = t.split(':').map(Number);
@@ -28,7 +28,6 @@ function shiftsOverlap(a, b) {
   return aStart < bEnd && aEnd > bStart;
 }
 
-// Check for naming conflicts (same name, same type / overlapping date range)
 async function checkConflict(businessId, name, startDate, endDate, excludeId = null) {
   const isSpecific = !!(startDate && endDate);
   const query = { businessId, name: name.trim() };
@@ -41,7 +40,6 @@ async function checkConflict(businessId, name, startDate, endDate, excludeId = n
       return 'Ya existe un turno general con ese nombre';
     }
     if (isSpecific && sIsSpecific) {
-      // Overlap: two ranges overlap if one starts before the other ends
       if (startDate <= s.endDate && endDate >= s.startDate) {
         return 'Ya existe un turno específico con ese nombre en ese rango de fechas';
       }
@@ -50,16 +48,31 @@ async function checkConflict(businessId, name, startDate, endDate, excludeId = n
   return null;
 }
 
+// Returns only the non-locked shifts from a sorted (createdAt ASC) list
+function activeShifts(shifts, caps) {
+  const limit = caps.maxShifts;
+  if (limit === Infinity) return shifts;
+  return shifts.slice(0, limit);
+}
+
+async function getBusinessCaps(businessId) {
+  const business = await Business.findById(businessId).select('plan subscriptionStatus').lean();
+  return getCapabilities(business ?? {});
+}
+
 exports.getShifts = async (req, res) => {
   try {
-    const shifts = await Shift.find({ businessId: req.businessId }).sort({ startTime: 1 });
-    res.json(shifts);
+    const [docs, caps] = await Promise.all([
+      Shift.find({ businessId: req.businessId }).sort({ createdAt: 1 }),
+      getBusinessCaps(req.businessId),
+    ]);
+    res.json(markLockedEntities(docs, caps.maxShifts));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// GET /api/shifts/slots?date=YYYY-MM-DD
+// GET /api/shifts/slots?date=YYYY-MM-DD  (authenticated, admin panel)
 exports.getSlots = async (req, res) => {
   try {
     const { date } = req.query;
@@ -67,18 +80,18 @@ exports.getSlots = async (req, res) => {
 
     const dayOfWeek = new Date(`${date}T12:00:00Z`).getDay();
 
-    const allShifts = await Shift.find({
-      businessId: req.businessId,
-      days: dayOfWeek,
-    }).sort({ startTime: 1 });
+    const [allShiftDocs, caps] = await Promise.all([
+      Shift.find({ businessId: req.businessId, days: dayOfWeek }).sort({ createdAt: 1, startTime: 1 }),
+      getBusinessCaps(req.businessId),
+    ]);
 
-    // Separate general (no dates) vs specific (covers this date)
+    const allShifts = activeShifts(allShiftDocs, caps);
+
     const general  = allShifts.filter(s => !s.startDate && !s.endDate);
     const specific = allShifts.filter(s =>
       s.startDate && s.endDate && date >= s.startDate && date <= s.endDate
     );
 
-    // A specific shift overrides only the general shifts whose time range overlaps with it
     const overriddenGenerals = general.filter(g => specific.some(s => shiftsOverlap(g, s)));
     const applicable = [...specific, ...general.filter(g => !overriddenGenerals.includes(g))];
     if (!applicable.length) return res.json([]);
@@ -113,6 +126,19 @@ exports.createShift = async (req, res) => {
     if (startDate && endDate && startDate > endDate)
       return res.status(400).json({ message: 'La fecha de inicio debe ser anterior a la de fin' });
 
+    const [count, caps] = await Promise.all([
+      Shift.countDocuments({ businessId: req.businessId }),
+      getBusinessCaps(req.businessId),
+    ]);
+
+    if (caps.maxShifts !== Infinity && count >= caps.maxShifts) {
+      return res.status(403).json({
+        message: `Tu plan Free permite hasta ${caps.maxShifts} turnos. Suscríbete a Basic para añadir más.`,
+        limitReached: true,
+        limit: caps.maxShifts,
+      });
+    }
+
     const conflict = await checkConflict(req.businessId, name, startDate || null, endDate || null);
     if (conflict) return res.status(400).json({ message: conflict });
 
@@ -123,7 +149,7 @@ exports.createShift = async (req, res) => {
       interval: interval || 30,
       subShifts: subShifts || [],
     });
-    res.status(201).json(shift);
+    res.status(201).json({ ...shift.toObject(), isLocked: false });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
@@ -172,23 +198,24 @@ exports.deleteShift = async (req, res) => {
 exports.getPublicSlots = async (req, res) => {
   try {
     const { date, businessId } = req.query;
-    if (!date) return res.status(400).json({ message: 'date es requerido' });
+    if (!date)       return res.status(400).json({ message: 'date es requerido' });
     if (!businessId) return res.status(400).json({ message: 'businessId es requerido' });
 
     const dayOfWeek = new Date(`${date}T12:00:00Z`).getDay();
 
-    const allShifts = await Shift.find({
-      businessId,
-      days: dayOfWeek,
-    }).sort({ startTime: 1 });
+    const [allShiftDocs, business] = await Promise.all([
+      Shift.find({ businessId, days: dayOfWeek }).sort({ createdAt: 1, startTime: 1 }),
+      Business.findById(businessId).select('plan subscriptionStatus maxPeoplePerSlot reservationDuration'),
+    ]);
 
-    // Separate general (no dates) vs specific (covers this date)
+    const caps      = getCapabilities(business ?? {});
+    const allShifts = activeShifts(allShiftDocs, caps);
+
     const general  = allShifts.filter(s => !s.startDate && !s.endDate);
     const specific = allShifts.filter(s =>
       s.startDate && s.endDate && date >= s.startDate && date <= s.endDate
     );
 
-    // A specific shift overrides only the general shifts whose time range overlaps with it
     const overriddenGenerals = general.filter(g => specific.some(s => shiftsOverlap(g, s)));
     const applicable = [...specific, ...general.filter(g => !overriddenGenerals.includes(g))];
     if (!applicable.length) return res.json([]);
@@ -206,25 +233,20 @@ exports.getPublicSlots = async (req, res) => {
 
     slots.sort((a, b) => a.time.localeCompare(b.time));
 
-    // Filter by maxPeoplePerSlot capacity and annotate remaining
-    const biz = await Business.findById(businessId).select('maxPeoplePerSlot reservationDuration');
-    if (biz?.maxPeoplePerSlot) {
+    if (business?.maxPeoplePerSlot) {
       const reservations = await Reservation.find({
         businessId,
         date,
         status: { $in: ['confirmed', 'seated'] },
       }).select('time people');
 
-      const duration = biz.reservationDuration || 0; // minutes
-
-      // For each slot, sum people from reservations that are still "occupying" due to duration
-      const toMinutes = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+      const duration   = business.reservationDuration || 0;
+      const toMinutes  = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 
       const occupiedAt = (slotTime) => {
         const slotMin = toMinutes(slotTime);
         return reservations.reduce((sum, r) => {
           const rMin = toMinutes(r.time);
-          // Reservation occupies from rMin to rMin+duration (exclusive)
           if (rMin <= slotMin && (duration === 0 ? rMin === slotMin : rMin + duration > slotMin)) {
             return sum + r.people;
           }
@@ -233,11 +255,8 @@ exports.getPublicSlots = async (req, res) => {
       };
 
       const filtered = slots
-        .filter(s => occupiedAt(s.time) < biz.maxPeoplePerSlot)
-        .map(s => ({
-          ...s,
-          remaining: biz.maxPeoplePerSlot - occupiedAt(s.time),
-        }));
+        .filter(s => occupiedAt(s.time) < business.maxPeoplePerSlot)
+        .map(s => ({ ...s, remaining: business.maxPeoplePerSlot - occupiedAt(s.time) }));
       return res.json(filtered);
     }
 
@@ -254,25 +273,30 @@ exports.getPublicMonthAvailability = async (req, res) => {
     if (!year || !month || !businessId) return res.status(400).json({ message: 'year, month, businessId requeridos' });
     const y = parseInt(year), m = parseInt(month);
     const pad = (n) => String(n).padStart(2, '0');
-    const daysInMonth = new Date(y, m, 0).getDate();
+    const daysInMonth  = new Date(y, m, 0).getDate();
     const startOfMonth = `${y}-${pad(m)}-01`;
-    const endOfMonth = `${y}-${pad(m)}-${pad(daysInMonth)}`;
+    const endOfMonth   = `${y}-${pad(m)}-${pad(daysInMonth)}`;
 
-    const [vacations, shifts] = await Promise.all([
+    const [vacations, allShiftDocs, business] = await Promise.all([
       Vacation.find({ businessId, startDate: { $lte: endOfMonth }, endDate: { $gte: startOfMonth } }).select('startDate endDate'),
-      Shift.find({ businessId }).select('days startDate endDate'),
+      Shift.find({ businessId }).sort({ createdAt: 1 }).select('days startDate endDate'),
+      Business.findById(businessId).select('plan subscriptionStatus').lean(),
     ]);
+
+    const caps   = getCapabilities(business ?? {});
+    // Only active (non-locked) shifts count for availability
+    const shifts = allShiftDocs.slice(0, caps.maxShifts === Infinity ? allShiftDocs.length : caps.maxShifts);
 
     const closedDays = [], noSlotDays = [];
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${y}-${pad(m)}-${pad(d)}`;
+      const dateStr    = `${y}-${pad(m)}-${pad(d)}`;
       const isVacation = vacations.some(v => v.startDate <= dateStr && v.endDate >= dateStr);
       if (isVacation) { closedDays.push(d); continue; }
       const dayOfWeek = new Date(y, m - 1, d).getDay();
-      const hasShift = shifts.some(s => {
+      const hasShift  = shifts.some(s => {
         if (!s.days.includes(dayOfWeek)) return false;
         if (s.startDate && dateStr < s.startDate) return false;
-        if (s.endDate && dateStr > s.endDate) return false;
+        if (s.endDate   && dateStr > s.endDate)   return false;
         return true;
       });
       if (!hasShift) noSlotDays.push(d);

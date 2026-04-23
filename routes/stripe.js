@@ -13,8 +13,9 @@ router.get('/status',      requireAuth,                    c.getBillingStatus);
 // Protected billing endpoints — owner only
 router.post('/checkout',   requireAuth, requireRole('owner'), c.createCheckoutSession);
 router.post('/portal',     requireAuth, requireRole('owner'), c.createPortalSession);
-router.post('/cancel',     requireAuth, requireRole('owner'), c.cancelSubscription);
-router.post('/reactivate', requireAuth, requireRole('owner'), c.reactivateSubscription);
+router.post('/cancel',      requireAuth, requireRole('owner'), c.cancelSubscription);
+router.post('/reactivate',  requireAuth, requireRole('owner'), c.reactivateSubscription);
+router.post('/change-plan', requireAuth, requireRole('owner'), c.changePlan);
 
 // ── Stripe Connect (pagos de clientes al restaurante) ─────────────────────
 // Callback es público — Stripe redirige aquí sin sesión de usuario

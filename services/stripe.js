@@ -93,6 +93,15 @@ async function reactivateSubscription(subscriptionId) {
   return getStripe().subscriptions.update(subscriptionId, { cancel_at_period_end: false });
 }
 
+async function changePlan(subscriptionId, newPriceId, { prorationBehavior = 'always_invoice' } = {}) {
+  const sub    = await getStripe().subscriptions.retrieve(subscriptionId);
+  const itemId = sub.items.data[0].id;
+  return getStripe().subscriptions.update(subscriptionId, {
+    items:              [{ id: itemId, price: newPriceId }],
+    proration_behavior: prorationBehavior,
+  });
+}
+
 async function getSubscription(subscriptionId) {
   return getStripe().subscriptions.retrieve(subscriptionId);
 }
@@ -296,6 +305,7 @@ module.exports = {
   createPortalSession,
   cancelSubscriptionAtPeriodEnd,
   reactivateSubscription,
+  changePlan,
   getSubscription,
   constructWebhookEvent,
   planFromPriceId,
