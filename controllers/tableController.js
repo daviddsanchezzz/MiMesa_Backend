@@ -60,9 +60,13 @@ exports.createTable = async (req, res) => {
 
 exports.updateTable = async (req, res) => {
   try {
+    const payload = { ...req.body };
+    if (Object.prototype.hasOwnProperty.call(payload, 'shape')) {
+      payload.shape = normalizeShape(payload.shape);
+    }
     const table = await Table.findOneAndUpdate(
       { _id: req.params.id, businessId: req.businessId },
-      req.body,
+      payload,
       { new: true }
     ).populate('roomId', 'name capacity');
     if (!table) return res.status(404).json({ message: 'Table not found' });
