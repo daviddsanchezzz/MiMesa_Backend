@@ -14,7 +14,8 @@ function defaultMessageForType(type, businessPhone = '') {
   if (type === 'closed') return 'Restaurante cerrado en este turno';
   if (type === 'full') return 'Turno completo';
   if (type === 'call') return businessPhone ? `Por favor, llama al ${businessPhone}` : 'Por favor, llama por telefono';
-  return '';
+  if (type === 'close_room') return 'Sala cerrada para este turno';
+  return 'Excepcion activa en este turno';
 }
 
 function pickBlockingException(entries) {
@@ -70,13 +71,16 @@ exports.createException = async (req, res) => {
     });
     if (duplicate) return res.status(409).json({ message: 'Ya existe esta excepcion para ese turno y fecha' });
 
+    const business = await Business.findById(req.businessId).select('phone').lean();
+    const safeMessage = String(message || '').trim() || defaultMessageForType(safeType, business?.phone || '');
+
     const row = await Exception.create({
       businessId: req.businessId,
       date,
       shiftName: safeShift,
       type: safeType,
       roomId: safeRoomId,
-      message: String(message || '').trim(),
+      message: safeMessage,
     });
     const populated = await row.populate({ path: 'roomId', select: 'name' });
     res.status(201).json(populated);
@@ -109,6 +113,11 @@ exports.updateException = async (req, res) => {
       next.roomId = room._id;
     } else {
       next.roomId = null;
+    }
+
+    if (next.message !== undefined && !String(next.message).trim()) {
+      const business = await Business.findById(req.businessId).select('phone').lean();
+      next.message = defaultMessageForType(effectiveType, business?.phone || '');
     }
 
     const row = await Exception.findOneAndUpdate(
