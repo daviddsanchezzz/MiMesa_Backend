@@ -4,6 +4,7 @@ const Business = require('../models/Business');
 
 const BLOCKING_TYPES = ['closed', 'full', 'call'];
 const BLOCKING_PRIORITY = ['closed', 'full', 'call'];
+const ALL_SHIFTS_KEY = '__all__';
 
 function normalizeType(type) {
   return String(type || '').trim();
@@ -157,6 +158,7 @@ exports.checkPublicExceptions = async (req, res) => {
       if (blocking) {
         blockedShifts.push({
           shiftName,
+          allShifts: shiftName === ALL_SHIFTS_KEY,
           type: blocking.type,
           message: blocking.message || defaultMessageForType(blocking.type, business?.phone || ''),
         });
@@ -167,6 +169,7 @@ exports.checkPublicExceptions = async (req, res) => {
         .forEach((e) => {
           roomClosures.push({
             shiftName,
+            allShifts: shiftName === ALL_SHIFTS_KEY,
             roomId: e.roomId?._id || e.roomId,
             roomName: e.roomId?.name || null,
             message: e.message || 'Sala cerrada para este turno',
@@ -184,4 +187,3 @@ exports.checkPublicExceptions = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-

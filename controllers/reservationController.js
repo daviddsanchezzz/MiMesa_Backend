@@ -25,6 +25,7 @@ const POPULATE = [
   { path: 'roomId', select: 'name' },
 ];
 const BLOCKING_EXCEPTION_TYPES = ['closed', 'full', 'call'];
+const ALL_SHIFTS_KEY = '__all__';
 
 /**
  * Normaliza teléfonos para matching: elimina todo lo que no sea dígito.
@@ -243,7 +244,11 @@ async function getApplicableSlotsForDate(businessId, date) {
 }
 
 async function getExceptionBlocksForShift({ businessId, date, shiftName, roomId = null }) {
-  const rows = await Exception.find({ businessId, date, shiftName }).select('type roomId message').lean();
+  const rows = await Exception.find({
+    businessId,
+    date,
+    shiftName: { $in: [shiftName, ALL_SHIFTS_KEY] },
+  }).select('type roomId message').lean();
   const blocking = rows.find((r) => BLOCKING_EXCEPTION_TYPES.includes(r.type));
   if (blocking) {
     return {
