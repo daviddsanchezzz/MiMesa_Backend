@@ -1,14 +1,22 @@
 const webpush = require('web-push');
 const PushSubscription = require('../models/PushSubscription');
 
-webpush.setVapidDetails(
-  `mailto:${process.env.VAPID_EMAIL || 'admin@tableo.app'}`,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY,
-);
+let vapidInitialized = false;
+
+function ensureVapid() {
+  if (vapidInitialized) return true;
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return false;
+  webpush.setVapidDetails(
+    `mailto:${process.env.VAPID_EMAIL || 'admin@tableo.app'}`,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
+  );
+  vapidInitialized = true;
+  return true;
+}
 
 async function sendPushToBusinessStaff(businessId, payload) {
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+  if (!ensureVapid()) return;
 
   try {
     const subs = await PushSubscription.find({ businessId }).lean();
