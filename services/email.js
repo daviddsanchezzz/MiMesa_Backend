@@ -15,7 +15,7 @@ function sendEmail(payload, source, metadata = null) {
   return sendTrackedEmail({ resend, payload, source, metadata });
 }
 
-// â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ---- helpers ----------------------------------------------------------------
 
 function fmtDate(dateStr) {
   // dateStr = 'YYYY-MM-DD'
@@ -40,7 +40,7 @@ function baseLayout(accentColor, content) {
           <!-- Header bar -->
           <tr>
             <td style="background:${accentColor};padding:24px 32px;">
-              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">ConfirmaciÃ³n de reserva</p>
+              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Confirmación de reserva</p>
             </td>
           </tr>
           <!-- Body -->
@@ -53,7 +53,7 @@ function baseLayout(accentColor, content) {
           <tr>
             <td style="background:#f9fafb;padding:16px 32px 20px;border-top:1px solid #e5e7eb;">
               <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
-                Este correo ha sido generado automÃ¡ticamente, por favor no respondas a este mensaje.
+                Este correo ha sido generado automáticamente, por favor no respondas a este mensaje.
               </p>
               <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
                 Powered by <a href="${process.env.LANDING_URL || 'https://tableo.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
@@ -76,7 +76,7 @@ function detailRow(label, value) {
   </tr>`;
 }
 
-// â”€â”€ TEMPLATES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ---- templates --------------------------------------------------------------
 
 function buildConfirmationEmail({ businessName, accentColor, guestName, date, time, people, roomName, notes, reservationId, guestEmail, businessEmail, businessPhone }) {
   const accent = accentColor || '#4f46e5';
@@ -108,7 +108,7 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
     </p>
     <p style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;">
       Tu reserva en <strong>${businessName}</strong> ha sido <strong>confirmada</strong>.
-      A continuaciÃ³n encontrarÃ¡s los detalles:
+      A continuación encontrarás los detalles:
     </p>
     <!-- Details box -->
     <table width="100%" cellpadding="0" cellspacing="0"
@@ -120,7 +120,7 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
       </td></tr>
     </table>
     <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
-      Si necesitas hacer algÃºn cambio o cancelar tu reserva, puedes usar el botÃ³n a continuaciÃ³n:
+      Si necesitas hacer algún cambio o cancelar tu reserva, puedes usar el botón a continuación:
     </p>
     <p style="margin:16px 0;text-align:center;">
       <a href="${cancelUrl}"
@@ -130,7 +130,7 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
     </p>${contactSection}`;
 
   return {
-    subject: `Reserva confirmada â€” ${businessName}`,
+    subject: `Reserva confirmada - ${businessName}`,
     html: baseLayout(accent, body),
   };
 }
@@ -195,7 +195,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 }
 async function sendReservationConfirmation(reservation, business) {
   const to = reservation.guestEmail;
-  console.log('[email] sendReservationConfirmation â†’ to:', to, '| key set:', !!process.env.RESEND_API_KEY);
+  console.log('[email] sendReservationConfirmation -> to:', to, '| key set:', !!process.env.RESEND_API_KEY);
   if (!to || !process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
 
   const { subject, html } = buildConfirmationEmail({
@@ -331,12 +331,12 @@ async function sendStaffReservationNotification(recipients, reservation, busines
 
 async function sendContactEmail({ name, email, subject, message }) {
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') {
-    console.warn('[contact] RESEND_API_KEY not configured â€” email skipped');
+    console.warn('[contact] RESEND_API_KEY not configured - email skipped');
     return;
   }
   const to = (process.env.DEV_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
   if (to.length === 0) {
-    console.warn('[contact] DEV_EMAILS not configured â€” email skipped');
+    console.warn('[contact] DEV_EMAILS not configured - email skipped');
     return;
   }
 
@@ -348,7 +348,7 @@ async function sendContactEmail({ name, email, subject, message }) {
     <tr><td align="center">
       <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
         <tr><td style="background:#7C3AED;padding:24px 32px;">
-          <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">ðŸ“¬ Nuevo mensaje de contacto</p>
+          <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Nuevo mensaje de contacto</p>
         </td></tr>
         <tr><td style="padding:28px 32px;">
           <table width="100%" cellpadding="0" cellspacing="0">
@@ -379,7 +379,7 @@ async function sendContactEmail({ name, email, subject, message }) {
     from:     process.env.RESEND_FROM_SYSTEM || 'onboarding@resend.dev',
     to,
     replyTo:  email,
-    subject:  `[Contacto Tableo] ${subject} â€” ${name}`,
+    subject:  `[Contacto Tableo] ${subject} - ${name}`,
     html,
   }, 'contact.form', { senderName: name, senderEmail: email });
   if (result.error) {
@@ -449,8 +449,8 @@ function buildAlternativeProposalEmail({ businessName, accentColor, guestName, d
       style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin-bottom:16px;">
       <tr><td>
         <table width="100%" cellpadding="0" cellspacing="0">
-          ${detailRow('Reserva original', `${fmtDate(date)} Â· ${time} Â· ${people} ${people === 1 ? 'persona' : 'personas'}`)}
-          ${detailRow('Propuesta', `${fmtDate(alternativeDate)} Â· ${alternativeTime}`)}
+          ${detailRow('Reserva original', `${fmtDate(date)} · ${time} · ${people} ${people === 1 ? 'persona' : 'personas'}`)}
+          ${detailRow('Propuesta', `${fmtDate(alternativeDate)} · ${alternativeTime}`)}
         </table>
       </td></tr>
     </table>
@@ -579,7 +579,7 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
   if (!Array.isArray(recipients) || recipients.length === 0) return;
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
 
-  const subject = `Reserva pendiente de aprobaciÃ³n - ${business.name}`;
+  const subject = `Reserva pendiente de aprobación - ${business.name}`;
   const appUrl = process.env.APP_URL || 'https://app.tableo.app';
 
   const html = `<!DOCTYPE html>
@@ -596,13 +596,13 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
           <tr>
             <td style="background:#d97706;padding:24px 32px;">
-              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">â³ Reserva pendiente de aprobaciÃ³n</p>
+              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Reserva pendiente de aprobación</p>
             </td>
           </tr>
           <tr>
             <td style="padding:28px 32px;">
               <p style="margin:0 0 20px;font-size:14px;color:#374151;">
-                Una nueva reserva requiere tu aprobaciÃ³n antes de confirmarse.
+                Una nueva reserva requiere tu aprobación antes de confirmarse.
               </p>
               <table width="100%" cellpadding="0" cellspacing="0"
                 style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px 20px;margin-bottom:20px;">
@@ -634,7 +634,7 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
           <tr>
             <td style="background:#f9fafb;padding:16px 32px 20px;border-top:1px solid #e5e7eb;">
               <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
-                Este correo ha sido generado automÃ¡ticamente, por favor no respondas a este mensaje.
+                Este correo ha sido generado automáticamente, por favor no respondas a este mensaje.
               </p>
               <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
                 Powered by <a href="${process.env.LANDING_URL || 'https://tableo.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
