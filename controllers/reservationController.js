@@ -15,7 +15,7 @@ const {
   sendReservationPendingEmail,
   sendAlternativeProposalEmail,
 } = require('../services/email');
-const { canUseFeature, checkReservationLimit } = require('../lib/planCapabilities');
+const { canUseFeature, canUseModule, checkReservationLimit } = require('../lib/planCapabilities');
 const { getPhoneMatchCandidates, toStoredNormalizedPhone } = require('../lib/phoneMatching');
 
 const POPULATE = [
@@ -397,7 +397,10 @@ exports.getPendingReservations = async (req, res) => {
 
 exports.createReservation = async (req, res) => {
   try {
-    const { guestName, guestPhone, guestEmail, roomId, tableId, tableIds: rawTableIds, date, time, people, notes, consent } = req.body;
+    const {
+      guestName, guestPhone, guestEmail, roomId, tableId, tableIds: rawTableIds,
+      date, time, people, notes, consent, thefork,
+    } = req.body;
     const tableIds = Array.isArray(rawTableIds) && rawTableIds.length > 0 ? rawTableIds : (tableId ? [tableId] : []);
     const primaryTableId = tableIds[0] || tableId || null;
     const business = await Business.findById(req.businessId).select(
@@ -450,6 +453,7 @@ exports.createReservation = async (req, res) => {
       time,
       people,
       notes: notes || '',
+      thefork: Boolean(thefork) && canUseModule(business, 'thefork'),
       consent: consent || false,
       status: decision.status === 'rejected_capacity' ? 'confirmed' : decision.status,
       pendingReason: decision.pendingReason,

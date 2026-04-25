@@ -18,11 +18,11 @@ async function queryPeriod(businessId, from, to) {
   return Reservation.find({
     businessId,
     date: { $gte: from, $lte: to },
-  }).select('date time people status customerId');
+  }).select('date time people status customerId thefork');
 }
 
 function summarise(rows) {
-  let total = 0, cancelled = 0, noShow = 0, confirmed = 0, totalPeople = 0;
+  let total = 0, cancelled = 0, noShow = 0, confirmed = 0, totalPeople = 0, theforkReservations = 0;
   const peakHoursMap = new Map();
   const reservationsByDayMap = new Map();
   const slotLoadMap = new Map();
@@ -38,6 +38,7 @@ function summarise(rows) {
     if (r.status === 'cancelled') cancelled += 1;
     if (r.status === 'no_show') noShow += 1;
     if (r.status === 'confirmed' || r.status === 'seated') confirmed += 1;
+    if (r.thefork === true) theforkReservations += 1;
     totalPeople += Number(r.people || 0);
 
     // Daily breakdown
@@ -99,6 +100,7 @@ function summarise(rows) {
       noShows: noShow,
       avgPartySize,
       totalCovers: totalPeople,
+      theforkReservations,
     },
     reservationsByDay,
     peakHours,
@@ -135,8 +137,10 @@ exports.getOverview = async (req, res) => {
 
     // Trend deltas (percentage change vs previous period)
     function delta(cur, prev) {
-      if (prev === 0) return cur > 0 ? 100 : 0;
-      return Number((((cur - prev) / prev) * 100).toFixed(1));
+      if (cur === 0 && prev === 0) return 0;
+      const base = (Math.abs(cur) + Math.abs(prev)) / 2;
+      if (!base) return 0;
+      return Number((((cur - prev) / base) * 100).toFixed(1));
     }
 
     const trend = {
@@ -144,6 +148,7 @@ exports.getOverview = async (req, res) => {
       cancellations: delta(cur.summary.cancellations, pre.summary.cancellations),
       noShows: delta(cur.summary.noShows, pre.summary.noShows),
       totalCovers: delta(cur.summary.totalCovers, pre.summary.totalCovers),
+      theforkReservations: delta(cur.summary.theforkReservations, pre.summary.theforkReservations),
     };
 
     // Occupancy

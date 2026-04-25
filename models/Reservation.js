@@ -23,6 +23,7 @@ const reservationSchema = new mongoose.Schema({
   },
   reminderSentAt: { type: Date, default: null },
   notes:      { type: String, default: '' },
+  thefork:    { type: Boolean, default: false },
   promoCode:   { type: String,  default: '' },
   promoCodeId: { type: mongoose.Schema.Types.ObjectId, ref: 'PromoCode', default: null },
   consent:               { type: Boolean, default: false },
