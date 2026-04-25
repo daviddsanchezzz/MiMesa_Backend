@@ -17,6 +17,7 @@ const {
 } = require('../services/email');
 const { canUseFeature, canUseModule, checkReservationLimit } = require('../lib/planCapabilities');
 const { getPhoneMatchCandidates, toStoredNormalizedPhone } = require('../lib/phoneMatching');
+const { sendPushToBusinessStaff } = require('../services/pushNotifications');
 
 const POPULATE = [
   { path: 'customerId', select: 'name phone email visits noShowCount cancellationCount' },
@@ -131,8 +132,30 @@ async function notifyStaff(businessId, reservation, eventType) {
         .filter(Boolean)
     )];
 
-    if (recipients.length === 0) return;
-    await sendStaffReservationNotification(recipients, reservation, business, eventType, customerStats);
+    const guestName  = reservation.guestName  || reservation.customerId?.name || 'Cliente';
+    const guestCount = reservation.guestCount || reservation.guests || '';
+    const date       = reservation.date ? new Date(reservation.date).toLocaleDateString('es-ES') : '';
+    const time       = reservation.time || '';
+
+    const pushPayload = {
+      title: eventType === 'cancelled'
+        ? `Reserva cancelada — ${business.name}`
+        : `Nueva reserva — ${business.name}`,
+      body: eventType === 'cancelled'
+        ? `${guestName} ha cancelado su reserva${date ? ` del ${date}` : ''}`
+        : `${guestName}${guestCount ? `, ${guestCount} personas` : ''}${date ? ` · ${date}` : ''}${time ? ` ${time}` : ''}`,
+      icon: '/logo.svg',
+      badge: '/logo.svg',
+      tag: `reservation-${reservation._id}`,
+      data: { url: '/reservations' },
+    };
+
+    await Promise.all([
+      recipients.length > 0
+        ? sendStaffReservationNotification(recipients, reservation, business, eventType, customerStats)
+        : Promise.resolve(),
+      sendPushToBusinessStaff(businessId, pushPayload),
+    ]);
   } catch (err) {
     console.error('[reservations] notifyStaff failed:', err.message);
   }
