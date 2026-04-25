@@ -132,10 +132,10 @@ async function notifyStaff(businessId, reservation, eventType) {
         .filter(Boolean)
     )];
 
-    const guestName  = reservation.guestName  || reservation.customerId?.name || 'Cliente';
-    const guestCount = reservation.guestCount || reservation.guests || '';
-    const date       = reservation.date ? new Date(reservation.date).toLocaleDateString('es-ES') : '';
-    const time       = reservation.time || '';
+    const guestName = reservation.guestName || reservation.customerId?.name || 'Cliente';
+    const people    = reservation.people || '';
+    const date      = reservation.date ? new Date(reservation.date).toLocaleDateString('es-ES') : '';
+    const time      = reservation.time || '';
 
     const pushPayload = {
       title: eventType === 'cancelled'
@@ -143,7 +143,7 @@ async function notifyStaff(businessId, reservation, eventType) {
         : `Nueva reserva — ${business.name}`,
       body: eventType === 'cancelled'
         ? `${guestName} ha cancelado su reserva${date ? ` del ${date}` : ''}`
-        : `${guestName}${guestCount ? `, ${guestCount} personas` : ''}${date ? ` · ${date}` : ''}${time ? ` ${time}` : ''}`,
+        : `${guestName} · ${date}${time ? ` ${time}` : ''}${people ? ` · ${people} pax` : ''}`,
       icon: '/logo.svg',
       badge: '/logo.svg',
       tag: `reservation-${reservation._id}`,
