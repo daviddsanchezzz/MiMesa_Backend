@@ -159,3 +159,20 @@ exports.getCustomerDetail = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+exports.deleteCustomer = async (req, res) => {
+  try {
+    const customer = await Customer.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!customer) return res.status(404).json({ message: 'Customer not found' });
+
+    await Reservation.updateMany(
+      { businessId: req.businessId, customerId: customer._id },
+      { $set: { customerId: null } }
+    );
+
+    await customer.deleteOne();
+    res.json({ message: 'Cliente eliminado' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
