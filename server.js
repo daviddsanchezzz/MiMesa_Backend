@@ -44,13 +44,25 @@ app.use('/api/contact',             require('./routes/contact'));
 
 // Authenticated + Better Auth endpoints: specific origin with credentials
 // FRONTEND_URLS supports comma-separated list for multiple origins (e.g. Netlify + custom domain)
+const normalizeOrigin = (value) => {
+  try {
+    return new URL(String(value).trim()).origin.toLowerCase();
+  } catch {
+    return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
+  }
+};
 const allowedOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:3005')
-  .split(',').map(o => o.trim()).filter(Boolean);
+  .split(',')
+  .map(o => normalizeOrigin(o))
+  .filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (e.g. Postman, server-to-server)
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin) return callback(null, true);
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.includes(normalizedOrigin)) return callback(null, true);
+    console.warn(`[CORS] Blocked origin: ${origin}. Allowed: ${allowedOrigins.join(', ')}`);
     callback(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials: true,
