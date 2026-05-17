@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+﻿const mongoose = require('mongoose');
 const Supplier = require('../models/Supplier');
 const PurchaseProduct = require('../models/PurchaseProduct');
 const PurchaseOrder = require('../models/PurchaseOrder');
@@ -223,3 +223,4 @@ module.exports = {
   createOrder,
   updateOrder,
 };
+

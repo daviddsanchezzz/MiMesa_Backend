@@ -1,4 +1,4 @@
-const router = require('express').Router();
+﻿const router = require('express').Router();
 const requireAuth = require('../middleware/requireAuth');
 const requireRole = require('../middleware/requireRole');
 const requireModule = require('../middleware/requireModule');
@@ -15,3 +15,4 @@ router.post('/orders', c.createOrder);
 router.put('/orders/:id', c.updateOrder);
 
 module.exports = router;
+

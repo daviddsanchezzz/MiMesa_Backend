@@ -1,4 +1,4 @@
-const router = require('express').Router();
+﻿const router = require('express').Router();
 const requireAuth   = require('../middleware/requireAuth');
 const requireRole   = require('../middleware/requireRole');
 const requireAnyModule = require('../middleware/requireAnyModule');
@@ -12,3 +12,4 @@ router.put('/:id',               c.updateSupplier);
 router.get('/:id/expenses',      c.getSupplierExpenses);
 
 module.exports = router;
+

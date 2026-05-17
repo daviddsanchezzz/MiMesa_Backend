@@ -1,4 +1,4 @@
-const Business = require('../models/Business');
+﻿const Business = require('../models/Business');
 const { getModuleAccess } = require('../lib/planCapabilities');
 
 function requireAnyModule(moduleKeys = []) {
@@ -38,3 +38,4 @@ function requireAnyModule(moduleKeys = []) {
 }
 
 module.exports = requireAnyModule;
+

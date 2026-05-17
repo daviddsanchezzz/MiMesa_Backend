@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+﻿const mongoose = require('mongoose');
 
 const purchaseOrderItemSchema = new mongoose.Schema({
   productId: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseProduct', required: true },
@@ -24,3 +24,4 @@ purchaseOrderSchema.index({ businessId: 1, orderDate: -1 });
 purchaseOrderSchema.index({ businessId: 1, supplierId: 1, orderDate: -1 });
 
 module.exports = mongoose.model('PurchaseOrder', purchaseOrderSchema);
+
