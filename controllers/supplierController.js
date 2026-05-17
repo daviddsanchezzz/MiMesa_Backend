@@ -12,7 +12,7 @@ async function getSuppliers(req, res) {
 
 async function createSupplier(req, res) {
   try {
-    const { name, category, contactName, phone, email, notes } = req.body;
+    const { name, category, contactName, phone, whatsappPhone, email, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' });
 
     const supplier = await Supplier.create({
@@ -21,6 +21,7 @@ async function createSupplier(req, res) {
       category: category || 'other',
       contactName: contactName || '',
       phone: phone || '',
+      whatsappPhone: whatsappPhone || '',
       email: email || '',
       notes: notes || '',
     });
@@ -35,11 +36,12 @@ async function updateSupplier(req, res) {
     const supplier = await Supplier.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!supplier) return res.status(404).json({ message: 'Proveedor no encontrado' });
 
-    const { name, category, contactName, phone, email, notes, isActive } = req.body;
+    const { name, category, contactName, phone, whatsappPhone, email, notes, isActive } = req.body;
     if (name !== undefined) supplier.name = name.trim();
     if (category !== undefined) supplier.category = category;
     if (contactName !== undefined) supplier.contactName = contactName;
     if (phone !== undefined) supplier.phone = phone;
+    if (whatsappPhone !== undefined) supplier.whatsappPhone = whatsappPhone;
     if (email !== undefined) supplier.email = email;
     if (notes !== undefined) supplier.notes = notes;
     if (isActive !== undefined) supplier.isActive = isActive;

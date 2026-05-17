@@ -3,6 +3,17 @@ const Supplier = require('../models/Supplier');
 const PurchaseProduct = require('../models/PurchaseProduct');
 const PurchaseOrder = require('../models/PurchaseOrder');
 
+function normalizeInternationalPhone(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const compact = text.replace(/[\s\-().]/g, '');
+  const hasPlus = compact.startsWith('+');
+  const digits = compact.replace(/\D/g, '');
+  if (!digits || digits.length < 8 || digits.length > 15) return null;
+  if (!hasPlus) return null;
+  return `+${digits}`;
+}
+
 function normalizeDay(value) {
   const d = value ? new Date(value) : new Date();
   if (Number.isNaN(d.getTime())) return null;
@@ -169,7 +180,7 @@ async function buildOrderPayload(req, existingOrder = null) {
       supplierName: supplier.name,
       orderDate,
       notes: String(req.body.notes ?? existingOrder?.notes ?? '').trim(),
-      status: req.body.status || existingOrder?.status || 'confirmed',
+      status: req.body.status || existingOrder?.status || 'draft',
       items,
       totalAmount,
     },
@@ -215,6 +226,38 @@ async function updateOrder(req, res) {
   }
 }
 
+async function markWhatsappSent(req, res) {
+  try {
+    const order = await PurchaseOrder.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+
+    if (!Array.isArray(order.items) || order.items.length === 0) {
+      return res.status(400).json({ message: 'El pedido no tiene productos' });
+    }
+
+    const supplier = await Supplier.findOne({ _id: order.supplierId, businessId: req.businessId }).lean();
+    if (!supplier) return res.status(404).json({ message: 'Proveedor no encontrado' });
+
+    const phone = normalizeInternationalPhone(supplier.whatsappPhone || supplier.phone);
+    if (!phone) {
+      return res.status(400).json({ message: 'Este proveedor no tiene telefono de WhatsApp configurado' });
+    }
+
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ message: 'Mensaje de WhatsApp obligatorio' });
+
+    order.whatsappMessageSnapshot = message;
+    order.sendMethod = 'manual_whatsapp';
+    order.status = 'sent';
+    order.sentAt = new Date();
+    await order.save();
+
+    return res.json(order);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+}
+
 module.exports = {
   listProducts,
   createProduct,
@@ -222,5 +265,6 @@ module.exports = {
   listOrders,
   createOrder,
   updateOrder,
+  markWhatsappSent,
 };
 

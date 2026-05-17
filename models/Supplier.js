@@ -6,6 +6,7 @@ const supplierSchema = new mongoose.Schema({
   category:    { type: String, default: 'other' },
   contactName: { type: String, default: '' },
   phone:       { type: String, default: '' },
+  whatsappPhone: { type: String, default: '' },
   email:       { type: String, default: '' },
   notes:       { type: String, default: '' },
   isActive:    { type: Boolean, default: true },

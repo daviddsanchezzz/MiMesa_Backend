@@ -13,6 +13,7 @@ router.put('/products/:id', c.updateProduct);
 router.get('/orders', c.listOrders);
 router.post('/orders', c.createOrder);
 router.put('/orders/:id', c.updateOrder);
+router.post('/orders/:id/mark-whatsapp-sent', c.markWhatsappSent);
 
 module.exports = router;
 
