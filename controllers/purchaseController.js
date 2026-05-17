@@ -6,7 +6,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 function normalizeInternationalPhone(raw) {
   const text = String(raw || '').trim();
   if (!text) return null;
-  const compact = text.replace(/[\\s\\-().]/g, '');
+  const compact = text.replace(/[\\s().-]/g, '');
   const normalized = compact.startsWith('00') ? "+" + compact.slice(2) : compact;
   const hasPlus = normalized.startsWith('+');
   const digits = normalized.replace(/\\D/g, '');
@@ -274,5 +274,6 @@ module.exports = {
   updateOrder,
   markWhatsappSent,
 };
+
 
 
