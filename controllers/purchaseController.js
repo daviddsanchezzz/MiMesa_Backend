@@ -6,12 +6,19 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 function normalizeInternationalPhone(raw) {
   const text = String(raw || '').trim();
   if (!text) return null;
-  const compact = text.replace(/[\s\-().]/g, '');
-  const hasPlus = compact.startsWith('+');
-  const digits = compact.replace(/\D/g, '');
-  if (!digits || digits.length < 8 || digits.length > 15) return null;
-  if (!hasPlus) return null;
-  return `+${digits}`;
+  const compact = text.replace(/[\\s\\-().]/g, '');
+  const normalized = compact.startsWith('00') ? "+" + compact.slice(2) : compact;
+  const hasPlus = normalized.startsWith('+');
+  const digits = normalized.replace(/\\D/g, '');
+
+  if (hasPlus) {
+    if (digits.length < 8 || digits.length > 15) return null;
+    return "+" + digits;
+  }
+
+  if (digits.length === 9) return "+34" + digits;
+  if (digits.length >= 8 && digits.length <= 15) return "+" + digits;
+  return null;
 }
 
 function normalizeDay(value) {
@@ -267,4 +274,5 @@ module.exports = {
   updateOrder,
   markWhatsappSent,
 };
+
 
