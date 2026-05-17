@@ -131,6 +131,16 @@ async function updateProduct(req, res) {
   }
 }
 
+async function deleteProduct(req, res) {
+  try {
+    const product = await PurchaseProduct.findOneAndDelete({ _id: req.params.id, businessId: req.businessId });
+    if (!product) return res.status(404).json({ message: 'Producto no encontrado' });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+}
+
 async function listOrders(req, res) {
   try {
     const orders = await PurchaseOrder.find({ businessId: req.businessId })
@@ -289,6 +299,7 @@ module.exports = {
   listProducts,
   createProduct,
   updateProduct,
+  deleteProduct,
   listOrders,
   createOrder,
   updateOrder,

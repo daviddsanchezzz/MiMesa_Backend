@@ -9,6 +9,7 @@ router.use(requireAuth, requireRole('manager'), requireModule('purchases'));
 router.get('/products', c.listProducts);
 router.post('/products', c.createProduct);
 router.put('/products/:id', c.updateProduct);
+router.delete('/products/:id', c.deleteProduct);
 
 router.get('/orders', c.listOrders);
 router.post('/orders', c.createOrder);
