@@ -12,6 +12,7 @@ const { isDev } = require('../middleware/requireDev');
 const MODULE_CATALOG = [
   { key: 'staff', name: 'Personal', description: 'Gestion de empleados y planificacion de turnos' },
   { key: 'expenses', name: 'Finanzas', description: 'Control de gastos, categorias, proveedores y analitica financiera' },
+  { key: 'purchases', name: 'Compras', description: 'Gestion de productos por proveedor y pedidos de compra' },
   { key: 'thefork', name: 'TheFork', description: 'Marcado de reservas procedentes de TheFork y analitica de canal' },
 ];
 
