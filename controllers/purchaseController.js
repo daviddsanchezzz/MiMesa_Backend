@@ -233,6 +233,16 @@ async function updateOrder(req, res) {
   }
 }
 
+async function deleteOrder(req, res) {
+  try {
+    const order = await PurchaseOrder.findOneAndDelete({ _id: req.params.id, businessId: req.businessId });
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+}
+
 async function markWhatsappSent(req, res) {
   try {
     const order = await PurchaseOrder.findOne({ _id: req.params.id, businessId: req.businessId });
@@ -272,6 +282,7 @@ module.exports = {
   listOrders,
   createOrder,
   updateOrder,
+  deleteOrder,
   markWhatsappSent,
 };
 
