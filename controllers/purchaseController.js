@@ -38,7 +38,7 @@ async function listProducts(req, res) {
 
     const products = await PurchaseProduct.find(filter)
       .populate('supplierId', 'name isActive')
-      .sort({ name: 1 })
+      .sort({ supplierId: 1, sortOrder: 1, name: 1 })
       .lean();
 
     res.json(products.map((product) => ({
@@ -54,12 +54,20 @@ async function listProducts(req, res) {
 
 async function createProduct(req, res) {
   try {
-    const { supplierId, name, unit, defaultUnitCost, sku, notes } = req.body;
+    const { supplierId, name, unit, defaultUnitCost, sortOrder, sku, notes } = req.body;
     if (!mongoose.Types.ObjectId.isValid(supplierId)) return res.status(400).json({ message: 'Proveedor invalido' });
     if (!name?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' });
 
     const supplier = await Supplier.findOne({ _id: supplierId, businessId: req.businessId }).lean();
     if (!supplier) return res.status(404).json({ message: 'Proveedor no encontrado' });
+
+    const lastBySupplier = await PurchaseProduct.findOne({ businessId: req.businessId, supplierId })
+      .sort({ sortOrder: -1, createdAt: -1 })
+      .select('sortOrder')
+      .lean();
+    const nextSortOrder = Number.isFinite(Number(sortOrder))
+      ? Number(sortOrder)
+      : Number(lastBySupplier?.sortOrder || 0) + 1;
 
     const product = await PurchaseProduct.create({
       businessId: req.businessId,
@@ -67,6 +75,7 @@ async function createProduct(req, res) {
       name: name.trim(),
       unit: String(unit || '').trim(),
       defaultUnitCost: Number(defaultUnitCost || 0),
+      sortOrder: nextSortOrder,
       sku: String(sku || '').trim(),
       notes: String(notes || '').trim(),
     });
@@ -88,7 +97,7 @@ async function updateProduct(req, res) {
     const product = await PurchaseProduct.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!product) return res.status(404).json({ message: 'Producto no encontrado' });
 
-    const { supplierId, name, unit, defaultUnitCost, sku, notes, isActive } = req.body;
+    const { supplierId, name, unit, defaultUnitCost, sortOrder, sku, notes, isActive } = req.body;
 
     if (supplierId !== undefined) {
       if (!mongoose.Types.ObjectId.isValid(supplierId)) return res.status(400).json({ message: 'Proveedor invalido' });
@@ -103,6 +112,7 @@ async function updateProduct(req, res) {
     }
     if (unit !== undefined) product.unit = String(unit).trim();
     if (defaultUnitCost !== undefined) product.defaultUnitCost = Number(defaultUnitCost || 0);
+    if (sortOrder !== undefined) product.sortOrder = Math.max(0, Number(sortOrder || 0));
     if (sku !== undefined) product.sku = String(sku).trim();
     if (notes !== undefined) product.notes = String(notes).trim();
     if (isActive !== undefined) product.isActive = Boolean(isActive);

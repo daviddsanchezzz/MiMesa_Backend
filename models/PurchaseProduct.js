@@ -6,12 +6,14 @@ const purchaseProductSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   unit: { type: String, default: '' },
   defaultUnitCost: { type: Number, default: 0, min: 0 },
+  sortOrder: { type: Number, default: 0, min: 0 },
   sku: { type: String, default: '', trim: true },
   notes: { type: String, default: '' },
   isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
 purchaseProductSchema.index({ businessId: 1, supplierId: 1, name: 1 });
+purchaseProductSchema.index({ businessId: 1, supplierId: 1, sortOrder: 1 });
 
 module.exports = mongoose.model('PurchaseProduct', purchaseProductSchema);
 
