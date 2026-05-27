@@ -7,7 +7,7 @@ function ensureVapid() {
   if (vapidInitialized) return true;
   if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return false;
   webpush.setVapidDetails(
-    `mailto:${process.env.VAPID_EMAIL || 'admin@tableo.app'}`,
+    `mailto:${process.env.VAPID_EMAIL || 'admin@vetra.app'}`,
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY,
   );

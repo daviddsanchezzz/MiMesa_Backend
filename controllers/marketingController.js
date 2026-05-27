@@ -70,12 +70,12 @@ exports.sendCampaign = async (req, res) => {
     }
 
     const accent = business?.brandColor || '#7C3AED';
-    const landingUrl = process.env.LANDING_URL || 'https://tableo.app';
-    const frontendUrl = process.env.FRONTEND_URL || 'https://app.tableo.app';
+    const landingUrl = process.env.LANDING_URL || 'https://vetra.app';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://app.vetra.app';
     const FROM = process.env.RESEND_FROM_SYSTEM || 'Reservas <noreply@resend.dev>';
     const fromMatch = FROM.match(/<(.+)>/);
     const fromEmail = fromMatch ? fromMatch[1] : FROM;
-    const from = `${business?.name || 'Tableo'} <${fromEmail}>`;
+    const from = `${business?.name || 'Vetra'} <${fromEmail}>`;
 
     let sent = 0;
     const errors = [];
@@ -104,7 +104,7 @@ exports.sendCampaign = async (req, res) => {
             <a href="${unsubUrl}" style="color:#7C3AED;text-decoration:underline;">Darse de baja</a>
           </p>
           <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
-            Powered by <a href="${landingUrl}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
+            Powered by <a href="${landingUrl}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
           </p>
         </td></tr>
       </table>

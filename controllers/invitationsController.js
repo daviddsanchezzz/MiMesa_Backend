@@ -1,4 +1,4 @@
-ï»¿const Invitation     = require('../models/Invitation');
+const Invitation     = require('../models/Invitation');
 const BusinessMember = require('../models/BusinessMember');
 const Business       = require('../models/Business');
 const { Resend }     = require('resend');
@@ -32,7 +32,7 @@ function resolveInviteFrom() {
     process.env.RESEND_FROM_INVITE ||
     process.env.RESEND_FROM_SYSTEM ||
     process.env.RESEND_FROM ||
-    'Tableo <onboarding@resend.dev>'
+    'Vetra <onboarding@resend.dev>'
   );
 }
 
@@ -105,26 +105,26 @@ exports.createInvitation = async (req, res) => {
       await sendEmailOrThrow({
         from:    resolveInviteFrom(),
         to:      email,
-        subject: `Te han invitado a Tableo`,
+        subject: `Te han invitado a Vetra`,
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
             <div style="margin-bottom:24px">
-              <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Tableo</span>
+              <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Vetra</span>
             </div>
-            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} ðŸ‘‹</h2>
+            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} ??</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
-              Te han dado acceso a <strong>Tableo</strong>, la plataforma de gestiÃ³n de reservas para restaurantes.
-              Haz clic en el botÃ³n para activar tu cuenta.
+              Te han dado acceso a <strong>Vetra</strong>, la plataforma de gestión de reservas para restaurantes.
+              Haz clic en el botón para activar tu cuenta.
             </p>
             <a href="${inviteUrl}"
                style="display:inline-block;background:#7C3AED;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
               Activar mi cuenta
             </a>
             <p style="color:#aaa;font-size:12px;margin-top:32px">
-              Si no esperabas esta invitaciÃ³n, ignora este email. El enlace caduca en 7 dÃ­as.
+              Si no esperabas esta invitación, ignora este email. El enlace caduca en 7 días.
             </p>
             <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
-              Powered by <a href="${process.env.LANDING_URL || 'https://tableo.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
+              Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
             </p>
           </div>
         `,
@@ -133,29 +133,29 @@ exports.createInvitation = async (req, res) => {
       await sendEmailOrThrow({
         from:    resolveInviteFrom(),
         to:      email,
-        subject: `${business.name} te invita a unirte a Tableo`,
+        subject: `${business.name} te invita a unirte a Vetra`,
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
             <div style="margin-bottom:24px">
-              <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Tableo</span>
+              <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Vetra</span>
             </div>
-            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} ðŸ‘‹</h2>
+            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} ??</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 8px">
-              <strong>${business.name}</strong> te ha invitado a unirte a su equipo en Tableo
+              <strong>${business.name}</strong> te ha invitado a unirte a su equipo en Vetra
               con el rol de <strong>${role === 'owner' ? 'Propietario' : role === 'manager' ? 'Encargado' : 'Personal'}</strong>.
             </p>
             <p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 24px">
-              Haz clic en el botÃ³n para activar tu cuenta. El enlace caduca en 7 dÃ­as.
+              Haz clic en el botón para activar tu cuenta. El enlace caduca en 7 días.
             </p>
             <a href="${inviteUrl}"
                style="display:inline-block;background:#7C3AED;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
               Activar cuenta y unirme
             </a>
             <p style="color:#aaa;font-size:12px;margin-top:32px">
-              Si no esperabas esta invitaciÃ³n, ignora este email.
+              Si no esperabas esta invitación, ignora este email.
             </p>
             <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
-              Powered by <a href="${process.env.LANDING_URL || 'https://tableo.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Tableo</a>
+              Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
             </p>
           </div>
         `,
@@ -197,10 +197,10 @@ exports.cancelInvitation = async (req, res) => {
       _id:        req.params.id,
       businessId: req.businessId,
     });
-    if (!invitation) return res.status(404).json({ message: 'InvitaciÃ³n no encontrada' });
+    if (!invitation) return res.status(404).json({ message: 'Invitación no encontrada' });
     invitation.status = 'canceled';
     await invitation.save();
-    res.json({ message: 'InvitaciÃ³n cancelada' });
+    res.json({ message: 'Invitación cancelada' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -217,7 +217,7 @@ exports.getPublicInvitation = async (req, res) => {
     }).populate('businessId', 'name brandColor').lean();
 
     if (!invitation) {
-      return res.status(404).json({ message: 'InvitaciÃ³n invÃ¡lida o expirada' });
+      return res.status(404).json({ message: 'Invitación inválida o expirada' });
     }
 
     res.json({
@@ -247,12 +247,12 @@ exports.acceptInvitation = async (req, res) => {
       status:    'pending',
       expiresAt: { $gt: new Date() },
     });
-    if (!invitation) return res.status(404).json({ message: 'InvitaciÃ³n invÃ¡lida o expirada' });
+    if (!invitation) return res.status(404).json({ message: 'Invitación inválida o expirada' });
 
     // Find the registered user that owns this email
     const authUser = await AuthUser.findOne({ email: invitation.email.toLowerCase() }).lean();
     if (!authUser) {
-      return res.status(404).json({ message: 'No se encontrÃ³ ninguna cuenta para este email. RegÃ­strate primero.' });
+      return res.status(404).json({ message: 'No se encontró ninguna cuenta para este email. Regístrate primero.' });
     }
 
     const canonicalUserId = authUser.id || (authUser._id ? authUser._id.toString() : null);
