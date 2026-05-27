@@ -70,8 +70,8 @@ exports.sendCampaign = async (req, res) => {
     }
 
     const accent = business?.brandColor || '#7C3AED';
-    const landingUrl = process.env.LANDING_URL || 'https://vetra.app';
-    const frontendUrl = process.env.FRONTEND_URL || 'https://app.vetra.app';
+    const landingUrl = process.env.LANDING_URL || 'https://vetrareserve.com';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://app.vetrareserve.com';
     const FROM = process.env.RESEND_FROM_SYSTEM || 'Reservas <noreply@resend.dev>';
     const fromMatch = FROM.match(/<(.+)>/);
     const fromEmail = fromMatch ? fromMatch[1] : FROM;

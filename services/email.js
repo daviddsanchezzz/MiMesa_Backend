@@ -56,7 +56,7 @@ function baseLayout(accentColor, content) {
                 Este correo ha sido generado automáticamente, por favor no respondas a este mensaje.
               </p>
               <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
-                Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
+                Powered by <a href="${process.env.LANDING_URL || 'https://vetrareserve.com'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
               </p>
             </td>
           </tr>
@@ -580,7 +580,7 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
 
   const subject = `Reserva pendiente de aprobación - ${business.name}`;
-  const appUrl = process.env.APP_URL || 'https://app.vetra.app';
+  const appUrl = process.env.APP_URL || 'https://app.vetrareserve.com';
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -637,7 +637,7 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
                 Este correo ha sido generado automáticamente, por favor no respondas a este mensaje.
               </p>
               <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
-                Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
+                Powered by <a href="${process.env.LANDING_URL || 'https://vetrareserve.com'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
               </p>
             </td>
           </tr>

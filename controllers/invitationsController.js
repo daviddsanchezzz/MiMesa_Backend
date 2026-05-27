@@ -124,7 +124,7 @@ exports.createInvitation = async (req, res) => {
               Si no esperabas esta invitación, ignora este email. El enlace caduca en 7 días.
             </p>
             <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
-              Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
+              Powered by <a href="${process.env.LANDING_URL || 'https://vetrareserve.com'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
             </p>
           </div>
         `,
@@ -155,7 +155,7 @@ exports.createInvitation = async (req, res) => {
               Si no esperabas esta invitación, ignora este email.
             </p>
             <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
-              Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
+              Powered by <a href="${process.env.LANDING_URL || 'https://vetrareserve.com'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
             </p>
           </div>
         `,
