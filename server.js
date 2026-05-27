@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express    = require('express');
 const cors       = require('cors');
 const cookieParser = require('cookie-parser');
@@ -11,7 +11,7 @@ const { startSchedulers } = require('./services/scheduler');
 
 const app = express();
 
-// â”€â”€ Security headers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Security headers ────────────────────────────────────────────────────────
 app.use(helmet({
   // Allow embedding via iframe (embed mode for public reservation widget)
   contentSecurityPolicy: {
@@ -27,7 +27,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
-// â”€â”€ CORS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CORS ─────────────────────────────────────────────────────────────────────
 // Public endpoints: no credentials needed, embeddable from any domain
 const publicCors = cors({ origin: '*' });
 app.use('/api/auth/public',         publicCors);
@@ -68,7 +68,7 @@ app.use(cors({
   credentials: true,
 }));
 
-// â”€â”€ Stripe webhook â€” MUST be before express.json() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Stripe webhook — MUST be before express.json() ──────────────────────────
 // Stripe signature verification requires the raw request body (Buffer).
 // express.raw() captures it without parsing; express.json() would destroy it.
 // Stripe webhook needs raw body for signature verification
@@ -85,17 +85,17 @@ app.post(
   stripeWebhookHandler,
 );
 
-// â”€â”€ Body / cookie parsing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Body / cookie parsing ────────────────────────────────────────────────────
 app.use(express.json());
 app.use(cookieParser());
 
-// â”€â”€ Rate limiting on auth endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Rate limiting on auth endpoints ─────────────────────────────────────────
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: 'Demasiados intentos, intÃ©ntalo en 15 minutos' },
+  message: { message: 'Demasiados intentos, inténtalo en 15 minutos' },
 });
 app.use('/api/auth/login',           authLimiter);
 app.use('/api/auth/register',        authLimiter);
@@ -115,7 +115,7 @@ app.use('/api/betterauth', (req, res, next) => {
   next();
 });
 
-// â”€â”€ MongoDB + Better Auth bootstrap â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── MongoDB + Better Auth bootstrap ─────────────────────────────────────────
 // Connect Mongoose for business data, then spin up Better Auth with native client
 connectDB().catch((err) => {
   console.error('[server] MongoDB connection failed:', err.message);
@@ -135,7 +135,7 @@ getMongoClient().then((mongoClient) => {
   console.error('[server] Better Auth initialization failed:', err.message);
 });
 
-// â”€â”€ Application routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Application routes ───────────────────────────────────────────────────────
 app.use('/api/dev',          require('./routes/dev'));
 app.use('/api/auth',         require('./routes/auth'));
 app.use('/api/users',        require('./routes/users'));
