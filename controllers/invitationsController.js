@@ -113,15 +113,15 @@ exports.createInvitation = async (req, res) => {
             </div>
             <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} ??</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
-              Te han dado acceso a <strong>Vetra</strong>, la plataforma de gestión de reservas para restaurantes.
-              Haz clic en el botón para activar tu cuenta.
+              Te han dado acceso a <strong>Vetra</strong>, la plataforma de gestiÃ³n de reservas para restaurantes.
+              Haz clic en el botÃ³n para activar tu cuenta.
             </p>
             <a href="${inviteUrl}"
                style="display:inline-block;background:#7C3AED;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
               Activar mi cuenta
             </a>
             <p style="color:#aaa;font-size:12px;margin-top:32px">
-              Si no esperabas esta invitación, ignora este email. El enlace caduca en 7 días.
+              Si no esperabas esta invitaciÃ³n, ignora este email. El enlace caduca en 7 dÃ­as.
             </p>
             <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
               Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
@@ -145,14 +145,14 @@ exports.createInvitation = async (req, res) => {
               con el rol de <strong>${role === 'owner' ? 'Propietario' : role === 'manager' ? 'Encargado' : 'Personal'}</strong>.
             </p>
             <p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 24px">
-              Haz clic en el botón para activar tu cuenta. El enlace caduca en 7 días.
+              Haz clic en el botÃ³n para activar tu cuenta. El enlace caduca en 7 dÃ­as.
             </p>
             <a href="${inviteUrl}"
                style="display:inline-block;background:#7C3AED;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
               Activar cuenta y unirme
             </a>
             <p style="color:#aaa;font-size:12px;margin-top:32px">
-              Si no esperabas esta invitación, ignora este email.
+              Si no esperabas esta invitaciÃ³n, ignora este email.
             </p>
             <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
               Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
@@ -197,10 +197,10 @@ exports.cancelInvitation = async (req, res) => {
       _id:        req.params.id,
       businessId: req.businessId,
     });
-    if (!invitation) return res.status(404).json({ message: 'Invitación no encontrada' });
+    if (!invitation) return res.status(404).json({ message: 'InvitaciÃ³n no encontrada' });
     invitation.status = 'canceled';
     await invitation.save();
-    res.json({ message: 'Invitación cancelada' });
+    res.json({ message: 'InvitaciÃ³n cancelada' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -217,7 +217,7 @@ exports.getPublicInvitation = async (req, res) => {
     }).populate('businessId', 'name brandColor').lean();
 
     if (!invitation) {
-      return res.status(404).json({ message: 'Invitación inválida o expirada' });
+      return res.status(404).json({ message: 'InvitaciÃ³n invÃ¡lida o expirada' });
     }
 
     res.json({
@@ -247,12 +247,12 @@ exports.acceptInvitation = async (req, res) => {
       status:    'pending',
       expiresAt: { $gt: new Date() },
     });
-    if (!invitation) return res.status(404).json({ message: 'Invitación inválida o expirada' });
+    if (!invitation) return res.status(404).json({ message: 'InvitaciÃ³n invÃ¡lida o expirada' });
 
     // Find the registered user that owns this email
     const authUser = await AuthUser.findOne({ email: invitation.email.toLowerCase() }).lean();
     if (!authUser) {
-      return res.status(404).json({ message: 'No se encontró ninguna cuenta para este email. Regístrate primero.' });
+      return res.status(404).json({ message: 'No se encontrÃ³ ninguna cuenta para este email. RegÃ­strate primero.' });
     }
 
     const canonicalUserId = authUser.id || (authUser._id ? authUser._id.toString() : null);

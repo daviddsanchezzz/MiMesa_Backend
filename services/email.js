@@ -40,7 +40,7 @@ function baseLayout(accentColor, content) {
           <!-- Header bar -->
           <tr>
             <td style="background:${accentColor};padding:24px 32px;">
-              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Confirmación de reserva</p>
+              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">ConfirmaciÃ³n de reserva</p>
             </td>
           </tr>
           <!-- Body -->
@@ -53,7 +53,7 @@ function baseLayout(accentColor, content) {
           <tr>
             <td style="background:#f9fafb;padding:16px 32px 20px;border-top:1px solid #e5e7eb;">
               <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
-                Este correo ha sido generado automáticamente, por favor no respondas a este mensaje.
+                Este correo ha sido generado automÃ¡ticamente, por favor no respondas a este mensaje.
               </p>
               <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
                 Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
@@ -95,7 +95,7 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
 
   const contactInfo = [];
   if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Teléfono: ${businessPhone}`);
+  if (businessPhone) contactInfo.push(`TelÃ©fono: ${businessPhone}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -108,7 +108,7 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
     </p>
     <p style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;">
       Tu reserva en <strong>${businessName}</strong> ha sido <strong>confirmada</strong>.
-      A continuación encontrarás los detalles:
+      A continuaciÃ³n encontrarÃ¡s los detalles:
     </p>
     <!-- Details box -->
     <table width="100%" cellpadding="0" cellspacing="0"
@@ -120,7 +120,7 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
       </td></tr>
     </table>
     <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
-      Si necesitas hacer algún cambio o cancelar tu reserva, puedes usar el botón a continuación:
+      Si necesitas hacer algÃºn cambio o cancelar tu reserva, puedes usar el botÃ³n a continuaciÃ³n:
     </p>
     <p style="margin:16px 0;text-align:center;">
       <a href="${cancelUrl}"
@@ -449,8 +449,8 @@ function buildAlternativeProposalEmail({ businessName, accentColor, guestName, d
       style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin-bottom:16px;">
       <tr><td>
         <table width="100%" cellpadding="0" cellspacing="0">
-          ${detailRow('Reserva original', `${fmtDate(date)} · ${time} · ${people} ${people === 1 ? 'persona' : 'personas'}`)}
-          ${detailRow('Propuesta', `${fmtDate(alternativeDate)} · ${alternativeTime}`)}
+          ${detailRow('Reserva original', `${fmtDate(date)} Â· ${time} Â· ${people} ${people === 1 ? 'persona' : 'personas'}`)}
+          ${detailRow('Propuesta', `${fmtDate(alternativeDate)} Â· ${alternativeTime}`)}
         </table>
       </td></tr>
     </table>
@@ -579,7 +579,7 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
   if (!Array.isArray(recipients) || recipients.length === 0) return;
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
 
-  const subject = `Reserva pendiente de aprobación - ${business.name}`;
+  const subject = `Reserva pendiente de aprobaciÃ³n - ${business.name}`;
   const appUrl = process.env.APP_URL || 'https://app.vetra.app';
 
   const html = `<!DOCTYPE html>
@@ -596,13 +596,13 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
           <tr>
             <td style="background:#d97706;padding:24px 32px;">
-              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Reserva pendiente de aprobación</p>
+              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Reserva pendiente de aprobaciÃ³n</p>
             </td>
           </tr>
           <tr>
             <td style="padding:28px 32px;">
               <p style="margin:0 0 20px;font-size:14px;color:#374151;">
-                Una nueva reserva requiere tu aprobación antes de confirmarse.
+                Una nueva reserva requiere tu aprobaciÃ³n antes de confirmarse.
               </p>
               <table width="100%" cellpadding="0" cellspacing="0"
                 style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px 20px;margin-bottom:20px;">
@@ -612,7 +612,7 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
                     ${detailRow('Fecha', fmtDate(reservation.date))}
                     ${detailRow('Hora', reservation.time || '-')}
                     ${detailRow('Personas', String(reservation.people || '-'))}
-                    ${reservation.guestPhone ? detailRow('Teléfono', reservation.guestPhone) : ''}
+                    ${reservation.guestPhone ? detailRow('TelÃ©fono', reservation.guestPhone) : ''}
                     ${reservation.guestEmail ? detailRow('Email', reservation.guestEmail) : ''}
                     ${reservation.pendingReason === 'large_group' ? detailRow('Motivo', 'Grupo grande') : ''}
                     ${reservation.pendingReason === 'slot_capacity' ? detailRow('Motivo', 'Capacidad del slot') : ''}
@@ -634,7 +634,7 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
           <tr>
             <td style="background:#f9fafb;padding:16px 32px 20px;border-top:1px solid #e5e7eb;">
               <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
-                Este correo ha sido generado automáticamente, por favor no respondas a este mensaje.
+                Este correo ha sido generado automÃ¡ticamente, por favor no respondas a este mensaje.
               </p>
               <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
                 Powered by <a href="${process.env.LANDING_URL || 'https://vetra.app'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
@@ -709,7 +709,7 @@ async function sendNewBusinessOwnerNotification({ business, owner }) {
               <table width="100%" cellpadding="0" cellspacing="0">
                 ${detailRow('Nombre', safeBusinessName)}
                 ${detailRow('Email', safeBusinessEmail)}
-                ${detailRow('Teléfono', safeBusinessPhone)}
+                ${detailRow('TelÃ©fono', safeBusinessPhone)}
                 ${detailRow('CIF/NIF', safeBusinessCif)}
                 ${detailRow('Business ID', safeBusinessId)}
               </table>
@@ -722,7 +722,7 @@ async function sendNewBusinessOwnerNotification({ business, owner }) {
               <table width="100%" cellpadding="0" cellspacing="0">
                 ${detailRow('Nombre', safeOwnerName)}
                 ${detailRow('Email', safeOwnerEmail)}
-                ${detailRow('Teléfono', safeOwnerPhone)}
+                ${detailRow('TelÃ©fono', safeOwnerPhone)}
                 ${detailRow('User ID', safeOwnerId)}
               </table>
             </td></tr>
