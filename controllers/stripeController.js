@@ -171,7 +171,14 @@ exports.getPaymentSettings = async (req, res) => {
   try {
     const business = await Business.findById(req.businessId).select('reservationPayment');
     if (!business) return res.status(404).json({ message: 'Business not found' });
-    return res.json({ reservationPayment: business.reservationPayment || {} });
+    return res.json({
+      reservationPayment: business.reservationPayment || {},
+      stripeConfig: {
+        secretKeyConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
+        webhookSecretConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+        currency: (process.env.STRIPE_CURRENCY || 'eur').toLowerCase(),
+      },
+    });
   } catch (err) {
     console.error('[stripe payment-settings]', err.message);
     return res.status(500).json({ message: err.message });
