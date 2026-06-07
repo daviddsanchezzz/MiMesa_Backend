@@ -35,15 +35,20 @@ const reservationSchema = new mongoose.Schema({
   // ── Pago ─────────────────────────────────────────────────────────────────
   payment: {
     // 'none' | 'deposit' | 'card_guarantee'  — snapshot del modo al crear la reserva
+    paymentStatus:          { type: String, enum: ['unpaid', 'pending', 'paid', 'failed', 'refunded'], default: 'unpaid' },
     mode:                   { type: String, default: 'none' },
     // 'none' | 'pending' | 'captured' | 'refunded' | 'failed'
     status:                 { type: String, default: 'none' },
+    depositMode:            { type: String, enum: ['none', 'fixed', 'per_person'], default: 'none' },
+    depositAmount:          { type: Number, default: 0 },
     amount:                 { type: Number, default: 0 },  // céntimos cobrados/retenidos
     currency:               { type: String, default: 'eur' },
+    depositCurrency:        { type: String, default: 'eur' },
     stripePaymentIntentId:  { type: String, default: null }, // modo depósito
     stripeSetupIntentId:    { type: String, default: null }, // modo garantía
     stripePaymentMethodId:  { type: String, default: null }, // tarjeta guardada
     stripeCustomerId:       { type: String, default: null }, // Stripe customer del huésped
+    paidAt:                 { type: Date,   default: null },
     capturedAt:             { type: Date,   default: null },
     refundedAt:             { type: Date,   default: null },
   },

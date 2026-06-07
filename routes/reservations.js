@@ -19,8 +19,7 @@ const {
 const {
   getPublicPaymentConfig,
   createPublicPaymentIntent,
-  createPublicSetupIntent,
-  chargeNoShow,
+  createReservationPaymentIntent,
   refundDeposit,
 } = require('../controllers/reservationPaymentController');
 
@@ -30,7 +29,7 @@ router.get('/public/details', getPublicReservationDetails);
 router.get('/public/cancel', cancelPublicReservation);
 router.get('/public/payment-config', getPublicPaymentConfig);
 router.post('/public/payment-intent', createPublicPaymentIntent);
-router.post('/public/setup-intent', createPublicSetupIntent);
+router.post('/:id/create-payment-intent', createReservationPaymentIntent);
 
 router.use(auth);
 router.get('/', getReservations);
@@ -40,7 +39,6 @@ router.put('/:id/accept', requireRole('manager'), acceptPendingReservation);
 router.put('/:id/reject', requireRole('manager'), rejectPendingReservation);
 router.put('/:id/propose-alternative', requireRole('manager'), proposeAlternativeTime);
 router.put('/:id/no-show', requireRole('manager'), markNoShow);
-router.post('/:id/charge-noshow', requireRole('manager'), requirePlan('reservationPayments'), chargeNoShow);
 router.post('/:id/refund',        requireRole('manager'), requirePlan('reservationPayments'), refundDeposit);
 router.put('/:id', updateReservation);
 router.delete('/:id', deleteReservation);

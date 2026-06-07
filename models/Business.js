@@ -31,12 +31,13 @@ const businessSchema = new mongoose.Schema({
   cancelAtPeriodEnd:    { type: Boolean, default: false },
 
   // ── Stripe Connect (pagos de clientes al restaurante) ────────────────────
-  stripeConnectId:      { type: String, default: null }, // acct_xxx
+  stripeConnectId:      { type: String, default: null },
   stripeConnectEnabled: { type: Boolean, default: false },
 
   // ── Config de pagos en reservas ──────────────────────────────────────────
   reservationPayment: {
-    mode:                   { type: String, enum: ['none', 'deposit', 'card_guarantee'], default: 'none' },
+    enabled:                { type: Boolean, default: false },
+    mode:                   { type: String, enum: ['none', 'deposit'], default: 'none' },
     depositAmount:          { type: Number, default: 0 },   // céntimos, ej: 500 = 5€
     depositPerPerson:       { type: Boolean, default: false }, // true = por persona, false = fijo
     noShowFeeAmount:        { type: Number, default: 0 },   // céntimos

@@ -8,6 +8,11 @@ const BusinessMember = require('../models/BusinessMember');
 const Exception = require('../models/Exception');
 const stripeService = require('../services/stripe');
 const {
+  getReservationPaymentConfig,
+  calculateDepositAmount,
+  buildPaymentSnapshot,
+} = require('./reservationPaymentController');
+const {
   sendReservationConfirmation,
   sendStatusUpdate,
   sendStaffReservationNotification,
@@ -509,9 +514,7 @@ exports.createPublicReservation = async (req, res) => {
       businessId, guestName, guestPhone, guestEmail, roomId, tableId,
       date, time, people, notes, consent, marketingConsent, marketingConsentText, promoCode: rawPromoCode,
       // Datos de pago (opcionales — solo si el restaurante tiene pagos activos)
-      paymentIntentId,    // modo depósito: ID del PaymentIntent ya confirmado
-      setupIntentId,      // modo garantía: ID del SetupIntent ya confirmado
-      paymentMethodId,    // modo garantía: ID del PaymentMethod guardado
+      paymentIntentId,
     } = req.body;
 
     const phone = (guestPhone || '').trim();
@@ -520,7 +523,7 @@ exports.createPublicReservation = async (req, res) => {
     if (!email) return res.status(400).json({ message: 'El email es obligatorio' });
 
     const business = await Business.findById(businessId).select(
-      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus stripeConnectId reservationPayment'
+      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus reservationPayment'
     );
     if (!business) return res.status(404).json({ message: 'Restaurante no encontrado' });
 
@@ -616,79 +619,33 @@ exports.createPublicReservation = async (req, res) => {
     const customer = await findOrCreateCustomer(businessId, guestName, phone, email);
 
     // ── Construir objeto de pago ───────────────────────────────────────────
-    const rp = business.reservationPayment || {};
-    const paymentMode = (business.stripeConnectId && rp.mode && rp.mode !== 'none') ? rp.mode : 'none';
-    let paymentData = { mode: 'none', status: 'none' };
+    const paymentConfig = getReservationPaymentConfig(business);
+    const depositAmount = calculateDepositAmount({ paymentConfig, people });
+    const requiresDeposit = paymentConfig.enabled && depositAmount > 0;
+    let paymentData = buildPaymentSnapshot({
+      paymentConfig,
+      amount: depositAmount,
+      status: 'unpaid',
+    });
 
-    if (paymentMode === 'deposit') {
-      if (!paymentIntentId) {
-        return res.status(400).json({ message: 'Se requiere pago para completar la reserva' });
-      }
-      const numPeople = parseInt(people, 10) || 1;
-      const amount = rp.depositPerPerson ? rp.depositAmount * numPeople : rp.depositAmount;
-      // Verificar con Stripe que el pago fue efectivamente cobrado
+    if (requiresDeposit && paymentIntentId) {
       try {
         await stripeService.verifyPaymentIntent({
-          stripeConnectId: business.stripeConnectId,
           paymentIntentId,
-          expectedAmount:  amount,
+          expectedAmount: depositAmount,
         });
       } catch (err) {
-        console.error('[createPublicReservation] PaymentIntent inválido:', err.message);
-        return res.status(402).json({ message: 'El pago no se ha completado correctamente. Por favor, inténtalo de nuevo.' });
+        console.error('[createPublicReservation] invalid PaymentIntent:', err.message);
+        return res.status(402).json({ message: 'El pago no se ha completado correctamente. Por favor, intentalo de nuevo.' });
       }
-      paymentData = {
-        mode:                  'deposit',
-        status:                'captured',
-        amount,
-        currency:              rp.currency ?? 'eur',
-        stripePaymentIntentId: paymentIntentId,
-        capturedAt:            new Date(),
-      };
-    } else if (paymentMode === 'card_guarantee') {
-      if (!setupIntentId || !paymentMethodId) {
-        return res.status(400).json({ message: 'Se requieren datos de tarjeta para completar la reserva' });
-      }
-      // Verificar con Stripe que el SetupIntent está completado
-      try {
-        await stripeService.verifySetupIntent({
-          stripeConnectId: business.stripeConnectId,
-          setupIntentId,
-        });
-      } catch (err) {
-        console.error('[createPublicReservation] SetupIntent inválido:', err.message);
-        return res.status(402).json({ message: 'No se ha podido guardar la tarjeta. Por favor, inténtalo de nuevo.' });
-      }
-      // Crear un customer de Stripe en la cuenta Connect para el huésped y adjuntar el PM
-      let stripeGuestCustomerId = null;
-      try {
-        const guestCustomer = await stripeService.createGuestCustomer({
-          stripeConnectId: business.stripeConnectId,
-          name:  guestName,
-          email: email || undefined,
-          metadata: { businessId: businessId.toString() },
-        });
-        stripeGuestCustomerId = guestCustomer.id;
-        await stripeService.attachPaymentMethod({
-          stripeConnectId:  business.stripeConnectId,
-          paymentMethodId,
-          customerId:       stripeGuestCustomerId,
-        });
-      } catch (err) {
-        console.error('[createPublicReservation] error adjuntando PM:', err.message);
-        // No bloqueamos la reserva si falla la asociación, pero el PM queda registrado
-      }
-
-      paymentData = {
-        mode:                  'card_guarantee',
-        status:                'pending',
-        amount:                rp.noShowFeeAmount ?? 0,
-        currency:              rp.currency ?? 'eur',
-        stripeSetupIntentId:   setupIntentId,
-        stripePaymentMethodId: paymentMethodId,
-        stripeCustomerId:      stripeGuestCustomerId,
-      };
+      paymentData = buildPaymentSnapshot({
+        paymentConfig,
+        amount: depositAmount,
+        status: 'paid',
+        paymentIntentId,
+      });
     }
+
 
     const reservation = await Reservation.create({
       businessId,
@@ -708,8 +665,8 @@ exports.createPublicReservation = async (req, res) => {
       marketingConsentText: marketingConsent ? (marketingConsentText || '') : '',
       promoCode: resolvedPromoCode,
       promoCodeId: resolvedPromoCodeId,
-      status: decision.status,
-      pendingReason: decision.pendingReason,
+      status: requiresDeposit && !paymentIntentId && decision.status === 'confirmed' ? 'pending' : decision.status,
+      pendingReason: requiresDeposit && !paymentIntentId && decision.pendingReason === 'none' ? 'manual' : decision.pendingReason,
       payment: paymentData,
     });
 
@@ -773,14 +730,14 @@ exports.cancelPublicReservation = async (req, res) => {
     if (reservation.status === 'cancelled') return res.json({ message: 'Esta reserva ya ha sido cancelada anteriormente.' });
 
     const business = await Business.findById(reservation.businessId)
-      .select('name brandColor email phone stripeConnectId reservationPayment plan subscriptionStatus');
+      .select('name brandColor email phone reservationPayment plan subscriptionStatus');
 
     // ── Reembolso automático si el modo es depósito y está dentro de la ventana ──
     const rp = business?.reservationPayment || {};
     const freeCancelHours = rp.freeCancellationHours ?? 24;
     const payment = reservation.payment;
 
-    if (payment?.mode === 'deposit' && payment?.status === 'captured' && payment?.stripePaymentIntentId && business?.stripeConnectId) {
+    if (payment?.depositMode !== 'none' && payment?.paymentStatus === 'paid' && payment?.stripePaymentIntentId) {
       // Comprobar si la cancelación está dentro de la ventana gratuita
       const reservationDateTime = new Date(`${reservation.date}T${reservation.time}:00`);
       const hoursUntilReservation = (reservationDateTime - new Date()) / (1000 * 60 * 60);
@@ -789,9 +746,9 @@ exports.cancelPublicReservation = async (req, res) => {
         // Dentro de ventana → reembolso automático
         try {
           await stripeService.refundPaymentIntent({
-            stripeConnectId: business.stripeConnectId,
             paymentIntentId: payment.stripePaymentIntentId,
           });
+          reservation.payment.paymentStatus = 'refunded';
           reservation.payment.status = 'refunded';
           reservation.payment.refundedAt = new Date();
         } catch (err) {
@@ -813,7 +770,7 @@ exports.cancelPublicReservation = async (req, res) => {
     if (reservation.guestEmail && business && canUseFeature(business, 'autoEmails')) await sendStatusUpdate(reservation, business, 'cancelled');
     await notifyStaff(reservation.businessId, reservation, 'cancelled');
 
-    const refunded = reservation.payment?.status === 'refunded';
+    const refunded = reservation.payment?.paymentStatus === 'refunded' || reservation.payment?.status === 'refunded';
     res.json({
       message: refunded
         ? 'Reserva cancelada correctamente. El depósito será reembolsado en 5-10 días hábiles.'
@@ -1022,3 +979,6 @@ exports.deleteReservation = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+
+
