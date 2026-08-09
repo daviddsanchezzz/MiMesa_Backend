@@ -13,6 +13,7 @@ const businessSchema = new mongoose.Schema({
   maxReservationPeople: { type: Number, default: 20, min: 1 },
   maxPeoplePerSlot: { type: Number, default: null },
   reservationDuration: { type: Number, default: null },
+  minBookingNoticeHours: { type: Number, default: 0, min: 0 },
   requireApprovalAbove: { type: Number, default: null, min: 1 },
   reminderHoursBefore: { type: Number, default: 24, min: 1, max: 168 },
   // Better Auth user ID that owns this business (null for legacy users)

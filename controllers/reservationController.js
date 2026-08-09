@@ -523,7 +523,7 @@ exports.createPublicReservation = async (req, res) => {
     if (!email) return res.status(400).json({ message: 'El email es obligatorio' });
 
     const business = await Business.findById(businessId).select(
-      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus reservationPayment'
+      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus reservationPayment'
     );
     if (!business) return res.status(404).json({ message: 'Restaurante no encontrado' });
 
@@ -557,6 +557,16 @@ exports.createPublicReservation = async (req, res) => {
     const selectedSlot = shiftSlots.find((s) => s.time === time);
     if (!selectedSlot) {
       return res.status(400).json({ message: 'Ese horario no esta disponible para la fecha seleccionada' });
+    }
+
+    if (business.minBookingNoticeHours) {
+      const cutoff = new Date(Date.now() + business.minBookingNoticeHours * 60 * 60 * 1000);
+      if (new Date(`${date}T${time}:00`) < cutoff) {
+        return res.status(400).json({
+          message: `Este restaurante requiere reservar online con al menos ${business.minBookingNoticeHours} horas de antelacion. Llama directamente al restaurante para reservas de ultima hora.`,
+          code: 'MIN_NOTICE_NOT_MET',
+        });
+      }
     }
 
     const exceptionCheck = await getExceptionBlocksForShift({

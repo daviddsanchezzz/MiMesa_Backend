@@ -205,7 +205,7 @@ exports.getPublicSlots = async (req, res) => {
 
     const [allShiftDocs, business] = await Promise.all([
       Shift.find({ businessId, days: dayOfWeek }).sort({ createdAt: 1, startTime: 1 }),
-      Business.findById(businessId).select('plan subscriptionStatus maxPeoplePerSlot reservationDuration'),
+      Business.findById(businessId).select('plan subscriptionStatus maxPeoplePerSlot reservationDuration minBookingNoticeHours'),
     ]);
 
     const caps      = getCapabilities(business ?? {});
@@ -233,6 +233,12 @@ exports.getPublicSlots = async (req, res) => {
 
     slots.sort((a, b) => a.time.localeCompare(b.time));
 
+    let availableSlots = slots;
+    if (business?.minBookingNoticeHours) {
+      const cutoff = new Date(Date.now() + business.minBookingNoticeHours * 60 * 60 * 1000);
+      availableSlots = availableSlots.filter((s) => new Date(`${date}T${s.time}:00`) >= cutoff);
+    }
+
     if (business?.maxPeoplePerSlot) {
       const reservations = await Reservation.find({
         businessId,
@@ -254,13 +260,13 @@ exports.getPublicSlots = async (req, res) => {
         }, 0);
       };
 
-      const filtered = slots
+      const filtered = availableSlots
         .filter(s => occupiedAt(s.time) < business.maxPeoplePerSlot)
         .map(s => ({ ...s, remaining: business.maxPeoplePerSlot - occupiedAt(s.time) }));
       return res.json(filtered);
     }
 
-    res.json(slots);
+    res.json(availableSlots);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

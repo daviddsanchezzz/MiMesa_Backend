@@ -25,6 +25,7 @@ const businessData = (b) => ({
   maxReservationPeople: b.maxReservationPeople,
   maxPeoplePerSlot: b.maxPeoplePerSlot ?? null,
   reservationDuration: b.reservationDuration ?? null,
+  minBookingNoticeHours: b.minBookingNoticeHours ?? 0,
   requireApprovalAbove: b.requireApprovalAbove ?? null,
   reminderHoursBefore: b.reminderHoursBefore ?? 24,
   // Billing / plan
@@ -179,7 +180,7 @@ exports.getPublicBusiness = async (req, res) => {
 
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    const { brandColor, maxReservationPeople, maxPeoplePerSlot, name, phone, address, email, cif, requireApprovalAbove, reminderHoursBefore } = req.body;
+    const { brandColor, maxReservationPeople, maxPeoplePerSlot, name, phone, address, email, cif, requireApprovalAbove, reminderHoursBefore, minBookingNoticeHours } = req.body;
     const updateData = {};
     if (name !== undefined) updateData.name = String(name).trim();
     if (phone !== undefined) updateData.phone = String(phone).trim();
@@ -190,6 +191,7 @@ exports.updateBusinessSettings = async (req, res) => {
     if (maxPeoplePerSlot !== undefined) updateData.maxPeoplePerSlot = maxPeoplePerSlot;
     if (req.body.reservationDuration !== undefined) updateData.reservationDuration = req.body.reservationDuration;
     if (requireApprovalAbove !== undefined) updateData.requireApprovalAbove = requireApprovalAbove;
+    if (minBookingNoticeHours !== undefined) updateData.minBookingNoticeHours = minBookingNoticeHours === null || minBookingNoticeHours === '' ? 0 : Number(minBookingNoticeHours);
     if (reminderHoursBefore !== undefined) updateData.reminderHoursBefore = reminderHoursBefore;
     if (email !== undefined) {
       const normalizedEmail = String(email).trim().toLowerCase();
