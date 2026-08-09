@@ -170,7 +170,7 @@ exports.me = async (req, res) => {
 
 exports.getPublicBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id).select('name email phone address brandColor maxReservationPeople maxPeoplePerSlot reservationDuration');
+    const business = await Business.findById(req.params.id).select('name email phone address brandColor maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours');
     if (!business) return res.status(404).json({ message: 'Business not found' });
     res.json(business);
   } catch (err) {
