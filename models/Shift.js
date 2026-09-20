@@ -15,4 +15,6 @@ const shiftSchema = new mongoose.Schema({
   }],
 }, { timestamps: true });
 
+shiftSchema.index({ businessId: 1, days: 1 });
+
 module.exports = mongoose.model('Shift', shiftSchema);

@@ -1,4 +1,5 @@
 const Table    = require('../models/Table');
+const { pickFields } = require('../lib/pickFields');
 const Business = require('../models/Business');
 const { getCapabilities, markLockedEntities } = require('../lib/planCapabilities');
 
@@ -65,7 +66,7 @@ exports.createTable = async (req, res) => {
 
 exports.updateTable = async (req, res) => {
   try {
-    const payload = { ...req.body };
+    const payload = pickFields(req.body, ['name', 'capacity', 'roomId', 'shape', 'angle', 'status', 'x', 'y']);
     if (Object.prototype.hasOwnProperty.call(payload, 'shape')) {
       payload.shape = normalizeShape(payload.shape);
     }

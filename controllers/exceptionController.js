@@ -1,4 +1,5 @@
 const Exception = require('../models/Exception');
+const { pickFields } = require('../lib/pickFields');
 const Room = require('../models/Room');
 const Business = require('../models/Business');
 
@@ -94,7 +95,7 @@ exports.updateException = async (req, res) => {
     const current = await Exception.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!current) return res.status(404).json({ message: 'Excepcion no encontrada' });
 
-    const next = { ...req.body };
+    const next = pickFields(req.body, ['date', 'shiftName', 'type', 'roomId', 'message']);
     if (next.type !== undefined) {
       next.type = normalizeType(next.type);
       if (!['closed', 'full', 'call', 'close_room'].includes(next.type)) {

@@ -1,4 +1,5 @@
 const StaffEmployee = require('../models/StaffEmployee');
+const { pickFields } = require('../lib/pickFields');
 const StaffCompensation = require('../models/StaffCompensation');
 const StaffAssignment = require('../models/StaffAssignment');
 const StaffPosition = require('../models/StaffPosition');
@@ -212,7 +213,7 @@ exports.createPosition = async (req, res) => {
 
 exports.updatePosition = async (req, res) => {
   try {
-    const payload = { ...req.body };
+    const payload = pickFields(req.body, ['name', 'color']);
     if (payload.name !== undefined) {
       if (!String(payload.name).trim()) return res.status(400).json({ message: 'El nombre del puesto es obligatorio' });
       payload.name = String(payload.name).trim();
@@ -321,7 +322,7 @@ exports.createEmployee = async (req, res) => {
 
 exports.updateEmployee = async (req, res) => {
   try {
-    const payload = { ...req.body };
+    const payload = pickFields(req.body, ['firstName', 'lastName', 'phone', 'email', 'positionIds', 'positionId', 'position', 'notes']);
     if (payload.firstName !== undefined) payload.firstName = String(payload.firstName).trim();
     if (payload.lastName !== undefined) payload.lastName = String(payload.lastName).trim();
     if (payload.phone !== undefined) payload.phone = String(payload.phone).trim();
@@ -541,7 +542,7 @@ exports.createAssignment = async (req, res) => {
 
 exports.updateAssignment = async (req, res) => {
   try {
-    const payload = { ...req.body };
+    const payload = pickFields(req.body, ['date', 'shiftId', 'startTime', 'endTime', 'roleLabel', 'customPrice', 'notes']);
     if (payload.date && !isValidIsoDate(payload.date)) {
       return res.status(400).json({ message: 'date invalida' });
     }

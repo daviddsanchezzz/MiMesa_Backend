@@ -1,9 +1,7 @@
 /**
  * requireAuth — combined middleware
  *
- * Authentication flow:
- *  1. Better Auth session cookie (primary)
- *  2. JWT Bearer token (legacy fallback)
+ * Authentication: Better Auth session (cookie or bearer token).
  *
  * Business resolution (Membership is the source of truth):
  *  - If X-Business-Id header present → validate user has active membership there
@@ -12,14 +10,12 @@
  * Sets: req.user, req.businessId, req.memberRole, req.isDev
  */
 
-const jwt            = require('jsonwebtoken');
 const { fromNodeHeaders } = require('better-auth/node');
 const { getAuth }    = require('../lib/auth');
 const BusinessMember = require('../models/BusinessMember');
 const { isDev }      = require('./requireDev');
 
 module.exports = async function requireAuth(req, res, next) {
-  // ── 1. Better Auth session ──────────────────────────────────────────────
   try {
     const auth    = getAuth();
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
@@ -66,20 +62,9 @@ module.exports = async function requireAuth(req, res, next) {
 
       return res.status(403).json({ message: 'Cuenta sin negocio asociado' });
     }
-  } catch {
-    // Better Auth not initialized or session check failed — fall through to JWT
-  }
-
-  // ── 2. JWT Bearer fallback (legacy) ────────────────────────────────────
-  const token = req.headers.authorization?.split(' ')[1];
-  if (token) {
-    try {
-      const decoded  = jwt.verify(token, process.env.JWT_SECRET);
-      req.businessId = decoded.id;
-      return next();
-    } catch {
-      // Invalid / expired JWT
-    }
+  } catch (err) {
+    console.error('[requireAuth] session check failed:', err.message);
+    return res.status(503).json({ message: 'Servicio de autenticación no disponible, inténtalo de nuevo' });
   }
 
   return res.status(401).json({ message: 'No autorizado' });

@@ -1,4 +1,5 @@
 const Invitation     = require('../models/Invitation');
+const { escapeHtml } = require('../lib/escapeHtml');
 const BusinessMember = require('../models/BusinessMember');
 const Business       = require('../models/Business');
 const { Resend }     = require('resend');
@@ -111,7 +112,7 @@ exports.createInvitation = async (req, res) => {
             <div style="margin-bottom:24px">
               <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Vetra</span>
             </div>
-            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} ??</h2>
+            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${escapeHtml(name)}</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
               Te han dado acceso a <strong>Vetra</strong>, la plataforma de gestión de reservas para restaurantes.
               Haz clic en el botón para activar tu cuenta.
@@ -139,9 +140,9 @@ exports.createInvitation = async (req, res) => {
             <div style="margin-bottom:24px">
               <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Vetra</span>
             </div>
-            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} ??</h2>
+            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${escapeHtml(name)}</h2>
             <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 8px">
-              <strong>${business.name}</strong> te ha invitado a unirte a su equipo en Vetra
+              <strong>${escapeHtml(business.name)}</strong> te ha invitado a unirte a su equipo en Vetra
               con el rol de <strong>${role === 'owner' ? 'Propietario' : role === 'manager' ? 'Encargado' : 'Personal'}</strong>.
             </p>
             <p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 24px">

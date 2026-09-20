@@ -114,7 +114,7 @@ exports.createPublicPaymentIntent = async (req, res) => {
 
 exports.createReservationPaymentIntent = async (req, res) => {
   try {
-    const reservation = await Reservation.findById(req.params.id);
+    const reservation = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
 
     if (reservation.payment?.paymentStatus === 'paid') {

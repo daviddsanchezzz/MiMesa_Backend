@@ -1,5 +1,6 @@
 const { Resend } = require('resend');
 const { sendTrackedEmail } = require('./emailDelivery');
+const { escapeHtml } = require('../lib/escapeHtml');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM   = process.env.RESEND_FROM_SYSTEM || 'Reservas <noreply@resend.dev>';
@@ -8,7 +9,8 @@ const FROM   = process.env.RESEND_FROM_SYSTEM || 'Reservas <noreply@resend.dev>'
 function fromBusiness(businessName) {
   const match = FROM.match(/<(.+)>/);
   const email = match ? match[1] : FROM;
-  return `${businessName} <${email}>`;
+  const safeName = String(businessName || '').replace(/[<>"\r\n]/g, '').trim() || 'Reservas';
+  return `${safeName} <${email}>`;
 }
 
 function sendEmail(payload, source, metadata = null) {
@@ -68,17 +70,25 @@ function baseLayout(accentColor, content) {
 </html>`;
 }
 
+function buildCancelPath({ reservationId, guestEmail, publicToken }) {
+  if (publicToken) {
+    return `/public/cancel?reservationId=${reservationId}&token=${encodeURIComponent(publicToken)}`;
+  }
+  // Legacy reservations created before tokens existed
+  return `/public/cancel?reservationId=${reservationId}&email=${encodeURIComponent(guestEmail)}`;
+}
+
 function detailRow(label, value) {
   return `
   <tr>
-    <td style="padding:6px 0;font-size:13px;color:#6b7280;width:110px;vertical-align:top;">${label}</td>
-    <td style="padding:6px 0;font-size:13px;color:#111827;font-weight:600;">${value}</td>
+    <td style="padding:6px 0;font-size:13px;color:#6b7280;width:110px;vertical-align:top;">${escapeHtml(label)}</td>
+    <td style="padding:6px 0;font-size:13px;color:#111827;font-weight:600;">${escapeHtml(value)}</td>
   </tr>`;
 }
 
 // ---- templates --------------------------------------------------------------
 
-function buildConfirmationEmail({ businessName, accentColor, guestName, date, time, people, roomName, notes, reservationId, guestEmail, businessEmail, businessPhone }) {
+function buildConfirmationEmail({ businessName, accentColor, guestName, date, time, people, roomName, notes, reservationId, publicToken, guestEmail, businessEmail, businessPhone }) {
   const accent = accentColor || '#4f46e5';
   const details = [
     detailRow('Fecha',    fmtDate(date)),
@@ -91,11 +101,11 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
   // build a cancel link that's safe to click from email
   const cancelUrl =
     (process.env.FRONTEND_URL || process.env.BASE_URL || 'https://example.com') +
-    `/public/cancel?reservationId=${reservationId}&email=${encodeURIComponent(guestEmail)}`;
+    buildCancelPath({ reservationId, guestEmail, publicToken });
 
   const contactInfo = [];
-  if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Teléfono: ${businessPhone}`);
+  if (businessEmail) contactInfo.push(`Email: ${escapeHtml(businessEmail)}`);
+  if (businessPhone) contactInfo.push(`Teléfono: ${escapeHtml(businessPhone)}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -104,10 +114,10 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
 
   const body = `
     <p style="margin:0 0 20px;font-size:16px;color:#111827;">
-      Hola, <strong>${guestName}</strong>
+      Hola, <strong>${escapeHtml(guestName)}</strong>
     </p>
     <p style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;">
-      Tu reserva en <strong>${businessName}</strong> ha sido <strong>confirmada</strong>.
+      Tu reserva en <strong>${escapeHtml(businessName)}</strong> ha sido <strong>confirmada</strong>.
       A continuación encontrarás los detalles:
     </p>
     <!-- Details box -->
@@ -135,7 +145,7 @@ function buildConfirmationEmail({ businessName, accentColor, guestName, date, ti
   };
 }
 
-function buildStatusEmail({ businessName, accentColor, guestName, date, time, people, status, reservationId, guestEmail, businessEmail, businessPhone }) {
+function buildStatusEmail({ businessName, accentColor, guestName, date, time, people, status, reservationId, publicToken, guestEmail, businessEmail, businessPhone }) {
   const accent = accentColor || '#4f46e5';
   const statusMessages = {
     confirmed: { title: 'Reserva confirmada', msg: 'Tu reserva ha sido <strong>confirmada</strong>. Te esperamos.' },
@@ -146,11 +156,11 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 
   const cancelUrl =
     (process.env.FRONTEND_URL || process.env.BASE_URL || 'https://example.com') +
-    `/public/cancel?reservationId=${reservationId}&email=${encodeURIComponent(guestEmail)}`;
+    buildCancelPath({ reservationId, guestEmail, publicToken });
 
   const contactInfo = [];
-  if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Telefono: ${businessPhone}`);
+  if (businessEmail) contactInfo.push(`Email: ${escapeHtml(businessEmail)}`);
+  if (businessPhone) contactInfo.push(`Teléfono: ${escapeHtml(businessPhone)}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -159,7 +169,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 
   const cancelSection = status === 'cancelled' ? '' : `
     <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
-      Si deseas cancelar tu reserva, haz clic en el boton a continuacion:
+      Si deseas cancelar tu reserva, haz clic en el botón a continuación:
     </p>
     <p style="margin:16px 0;text-align:center;">
       <a href="${cancelUrl}"
@@ -170,7 +180,7 @@ function buildStatusEmail({ businessName, accentColor, guestName, date, time, pe
 
   const body = `
     <p style="margin:0 0 20px;font-size:16px;color:#111827;">
-      Hola, <strong>${guestName}</strong>
+      Hola, <strong>${escapeHtml(guestName)}</strong>
     </p>
     <p style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;">
       ${msg}
@@ -208,6 +218,7 @@ async function sendReservationConfirmation(reservation, business) {
     roomName:     reservation.roomId?.name || null,
     notes:        reservation.notes || null,
     reservationId: reservation._id,
+    publicToken: reservation.publicToken,
     guestEmail: reservation.guestEmail,
     businessEmail: business.email,
     businessPhone: business.phone,
@@ -242,6 +253,7 @@ async function sendStatusUpdate(reservation, business, newStatus) {
     people:       reservation.people,
     status:       newStatus,
     reservationId: reservation._id,
+    publicToken: reservation.publicToken,
     guestEmail: reservation.guestEmail,
     businessEmail: business.email,
     businessPhone: business.phone,
@@ -305,7 +317,7 @@ async function sendStaffReservationNotification(recipients, reservation, busines
             ${detailRow('Sala', roomName)}
             ${detailRow('Mesa', tableName)}
             ${detailRow('Email', guestEmail)}
-            ${detailRow('Telefono', guestPhone)}
+            ${detailRow('Teléfono', guestPhone)}
           </table>
         </td></tr>
       </table>
@@ -354,20 +366,20 @@ async function sendContactEmail({ name, email, subject, message }) {
           <table width="100%" cellpadding="0" cellspacing="0">
             <tr><td style="padding:8px 0;border-bottom:1px solid #f3f4f6;">
               <p style="margin:0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">De</p>
-              <p style="margin:4px 0 0;font-size:15px;color:#111827;font-weight:600;">${name} &lt;${email}&gt;</p>
+              <p style="margin:4px 0 0;font-size:15px;color:#111827;font-weight:600;">${escapeHtml(name)} &lt;${escapeHtml(email)}&gt;</p>
             </td></tr>
             <tr><td style="padding:8px 0;border-bottom:1px solid #f3f4f6;">
               <p style="margin:0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Asunto</p>
-              <p style="margin:4px 0 0;font-size:15px;color:#111827;">${subject}</p>
+              <p style="margin:4px 0 0;font-size:15px;color:#111827;">${escapeHtml(subject)}</p>
             </td></tr>
             <tr><td style="padding:16px 0 0;">
               <p style="margin:0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Mensaje</p>
-              <p style="margin:8px 0 0;font-size:15px;color:#374151;line-height:1.7;white-space:pre-line;">${message}</p>
+              <p style="margin:8px 0 0;font-size:15px;color:#374151;line-height:1.7;white-space:pre-line;">${escapeHtml(message)}</p>
             </td></tr>
           </table>
         </td></tr>
         <tr><td style="background:#f9fafb;padding:14px 32px;border-top:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;">Puedes responder directamente a <a href="mailto:${email}" style="color:#7C3AED;">${email}</a></p>
+          <p style="margin:0;font-size:12px;color:#9ca3af;">Puedes responder directamente a <a href="mailto:${escapeHtml(email)}" style="color:#7C3AED;">${escapeHtml(email)}</a></p>
         </td></tr>
       </table>
     </td></tr>
@@ -392,8 +404,8 @@ async function sendContactEmail({ name, email, subject, message }) {
 function buildPendingEmail({ businessName, accentColor, guestName, date, time, people, businessEmail, businessPhone }) {
   const accent = accentColor || '#4f46e5';
   const contactInfo = [];
-  if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Telefono: ${businessPhone}`);
+  if (businessEmail) contactInfo.push(`Email: ${escapeHtml(businessEmail)}`);
+  if (businessPhone) contactInfo.push(`Teléfono: ${escapeHtml(businessPhone)}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -402,10 +414,10 @@ function buildPendingEmail({ businessName, accentColor, guestName, date, time, p
 
   const body = `
     <p style="margin:0 0 20px;font-size:16px;color:#111827;">
-      Hola, <strong>${guestName}</strong>
+      Hola, <strong>${escapeHtml(guestName)}</strong>
     </p>
     <p style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;">
-      Hemos recibido tu reserva y ha quedado en estado <strong>pendiente de aprobacion</strong>.
+      Hemos recibido tu reserva y ha quedado en estado <strong>pendiente de aprobación</strong>.
       Te confirmaremos en breve.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0"
@@ -416,7 +428,7 @@ function buildPendingEmail({ businessName, accentColor, guestName, date, time, p
           ${detailRow('Fecha', fmtDate(date))}
           ${detailRow('Hora', time)}
           ${detailRow('Personas', `${people} ${people === 1 ? 'persona' : 'personas'}`)}
-          ${detailRow('Estado', 'Pendiente de aprobacion')}
+          ${detailRow('Estado', 'Pendiente de aprobación')}
         </table>
       </td></tr>
     </table>${contactSection}`;
@@ -430,8 +442,8 @@ function buildPendingEmail({ businessName, accentColor, guestName, date, time, p
 function buildAlternativeProposalEmail({ businessName, accentColor, guestName, date, time, people, alternativeDate, alternativeTime, message, businessEmail, businessPhone }) {
   const accent = accentColor || '#4f46e5';
   const contactInfo = [];
-  if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Telefono: ${businessPhone}`);
+  if (businessEmail) contactInfo.push(`Email: ${escapeHtml(businessEmail)}`);
+  if (businessPhone) contactInfo.push(`Teléfono: ${escapeHtml(businessPhone)}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -440,7 +452,7 @@ function buildAlternativeProposalEmail({ businessName, accentColor, guestName, d
 
   const body = `
     <p style="margin:0 0 20px;font-size:16px;color:#111827;">
-      Hola, <strong>${guestName}</strong>
+      Hola, <strong>${escapeHtml(guestName)}</strong>
     </p>
     <p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;">
       Te proponemos un horario alternativo para tu reserva.
@@ -454,7 +466,7 @@ function buildAlternativeProposalEmail({ businessName, accentColor, guestName, d
         </table>
       </td></tr>
     </table>
-    ${message ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;"><strong>Mensaje del restaurante:</strong><br>${message}</p>` : ''}
+    ${message ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;"><strong>Mensaje del restaurante:</strong><br>${escapeHtml(message)}</p>` : ''}
     ${contactSection}`;
 
   return {
@@ -463,15 +475,15 @@ function buildAlternativeProposalEmail({ businessName, accentColor, guestName, d
   };
 }
 
-function buildReminderEmail({ businessName, accentColor, guestName, date, time, people, reservationId, guestEmail, businessEmail, businessPhone }) {
+function buildReminderEmail({ businessName, accentColor, guestName, date, time, people, reservationId, publicToken, guestEmail, businessEmail, businessPhone }) {
   const accent = accentColor || '#4f46e5';
   const cancelUrl =
     (process.env.FRONTEND_URL || process.env.BASE_URL || 'https://example.com') +
-    `/public/cancel?reservationId=${reservationId}&email=${encodeURIComponent(guestEmail)}`;
+    buildCancelPath({ reservationId, guestEmail, publicToken });
 
   const contactInfo = [];
-  if (businessEmail) contactInfo.push(`Email: ${businessEmail}`);
-  if (businessPhone) contactInfo.push(`Telefono: ${businessPhone}`);
+  if (businessEmail) contactInfo.push(`Email: ${escapeHtml(businessEmail)}`);
+  if (businessPhone) contactInfo.push(`Teléfono: ${escapeHtml(businessPhone)}`);
   const contactSection = contactInfo.length > 0 ? `
     <p style="margin:16px 0 0;font-size:14px;color:#374151;line-height:1.6;">
       <strong>Contacto del restaurante:</strong><br>
@@ -480,10 +492,10 @@ function buildReminderEmail({ businessName, accentColor, guestName, date, time, 
 
   const body = `
     <p style="margin:0 0 20px;font-size:16px;color:#111827;">
-      Hola, <strong>${guestName}</strong>
+      Hola, <strong>${escapeHtml(guestName)}</strong>
     </p>
     <p style="margin:0 0 24px;font-size:14px;color:#374151;line-height:1.6;">
-      Te recordamos tu reserva de hoy/pronto en <strong>${businessName}</strong>.
+      Te recordamos tu reserva de hoy/pronto en <strong>${escapeHtml(businessName)}</strong>.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0"
       style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
@@ -565,6 +577,7 @@ async function sendReservationReminderEmail(reservation, business) {
     time: reservation.time,
     people: reservation.people,
     reservationId: reservation._id,
+    publicToken: reservation.publicToken,
     guestEmail: reservation.guestEmail,
     businessEmail: business.email,
     businessPhone: business.phone,
@@ -663,30 +676,21 @@ async function sendPendingApprovalStaffNotification(recipients, reservation, bus
   }
 }
 
-function escapeHtml(value = '') {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 async function sendNewBusinessOwnerNotification({ business, owner }) {
   if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'your_resend_api_key_here') return;
   const to = (process.env.DEV_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
   if (to.length === 0) return;
 
-  const safeBusinessName = escapeHtml(business?.name || '-');
-  const safeBusinessEmail = escapeHtml(business?.email || '-');
-  const safeBusinessPhone = escapeHtml(business?.phone || '-');
-  const safeBusinessCif = escapeHtml(business?.cif || '-');
-  const safeBusinessId = escapeHtml(String(business?._id || '-'));
+  const safeBusinessName = String(business?.name || '-');
+  const safeBusinessEmail = String(business?.email || '-');
+  const safeBusinessPhone = String(business?.phone || '-');
+  const safeBusinessCif = String(business?.cif || '-');
+  const safeBusinessId = String(String(business?._id || '-'));
 
-  const safeOwnerName = escapeHtml(owner?.name || '-');
-  const safeOwnerEmail = escapeHtml(owner?.email || '-');
-  const safeOwnerId = escapeHtml(owner?.id || '-');
-  const safeOwnerPhone = escapeHtml(owner?.phone || '-');
+  const safeOwnerName = String(owner?.name || '-');
+  const safeOwnerEmail = String(owner?.email || '-');
+  const safeOwnerId = String(owner?.id || '-');
+  const safeOwnerPhone = String(owner?.phone || '-');
 
   const html = `<!DOCTYPE html>
 <html lang="es">

@@ -23,8 +23,9 @@ module.exports = async function requireSession(req, res, next) {
       req.user = session.user;
       return next();
     }
-  } catch {
-    // Better Auth not ready — fall through
+  } catch (err) {
+    console.error('[requireSession] session check failed:', err.message);
+    return res.status(503).json({ message: 'Servicio de autenticación no disponible, inténtalo de nuevo' });
   }
 
   return res.status(401).json({ message: 'No autorizado' });

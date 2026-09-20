@@ -1,23 +1,8 @@
-const jwt = require('jsonwebtoken');
 const Business = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
 const { isDev } = require('../middleware/requireDev');
-const { getAllModuleAccess } = require('../lib/planCapabilities');
-
-const signAccessToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '15m' });
-
-const signRefreshToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '90d' });
-
-const setRefreshCookie = (res, token) => {
-  res.cookie('refreshToken', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days
-  });
-};
+const { getAllModuleAccess, serializeCapabilities } = require('../lib/planCapabilities');
+const { isValidTimezone } = require('../lib/timezone');
 
 const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
@@ -34,62 +19,9 @@ const businessData = (b) => ({
   trialEndsAt:        b.trialEndsAt        ?? null,
   currentPeriodEnd:   b.currentPeriodEnd   ?? null,
   cancelAtPeriodEnd:  b.cancelAtPeriodEnd  ?? false,
-  stripeCustomerId:   b.stripeCustomerId   ?? null,
+  capabilities:       serializeCapabilities(b),
   modules:            getAllModuleAccess(b),
 });
-
-exports.register = async (req, res) => {
-  try {
-    const { name, email, password, phone } = req.body;
-    const exists = await Business.findOne({ email });
-    if (exists) return res.status(400).json({ message: 'Email already registered' });
-
-    const business = await Business.create({ name, email, password, phone });
-    const refreshToken = signRefreshToken(business._id);
-    setRefreshCookie(res, refreshToken);
-    res.status(201).json({ accessToken: signAccessToken(business._id), refreshToken, business: businessData(business) });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const business = await Business.findOne({ email });
-    if (!business || !(await business.matchPassword(password)))
-      return res.status(401).json({ message: 'Invalid credentials' });
-
-    const refreshToken = signRefreshToken(business._id);
-    setRefreshCookie(res, refreshToken);
-    res.json({ accessToken: signAccessToken(business._id), refreshToken, business: businessData(business) });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-exports.refresh = (req, res) => {
-  // Accept token from cookie (web) or request body (mobile/Safari fallback)
-  const token = req.cookies?.refreshToken || req.body?.refreshToken;
-  if (!token) return res.status(401).json({ message: 'No refresh token' });
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-    const newRefreshToken = signRefreshToken(decoded.id);
-    setRefreshCookie(res, newRefreshToken);
-    res.json({ accessToken: signAccessToken(decoded.id), refreshToken: newRefreshToken });
-  } catch {
-    res.status(401).json({ message: 'Invalid refresh token' });
-  }
-};
-
-exports.logout = (req, res) => {
-  res.clearCookie('refreshToken', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-  });
-  res.json({ message: 'Logged out' });
-};
 
 exports.me = async (req, res) => {
   try {
@@ -193,6 +125,10 @@ exports.updateBusinessSettings = async (req, res) => {
     if (requireApprovalAbove !== undefined) updateData.requireApprovalAbove = requireApprovalAbove;
     if (minBookingNoticeHours !== undefined) updateData.minBookingNoticeHours = minBookingNoticeHours === null || minBookingNoticeHours === '' ? 0 : Number(minBookingNoticeHours);
     if (reminderHoursBefore !== undefined) updateData.reminderHoursBefore = reminderHoursBefore;
+    if (req.body.timezone !== undefined) {
+      if (!isValidTimezone(req.body.timezone)) return res.status(400).json({ message: 'Zona horaria no valida' });
+      updateData.timezone = req.body.timezone;
+    }
     if (email !== undefined) {
       const normalizedEmail = String(email).trim().toLowerCase();
       const exists = await Business.findOne({

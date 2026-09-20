@@ -6,17 +6,14 @@ const Expense          = require('../models/Expense');
 const RecurringExpense = require('../models/RecurringExpense');
 const { canUseFeature, canUseModule } = require('../lib/planCapabilities');
 const { sendReservationReminderEmail } = require('./email');
+const { businessTimezone, zonedDateTimeToUtc, dateInTimezone } = require('../lib/timezone');
 
 let started = false;
-
-function parseDateTime(date, time) {
-  return new Date(`${date}T${time}:00`);
-}
 
 async function runReservationReminders() {
   const businesses = await Business.find({
     subscriptionStatus: { $in: ['active', 'trialing'] },
-  }).select('name brandColor email phone plan subscriptionStatus reminderHoursBefore');
+  }).select('name brandColor email phone plan subscriptionStatus reminderHoursBefore timezone');
 
   for (const business of businesses) {
     if (!canUseFeature(business, 'autoReminders')) continue;
@@ -24,16 +21,18 @@ async function runReservationReminders() {
     const hours = Number(business.reminderHoursBefore || 24);
     const windowStart = new Date(Date.now() + hours * 60 * 60 * 1000);
     const windowEnd = new Date(windowStart.getTime() + 15 * 60 * 1000);
+    const tz = businessTimezone(business);
 
     const candidates = await Reservation.find({
       businessId: business._id,
       status: 'confirmed',
       guestEmail: { $ne: '' },
       reminderSentAt: null,
+      date: { $gte: dateInTimezone(windowStart, tz), $lte: dateInTimezone(windowEnd, tz) },
     }).select('_id date time guestEmail guestName people status reminderSentAt');
 
     for (const reservation of candidates) {
-      const reservationDateTime = parseDateTime(reservation.date, reservation.time);
+      const reservationDateTime = zonedDateTimeToUtc(reservation.date, reservation.time, tz);
       if (reservationDateTime < windowStart || reservationDateTime >= windowEnd) continue;
 
       try {

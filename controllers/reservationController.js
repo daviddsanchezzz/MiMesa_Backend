@@ -1,4 +1,8 @@
+const mongoose = require('mongoose');
 const Reservation = require('../models/Reservation');
+const { pickFields } = require('../lib/pickFields');
+const { serializeBy } = require('../lib/keyedLock');
+const { businessTimezone, zonedDateTimeToUtc, todayInTimezone, nowTimeInTimezone } = require('../lib/timezone');
 const Customer = require('../models/Customer');
 const Table = require('../models/Table');
 const Shift = require('../models/Shift');
@@ -20,7 +24,7 @@ const {
   sendReservationPendingEmail,
   sendAlternativeProposalEmail,
 } = require('../services/email');
-const { canUseFeature, canUseModule, checkReservationLimit } = require('../lib/planCapabilities');
+const { canUseFeature, canUseModule, checkReservationLimit, upgradeMessage } = require('../lib/planCapabilities');
 const { getPhoneMatchCandidates, toStoredNormalizedPhone } = require('../lib/phoneMatching');
 const { sendPushToBusinessStaff } = require('../services/pushNotifications');
 
@@ -373,8 +377,10 @@ exports.getReservations = async (req, res) => {
     else if (req.query.from && req.query.to) filter.date = { $gte: req.query.from, $lte: req.query.to };
 
     // Auto-seat: transition confirmed reservations whose time has passed
-    const nowDate = new Date().toISOString().slice(0, 10);
-    const nowTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const tzBusiness = await Business.findById(req.businessId).select('timezone').lean();
+    const tz = businessTimezone(tzBusiness);
+    const nowDate = todayInTimezone(tz);
+    const nowTime = nowTimeInTimezone(tz);
     const toSeat = await Reservation.find({
       businessId: req.businessId,
       status: 'confirmed',
@@ -411,7 +417,7 @@ exports.getPendingReservations = async (req, res) => {
   try {
     const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
     if (!canUseFeature(business, 'pendingApprovalControl')) {
-      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'pendingApprovalControl', upgradeRequired: true });
+      return res.status(403).json({ message: upgradeMessage('pendingApprovalControl'), feature: 'pendingApprovalControl', upgradeRequired: true });
     }
     const reservations = await Reservation.find({
       businessId: req.businessId,
@@ -423,7 +429,7 @@ exports.getPendingReservations = async (req, res) => {
   }
 };
 
-exports.createReservation = async (req, res) => {
+const createReservationUnlocked = async (req, res) => {
   try {
     const {
       guestName, guestPhone, guestEmail, roomId, tableId, tableIds: rawTableIds,
@@ -508,7 +514,7 @@ exports.createReservation = async (req, res) => {
   }
 };
 
-exports.createPublicReservation = async (req, res) => {
+const createPublicReservationUnlocked = async (req, res) => {
   try {
     const {
       businessId, guestName, guestPhone, guestEmail, roomId, tableId,
@@ -522,8 +528,27 @@ exports.createPublicReservation = async (req, res) => {
     if (!phone) return res.status(400).json({ message: 'El telefono es obligatorio' });
     if (!email) return res.status(400).json({ message: 'El email es obligatorio' });
 
+    if (typeof businessId !== 'string' || !mongoose.isValidObjectId(businessId)) {
+      return res.status(400).json({ message: 'Restaurante no valido' });
+    }
+    if (typeof guestName !== 'string' || !guestName.trim() || guestName.length > 100) {
+      return res.status(400).json({ message: 'Nombre no valido' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200 || phone.length > 30) {
+      return res.status(400).json({ message: 'Email o telefono no validos' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !/^\d{2}:\d{2}$/.test(String(time))) {
+      return res.status(400).json({ message: 'Fecha u hora no validas' });
+    }
+    if (!Number.isInteger(Number(people)) || Number(people) < 1 || Number(people) > 500) {
+      return res.status(400).json({ message: 'Numero de personas no valido' });
+    }
+    if (notes !== undefined && notes !== null && (typeof notes !== 'string' || notes.length > 1000)) {
+      return res.status(400).json({ message: 'Las notas son demasiado largas' });
+    }
+
     const business = await Business.findById(businessId).select(
-      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus reservationPayment'
+      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus reservationPayment timezone'
     );
     if (!business) return res.status(404).json({ message: 'Restaurante no encontrado' });
 
@@ -561,7 +586,7 @@ exports.createPublicReservation = async (req, res) => {
 
     if (business.minBookingNoticeHours) {
       const cutoff = new Date(Date.now() + business.minBookingNoticeHours * 60 * 60 * 1000);
-      if (new Date(`${date}T${time}:00`) < cutoff) {
+      if (zonedDateTimeToUtc(date, time, businessTimezone(business)) < cutoff) {
         return res.status(400).json({
           message: `Este restaurante requiere reservar online con al menos ${business.minBookingNoticeHours} horas de antelacion. Llama directamente al restaurante para reservas de ultima hora.`,
           code: 'MIN_NOTICE_NOT_MET',
@@ -718,13 +743,30 @@ exports.createPublicReservation = async (req, res) => {
   }
 };
 
+// Guests prove ownership with the secret token from their email link.
+// Reservations created before tokens existed have none, so they still fall back to id + email.
+function publicReservationFilter({ reservationId, token, email }) {
+  if (typeof reservationId !== 'string' || !mongoose.isValidObjectId(reservationId)) return null;
+  if (typeof token === 'string' && token) return { _id: reservationId, publicToken: token };
+  if (typeof email === 'string' && email) {
+    return {
+      _id: reservationId,
+      guestEmail: email.toLowerCase(),
+      $or: [{ publicToken: { $exists: false } }, { publicToken: null }, { publicToken: '' }],
+    };
+  }
+  return null;
+}
+
 exports.getPublicReservationDetails = async (req, res) => {
   try {
-    const { reservationId, email } = req.query;
-    if (!reservationId || !email) return res.status(400).json({ message: 'Parametros faltantes' });
-    const reservation = await Reservation.findOne({ _id: reservationId, guestEmail: email.toLowerCase() }).populate(POPULATE);
+    const filter = publicReservationFilter(req.query);
+    if (!filter) return res.status(400).json({ message: 'Parametros faltantes' });
+    const reservation = await Reservation.findOne(filter).populate(POPULATE);
     if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
-    res.json(reservation);
+    const payload = reservation.toObject();
+    delete payload.publicToken;
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -732,15 +774,15 @@ exports.getPublicReservationDetails = async (req, res) => {
 
 exports.cancelPublicReservation = async (req, res) => {
   try {
-    const { reservationId, email } = req.query;
-    if (!reservationId || !email) return res.status(400).json({ message: 'Parametros faltantes' });
+    const filter = publicReservationFilter(req.body || {});
+    if (!filter) return res.status(400).json({ message: 'Parametros faltantes' });
 
-    const reservation = await Reservation.findOne({ _id: reservationId, guestEmail: email.toLowerCase() });
+    const reservation = await Reservation.findOne(filter);
     if (!reservation) return res.status(404).json({ message: 'Reserva no encontrada' });
     if (reservation.status === 'cancelled') return res.json({ message: 'Esta reserva ya ha sido cancelada anteriormente.' });
 
     const business = await Business.findById(reservation.businessId)
-      .select('name brandColor email phone reservationPayment plan subscriptionStatus');
+      .select('name brandColor email phone reservationPayment plan subscriptionStatus timezone');
 
     // ── Reembolso automático si el modo es depósito y está dentro de la ventana ──
     const rp = business?.reservationPayment || {};
@@ -749,7 +791,7 @@ exports.cancelPublicReservation = async (req, res) => {
 
     if (payment?.depositMode !== 'none' && payment?.paymentStatus === 'paid' && payment?.stripePaymentIntentId) {
       // Comprobar si la cancelación está dentro de la ventana gratuita
-      const reservationDateTime = new Date(`${reservation.date}T${reservation.time}:00`);
+      const reservationDateTime = zonedDateTimeToUtc(reservation.date, reservation.time, businessTimezone(business));
       const hoursUntilReservation = (reservationDateTime - new Date()) / (1000 * 60 * 60);
 
       if (hoursUntilReservation >= freeCancelHours) {
@@ -796,7 +838,7 @@ exports.acceptPendingReservation = async (req, res) => {
   try {
     const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus');
     if (!canUseFeature(business, 'pendingApprovalControl')) {
-      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'pendingApprovalControl', upgradeRequired: true });
+      return res.status(403).json({ message: upgradeMessage('pendingApprovalControl'), feature: 'pendingApprovalControl', upgradeRequired: true });
     }
 
     const reservation = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
@@ -820,7 +862,7 @@ exports.rejectPendingReservation = async (req, res) => {
   try {
     const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus');
     if (!canUseFeature(business, 'pendingApprovalControl')) {
-      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'pendingApprovalControl', upgradeRequired: true });
+      return res.status(403).json({ message: upgradeMessage('pendingApprovalControl'), feature: 'pendingApprovalControl', upgradeRequired: true });
     }
 
     const reservation = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
@@ -852,7 +894,7 @@ exports.proposeAlternativeTime = async (req, res) => {
       'name brandColor email phone maxPeoplePerSlot reservationDuration requireApprovalAbove plan subscriptionStatus'
     );
     if (!canUseFeature(business, 'pendingApprovalControl')) {
-      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'pendingApprovalControl', upgradeRequired: true });
+      return res.status(403).json({ message: upgradeMessage('pendingApprovalControl'), feature: 'pendingApprovalControl', upgradeRequired: true });
     }
 
     let alternative = null;
@@ -884,7 +926,7 @@ exports.markNoShow = async (req, res) => {
   try {
     const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
     if (!canUseFeature(business, 'noShowTracking')) {
-      return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'noShowTracking', upgradeRequired: true });
+      return res.status(403).json({ message: upgradeMessage('noShowTracking'), feature: 'noShowTracking', upgradeRequired: true });
     }
 
     const reservation = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
@@ -907,6 +949,11 @@ exports.markNoShow = async (req, res) => {
   }
 };
 
+const RESERVATION_UPDATABLE_FIELDS = [
+  'guestName', 'guestPhone', 'guestEmail', 'roomId', 'tableId', 'tableIds',
+  'date', 'time', 'people', 'status', 'notes', 'thefork',
+];
+
 exports.updateReservation = async (req, res) => {
   try {
     const old = await Reservation.findOne({ _id: req.params.id, businessId: req.businessId });
@@ -915,12 +962,12 @@ exports.updateReservation = async (req, res) => {
     if (req.body?.status === 'no_show') {
       const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
       if (!canUseFeature(business, 'noShowTracking')) {
-        return res.status(403).json({ message: 'Esta funcion requiere plan Pro', feature: 'noShowTracking', upgradeRequired: true });
+        return res.status(403).json({ message: upgradeMessage('noShowTracking'), feature: 'noShowTracking', upgradeRequired: true });
       }
     }
 
     // If tableIds is provided, sync tableId to the first element
-    const body = { ...req.body };
+    const body = pickFields(req.body, RESERVATION_UPDATABLE_FIELDS);
     if (Array.isArray(body.tableIds)) {
       body.tableId = body.tableIds[0] || null;
     }
@@ -990,5 +1037,13 @@ exports.deleteReservation = async (req, res) => {
   }
 };
 
-
-
+// Capacity is checked before the insert, so serialise creations per business + day
+// to stop two simultaneous requests from both passing the same check.
+exports.createReservation = serializeBy(
+  (req) => `reservation:${req.businessId}:${req.body?.date}`,
+  createReservationUnlocked,
+);
+exports.createPublicReservation = serializeBy(
+  (req) => `reservation:${req.body?.businessId}:${req.body?.date}`,
+  createPublicReservationUnlocked,
+);

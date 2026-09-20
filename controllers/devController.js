@@ -1,4 +1,5 @@
 const Business       = require('../models/Business');
+const { escapeHtml } = require('../lib/escapeHtml');
 const BusinessMember = require('../models/BusinessMember');
 const Reservation    = require('../models/Reservation');
 const AuthUser       = require('../models/AuthUser');
@@ -10,8 +11,8 @@ const { getAuth } = require('../lib/auth');
 const { isDev } = require('../middleware/requireDev');
 
 const MODULE_CATALOG = [
-  { key: 'staff', name: 'Personal', description: 'Gestion de empleados y planificacion de turnos' },
-  { key: 'expenses', name: 'Finanzas', description: 'Control de gastos, categorias, proveedores y analitica financiera' },
+  { key: 'staff', name: 'Personal', description: 'Gestión de empleados y planificacion de turnos' },
+  { key: 'expenses', name: 'Finanzas', description: 'Control de gastos, categorías, proveedores y analitica financiera' },
   { key: 'purchases', name: 'Compras', description: 'Gestion de productos por proveedor y pedidos de compra' },
   { key: 'thefork', name: 'TheFork', description: 'Marcado de reservas procedentes de TheFork y analitica de canal' },
 ];
@@ -334,7 +335,7 @@ exports.inviteUser = async (req, res) => {
           <div style="margin-bottom:24px">
             <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Vetra</span>
           </div>
-          <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${name} 👋</h2>
+          <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${escapeHtml(name)} 👋</h2>
           <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
             Te han dado acceso a <strong>Vetra</strong>, la plataforma de gestión de reservas para restaurantes.
           </p>

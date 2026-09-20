@@ -1,10 +1,9 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
 const businessSchema = new mongoose.Schema({
   name:      { type: String, required: true },
   email:     { type: String, required: true, unique: true, lowercase: true },
-  // password is kept for legacy users (JWT auth). Better Auth users have no password here.
+  // Legacy field from the removed JWT login. No longer written or used; kept so old hashes stay excluded via select('-password').
   password:  { type: String, required: false, default: null },
   phone:     { type: String, default: '' },
   address:   { type: String, default: '' },
@@ -18,6 +17,8 @@ const businessSchema = new mongoose.Schema({
   reminderHoursBefore: { type: Number, default: 24, min: 1, max: 168 },
   // Better Auth user ID that owns this business (null for legacy users)
   ownerId: { type: String, default: null, index: true },
+  // IANA timezone used to interpret reservation date/time (reminders, notice windows, refunds)
+  timezone: { type: String, default: 'Europe/Madrid' },
 
   // ── Stripe / subscriptions ───────────────────────────────────────────────
   stripeCustomerId:     { type: String, default: null },
@@ -30,6 +31,8 @@ const businessSchema = new mongoose.Schema({
   currentPeriodStart:   { type: Date,    default: null },
   currentPeriodEnd:     { type: Date,    default: null },
   cancelAtPeriodEnd:    { type: Boolean, default: false },
+  // Timestamp (Stripe event.created) of the last billing event applied; guards against out-of-order webhooks
+  stripeEventAt:        { type: Date,    default: null },
 
   // ── Stripe Connect (pagos de clientes al restaurante) ────────────────────
   stripeConnectId:      { type: String, default: null },
@@ -56,16 +59,5 @@ const businessSchema = new mongoose.Schema({
     default: {},
   },
 }, { timestamps: true });
-
-businessSchema.pre('save', async function (next) {
-  // Only hash if password exists and was modified
-  if (!this.password || !this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10);
-  next();
-});
-
-businessSchema.methods.matchPassword = function (plain) {
-  return bcrypt.compare(plain, this.password);
-};
 
 module.exports = mongoose.model('Business', businessSchema);

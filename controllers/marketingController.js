@@ -1,4 +1,6 @@
 const Customer         = require('../models/Customer');
+const { escapeHtml } = require('../lib/escapeHtml');
+const { acquireLock } = require('../lib/keyedLock');
 const MarketingCampaign = require('../models/MarketingCampaign');
 const Business         = require('../models/Business');
 const { Resend }       = require('resend');
@@ -45,17 +47,6 @@ exports.sendCampaign = async (req, res) => {
       return res.status(400).json({ message: 'Asunto y cuerpo son obligatorios' });
     }
 
-    // Rate limit: max 3 campaigns per 30 days
-    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const recentCount = await MarketingCampaign.countDocuments({
-      businessId: req.businessId,
-      sentAt: { $gte: since },
-      status: 'sent',
-    });
-    if (recentCount >= 3) {
-      return res.status(429).json({ message: 'Límite de 3 campañas por mes alcanzado' });
-    }
-
     const business = await Business.findById(req.businessId).select('name brandColor');
 
     const subscribers = await Customer.find({
@@ -69,18 +60,48 @@ exports.sendCampaign = async (req, res) => {
       return res.status(400).json({ message: 'No hay suscriptores para este negocio' });
     }
 
+    // Rate limit: max 3 campaigns per 30 days. The check and the reservation of the slot
+    // (a 'sending' record) happen under a lock so concurrent requests can't both pass it.
+    let campaign;
+    const release = await acquireLock(`campaign:${req.businessId}`);
+    try {
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const recentCount = await MarketingCampaign.countDocuments({
+        businessId: req.businessId,
+        sentAt: { $gte: since },
+        status: { $in: ['sent', 'sending'] },
+      });
+      if (recentCount >= 3) {
+        return res.status(429).json({ message: 'Límite de 3 campañas por mes alcanzado' });
+      }
+      campaign = await MarketingCampaign.create({
+        businessId: req.businessId,
+        subject,
+        body,
+        recipientCount: 0,
+        status: 'sending',
+      });
+    } finally {
+      release();
+    }
+
     const accent = business?.brandColor || '#7C3AED';
     const landingUrl = process.env.LANDING_URL || 'https://vetrareserve.com';
     const frontendUrl = process.env.FRONTEND_URL || 'https://app.vetrareserve.com';
     const FROM = process.env.RESEND_FROM_SYSTEM || 'Reservas <noreply@resend.dev>';
     const fromMatch = FROM.match(/<(.+)>/);
     const fromEmail = fromMatch ? fromMatch[1] : FROM;
-    const from = `${business?.name || 'Vetra'} <${fromEmail}>`;
+    const fromName = String(business?.name || 'Vetra').replace(/[<>"\r\n]/g, '').trim() || 'Vetra';
+    const from = `${fromName} <${fromEmail}>`;
 
     let sent = 0;
     const errors = [];
 
     for (const customer of subscribers) {
+      if (!customer.unsubscribeToken) {
+        customer.unsubscribeToken = require('crypto').randomBytes(32).toString('hex');
+        await customer.save();
+      }
       const unsubUrl = `${frontendUrl}/public/unsubscribe?token=${customer.unsubscribeToken}`;
 
       const html = `<!DOCTYPE html>
@@ -91,15 +112,15 @@ exports.sendCampaign = async (req, res) => {
     <tr><td align="center">
       <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
         <tr><td style="background:${accent};padding:20px 32px;">
-          <p style="margin:0;font-size:17px;font-weight:700;color:#fff;">${business?.name || ''}</p>
+          <p style="margin:0;font-size:17px;font-weight:700;color:#fff;">${escapeHtml(business?.name || '')}</p>
         </td></tr>
         <tr><td style="padding:28px 32px;">
-          <p style="margin:0 0 8px;font-size:15px;color:#374151;">Hola, <strong>${customer.name}</strong></p>
-          <div style="font-size:14px;color:#374151;line-height:1.7;">${body.replace(/\n/g, '<br>')}</div>
+          <p style="margin:0 0 8px;font-size:15px;color:#374151;">Hola, <strong>${escapeHtml(customer.name)}</strong></p>
+          <div style="font-size:14px;color:#374151;line-height:1.7;">${escapeHtml(body).replace(/\r?\n/g, '<br>')}</div>
         </td></tr>
         <tr><td style="background:#f9fafb;padding:16px 32px 20px;border-top:1px solid #e5e7eb;">
           <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;line-height:1.7;">
-            Recibiste este email porque reservaste en <strong>${business?.name || ''}</strong>
+            Recibiste este email porque reservaste en <strong>${escapeHtml(business?.name || '')}</strong>
             y aceptaste recibir comunicaciones.<br>
             <a href="${unsubUrl}" style="color:#7C3AED;text-decoration:underline;">Darse de baja</a>
           </p>
@@ -130,13 +151,9 @@ exports.sendCampaign = async (req, res) => {
       }
     }
 
-    const campaign = await MarketingCampaign.create({
-      businessId:     req.businessId,
-      subject,
-      body,
-      recipientCount: sent,
-      status:         'sent',
-    });
+    campaign.recipientCount = sent;
+    campaign.status = sent > 0 ? 'sent' : 'failed';
+    await campaign.save();
 
     res.json({ sent, errors, campaignId: campaign._id });
   } catch (err) {

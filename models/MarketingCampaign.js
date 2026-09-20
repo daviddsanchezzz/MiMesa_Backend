@@ -5,7 +5,7 @@ const marketingCampaignSchema = new mongoose.Schema({
   subject:        { type: String, required: true },
   body:           { type: String, required: true },
   recipientCount: { type: Number, default: 0 },
-  status:         { type: String, enum: ['sent', 'failed'], default: 'sent' },
+  status:         { type: String, enum: ['sending', 'sent', 'failed'], default: 'sent' },
   sentAt:         { type: Date, default: Date.now },
 }, { timestamps: true });
 

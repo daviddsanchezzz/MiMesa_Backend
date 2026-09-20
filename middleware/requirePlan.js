@@ -9,7 +9,7 @@
  */
 
 const Business           = require('../models/Business');
-const { getCapabilities } = require('../lib/planCapabilities');
+const { getCapabilities, upgradeMessage } = require('../lib/planCapabilities');
 
 function requirePlan(feature) {
   return async (req, res, next) => {
@@ -20,7 +20,7 @@ function requirePlan(feature) {
       const caps = getCapabilities(business);
       if (!caps[feature]) {
         return res.status(403).json({
-          message:         'Esta función requiere el plan Basic',
+          message:         upgradeMessage(feature),
           feature,
           upgradeRequired: true,
           currentPlan:     caps.id,

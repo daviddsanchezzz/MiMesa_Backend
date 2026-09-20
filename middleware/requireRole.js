@@ -17,8 +17,7 @@ const HIERARCHY = { owner: 3, manager: 2, staff: 1 };
 
 module.exports = function requireRole(minRole) {
   return async (req, res, next) => {
-    // Legacy JWT users are implicit owners — full access during migration
-    if (!req.user) return next();
+    if (!req.user) return res.status(401).json({ message: 'No autorizado' });
 
     // Resolve role if not already set (requireBusinessAccess may not have run)
     if (!req.memberRole) {

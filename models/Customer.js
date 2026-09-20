@@ -19,4 +19,8 @@ const customerSchema = new mongoose.Schema({
   unsubscribeToken:        { type: String,  default: null, index: true },
 }, { timestamps: true });
 
+customerSchema.index({ businessId: 1, email: 1 });
+customerSchema.index({ businessId: 1, normalizedPhone: 1 });
+customerSchema.index({ businessId: 1, marketingSubscribed: 1 });
+
 module.exports = mongoose.model('Customer', customerSchema);

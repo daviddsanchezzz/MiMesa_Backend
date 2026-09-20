@@ -12,4 +12,6 @@ const tableSchema = new mongoose.Schema({
   y:          { type: Number, default: null },
 }, { timestamps: true });
 
+tableSchema.index({ businessId: 1, roomId: 1 });
+
 module.exports = mongoose.model('Table', tableSchema);

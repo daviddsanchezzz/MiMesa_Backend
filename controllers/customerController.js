@@ -1,4 +1,5 @@
 const Customer = require('../models/Customer');
+const { pickFields } = require('../lib/pickFields');
 const Reservation = require('../models/Reservation');
 const { getPhoneMatchCandidates, toStoredNormalizedPhone } = require('../lib/phoneMatching');
 
@@ -90,7 +91,7 @@ exports.createCustomer = async (req, res) => {
 
 exports.updateCustomer = async (req, res) => {
   try {
-    const payload = { ...req.body };
+    const payload = pickFields(req.body, ['name', 'phone', 'email', 'notes', 'vip']);
     if (payload.phone !== undefined) {
       const phoneStr = String(payload.phone || '').trim();
       payload.phone = phoneStr;

@@ -117,7 +117,7 @@ exports.getOverview = async (req, res) => {
     if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
     if (!canUseFeature(business, 'advancedAnalytics')) {
       return res.status(403).json({
-        message: 'Esta funcion requiere plan Pro',
+        message: 'Esta función requiere el plan Pro',
         feature: 'advancedAnalytics',
         upgradeRequired: true,
       });

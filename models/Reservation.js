@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 const reservationSchema = new mongoose.Schema({
   businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true },
@@ -22,6 +23,8 @@ const reservationSchema = new mongoose.Schema({
     proposedAt: { type: Date, default: null },
   },
   reminderSentAt: { type: Date, default: null },
+  // Secret embedded in the guest's email links (cancel/details). Set on creation only.
+  publicToken: { type: String, default: undefined, index: true, sparse: true },
   notes:      { type: String, default: '' },
   thefork:    { type: Boolean, default: false },
   promoCode:   { type: String,  default: '' },
@@ -53,5 +56,15 @@ const reservationSchema = new mongoose.Schema({
     refundedAt:             { type: Date,   default: null },
   },
 }, { timestamps: true });
+
+reservationSchema.pre('validate', function assignPublicToken(next) {
+  if (this.isNew && !this.publicToken) this.publicToken = crypto.randomBytes(24).toString('hex');
+  next();
+});
+
+reservationSchema.index({ businessId: 1, date: 1, time: 1 });
+reservationSchema.index({ businessId: 1, customerId: 1 });
+reservationSchema.index({ businessId: 1, createdAt: -1 });
+reservationSchema.index({ 'payment.stripePaymentIntentId': 1 }, { sparse: true });
 
 module.exports = mongoose.model('Reservation', reservationSchema);

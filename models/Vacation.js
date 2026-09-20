@@ -7,4 +7,6 @@ const vacationSchema = new mongoose.Schema({
   reason:     { type: String, default: '' },
 }, { timestamps: true });
 
+vacationSchema.index({ businessId: 1 });
+
 module.exports = mongoose.model('Vacation', vacationSchema);

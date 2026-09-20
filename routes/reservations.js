@@ -26,12 +26,12 @@ const {
 // Public routes (before auth middleware)
 router.post('/public', createPublicReservation);
 router.get('/public/details', getPublicReservationDetails);
-router.get('/public/cancel', cancelPublicReservation);
+router.post('/public/cancel', cancelPublicReservation);
 router.get('/public/payment-config', getPublicPaymentConfig);
 router.post('/public/payment-intent', createPublicPaymentIntent);
-router.post('/:id/create-payment-intent', createReservationPaymentIntent);
 
 router.use(auth);
+router.post('/:id/create-payment-intent', requireRole('manager'), requirePlan('reservationPayments'), createReservationPaymentIntent);
 router.get('/', getReservations);
 router.get('/pending', requireRole('manager'), getPendingReservations);
 router.post('/', createReservation);

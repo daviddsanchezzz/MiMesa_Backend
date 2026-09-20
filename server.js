@@ -1,4 +1,5 @@
 require('dotenv').config();
+require('./lib/asyncErrors');
 const express    = require('express');
 const cors       = require('cors');
 const cookieParser = require('cookie-parser');
@@ -10,6 +11,10 @@ const { initAuth }       = require('./lib/auth');
 const { startSchedulers } = require('./services/scheduler');
 
 const app = express();
+
+// Behind Render's proxy: without this every client shares the proxy IP and rate limits collapse.
+// Override with TRUST_PROXY_HOPS if another proxy (e.g. Cloudflare) sits in front.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
 
 // ── Security headers ────────────────────────────────────────────────────────
 app.use(helmet({
@@ -40,7 +45,6 @@ app.use('/api/marketing/public',    publicCors);
 app.use('/api/promos/public',       publicCors);
 app.use('/api/pricing/public',      publicCors);
 app.use('/api/contact',             publicCors);
-app.use('/api/contact',             require('./routes/contact'));
 
 // Authenticated + Better Auth endpoints: specific origin with credentials
 // FRONTEND_URLS supports comma-separated list for multiple origins (e.g. Netlify + custom domain)
@@ -105,6 +109,22 @@ app.use('/api/betterauth/forget-password', authLimiter);
 app.use('/api/betterauth/forgot-password', authLimiter);
 app.use('/api/betterauth/request-password-reset', authLimiter);
 
+// ── Rate limiting on public (unauthenticated) endpoints ─────────────────────
+const makePublicLimiter = (windowMinutes, max, message) => rateLimit({
+  windowMs: windowMinutes * 60 * 1000,
+  max,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message },
+});
+app.post('/api/contact',                          makePublicLimiter(60, 5,  'Demasiados mensajes, inténtalo más tarde'));
+app.post('/api/reservations/public',              makePublicLimiter(15, 20, 'Demasiadas reservas desde esta conexión, inténtalo más tarde'));
+app.post('/api/reservations/public/payment-intent', makePublicLimiter(15, 30, 'Demasiados intentos de pago, inténtalo más tarde'));
+app.use('/api/reservations/public/details',       makePublicLimiter(15, 60, 'Demasiadas consultas, inténtalo más tarde'));
+app.use('/api/reservations/public/cancel',        makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
+
+app.use('/api/contact', require('./routes/contact'));
+
 // Compatibility aliases for legacy frontend versions:
 // /forget-password and /forgot-password now map to Better Auth's
 // canonical /request-password-reset endpoint.
@@ -115,24 +135,17 @@ app.use('/api/betterauth', (req, res, next) => {
   next();
 });
 
-// ── MongoDB + Better Auth bootstrap ─────────────────────────────────────────
-// Connect Mongoose for business data, then spin up Better Auth with native client
-connectDB().catch((err) => {
-  console.error('[server] MongoDB connection failed:', err.message);
-  process.exit(1);
-});
-
-getMongoClient().then((mongoClient) => {
-  const { toNodeHandler } = require('better-auth/node');
-  const auth = initAuth(mongoClient);
-
-  // Better Auth handles all its own routes under /api/betterauth/*
-  // This is intentionally separate from legacy /api/auth/* to avoid conflicts.
-  app.all('/api/betterauth/*', toNodeHandler(auth));
-
-  console.log('[server] Better Auth initialized');
-}).catch((err) => {
-  console.error('[server] Better Auth initialization failed:', err.message);
+// Never leak internal error details on 5xx responses in production (they are logged instead).
+app.use('/api', (req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode >= 500 && process.env.NODE_ENV === 'production' && body && typeof body === 'object') {
+      console.error(`[error] ${req.method} ${req.originalUrl} -> ${res.statusCode}: ${body.message}`);
+      return json({ message: 'Error interno del servidor' });
+    }
+    return json(body);
+  };
+  next();
 });
 
 // ── Application routes ───────────────────────────────────────────────────────
@@ -164,9 +177,53 @@ app.use('/api/push',         require('./routes/pushNotifications'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  startSchedulers();
-  console.log(`Server running on port ${PORT}`);
+// ── Errors ───────────────────────────────────────────────────────────────────
+function registerErrorHandlers() {
+  app.use('/api', (req, res) => res.status(404).json({ message: 'Ruta no encontrada' }));
+
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    if (String(err?.message || '').startsWith('CORS:')) {
+      return res.status(403).json({ message: 'Origen no permitido' });
+    }
+    const status = Number(err?.status || err?.statusCode);
+    if (status >= 400 && status < 500) {
+      return res.status(status).json({ message: err.type === 'entity.too.large' ? 'Solicitud demasiado grande' : 'Solicitud no valida' });
+    }
+    console.error(`[error] ${req.method} ${req.originalUrl}`, err);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  });
+}
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[process] uncaughtException:', err);
+  process.exit(1);
 });
 
+// ── Bootstrap ────────────────────────────────────────────────────────────────
+// Only start accepting traffic once MongoDB and Better Auth are ready.
+async function start() {
+  await connectDB();
+  const mongoClient = await getMongoClient();
+  const { toNodeHandler } = require('better-auth/node');
+  const auth = initAuth(mongoClient);
+  console.log('[server] Better Auth initialized');
+
+  // Better Auth handles all its own routes under /api/betterauth/*
+  app.all('/api/betterauth/*', toNodeHandler(auth));
+  registerErrorHandlers();
+
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    startSchedulers();
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+start().catch((err) => {
+  console.error('[server] Startup failed:', err.message);
+  process.exit(1);
+});

@@ -1,12 +1,17 @@
 const Business = require('../models/Business');
 const Reservation = require('../models/Reservation');
+const StripeEvent = require('../models/StripeEvent');
 const stripeService = require('../services/stripe');
 const { getEffectivePlan, checkReservationLimit } = require('../lib/planCapabilities');
 
 exports.createCheckoutSession = async (req, res) => {
   try {
     const planMap = { basic: process.env.STRIPE_PRICE_BASIC, pro: process.env.STRIPE_PRICE_PRO };
-    const priceId = planMap[req.body?.plan] || req.body?.priceId || process.env.STRIPE_PRICE_BASIC;
+    const requestedPlan = req.body?.plan ?? 'basic';
+    if (!Object.prototype.hasOwnProperty.call(planMap, requestedPlan)) {
+      return res.status(400).json({ message: 'Plan invalido' });
+    }
+    const priceId = planMap[requestedPlan];
     if (!priceId) {
       return res.status(400).json({
         message: 'No hay precio configurado. Define STRIPE_PRICE_BASIC en backend.',
@@ -197,13 +202,35 @@ exports.handleWebhook = async (req, res) => {
   }
 
   try {
+    if (await StripeEvent.exists({ eventId: event.id })) {
+      return res.json({ received: true, duplicate: true });
+    }
+
     await handleEvent(event);
+
+    await StripeEvent.create({ eventId: event.id, type: event.type }).catch((err) => {
+      if (err?.code !== 11000) throw err;
+    });
   } catch (err) {
-    console.error('[stripe webhook] Handler error:', err.message, '| event:', event.type);
+    // A non-2xx response makes Stripe retry, so a transient failure can't leave billing state out of sync.
+    console.error('[stripe webhook] Handler error:', err.message, '| event:', event.type, event.id);
+    return res.status(500).json({ message: 'Webhook handler failed' });
   }
 
   return res.json({ received: true });
 };
+
+// Applies a billing update unless a newer Stripe event has already been applied to this business.
+async function applyBillingUpdate(businessId, update, event) {
+  const eventAt = new Date((event.created || 0) * 1000);
+  await Business.findOneAndUpdate(
+    {
+      _id: businessId,
+      $or: [{ stripeEventAt: null }, { stripeEventAt: { $exists: false } }, { stripeEventAt: { $lte: eventAt } }],
+    },
+    { ...update, stripeEventAt: eventAt },
+  );
+}
 
 async function handleEvent(event) {
   switch (event.type) {
@@ -243,7 +270,7 @@ async function handleEvent(event) {
         update.plan = plan;
       }
 
-      await Business.findByIdAndUpdate(businessId, update);
+      await applyBillingUpdate(businessId, update, event);
       break;
     }
 
@@ -264,7 +291,7 @@ async function handleEvent(event) {
         update.currentPeriodStart = new Date((subscriptionLine.period.start ?? invoice.period_start) * 1000);
       }
 
-      await Business.findByIdAndUpdate(businessId, update);
+      await applyBillingUpdate(businessId, update, event);
       break;
     }
 
@@ -275,7 +302,7 @@ async function handleEvent(event) {
       const businessId = await resolveBusinessIdFromInvoice(invoice);
       if (!businessId) break;
 
-      await Business.findByIdAndUpdate(businessId, { subscriptionStatus: 'past_due' });
+      await applyBillingUpdate(businessId, { subscriptionStatus: 'past_due' }, event);
       break;
     }
 
@@ -284,14 +311,14 @@ async function handleEvent(event) {
       const businessId = await resolveBusinessId(subscription);
       if (!businessId) break;
 
-      await Business.findByIdAndUpdate(businessId, {
+      await applyBillingUpdate(businessId, {
         subscriptionStatus: 'canceled',
         plan: 'free',
         stripeSubscriptionId: null,
         cancelAtPeriodEnd: false,
         trialEndsAt: null,
         currentPeriodEnd: null,
-      });
+      }, event);
       break;
     }
 

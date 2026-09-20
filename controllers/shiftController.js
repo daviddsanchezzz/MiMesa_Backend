@@ -3,6 +3,7 @@ const Business = require('../models/Business');
 const Reservation = require('../models/Reservation');
 const Vacation = require('../models/Vacation');
 const { getCapabilities, markLockedEntities } = require('../lib/planCapabilities');
+const { businessTimezone, zonedDateTimeToUtc } = require('../lib/timezone');
 
 // Generate time slots within a window at a given interval (minutes)
 function generateSlots(startTime, endTime, interval = 30) {
@@ -205,7 +206,7 @@ exports.getPublicSlots = async (req, res) => {
 
     const [allShiftDocs, business] = await Promise.all([
       Shift.find({ businessId, days: dayOfWeek }).sort({ createdAt: 1, startTime: 1 }),
-      Business.findById(businessId).select('plan subscriptionStatus maxPeoplePerSlot reservationDuration minBookingNoticeHours'),
+      Business.findById(businessId).select('plan subscriptionStatus maxPeoplePerSlot reservationDuration minBookingNoticeHours timezone'),
     ]);
 
     const caps      = getCapabilities(business ?? {});
@@ -236,7 +237,8 @@ exports.getPublicSlots = async (req, res) => {
     let availableSlots = slots;
     if (business?.minBookingNoticeHours) {
       const cutoff = new Date(Date.now() + business.minBookingNoticeHours * 60 * 60 * 1000);
-      availableSlots = availableSlots.filter((s) => new Date(`${date}T${s.time}:00`) >= cutoff);
+      const tz = businessTimezone(business);
+      availableSlots = availableSlots.filter((s) => zonedDateTimeToUtc(date, s.time, tz) >= cutoff);
     }
 
     if (business?.maxPeoplePerSlot) {
