@@ -10,13 +10,16 @@ const Invitation     = require('../models/Invitation');
 const { sendNewBusinessOwnerNotification } = require('../services/systemEmails');
 
 // POST /api/businesses
+const BUSINESS_TYPES = ['restaurant', 'appointments'];
+
 // Creates a new Business and makes the authenticated user its owner.
 // Uses requireSession — works for users with no membership yet.
 exports.createBusiness = async (req, res) => {
   try {
-    const { name, email, phone = '', address = '', cif = '' } = req.body;
+    const { name, email, phone = '', address = '', cif = '', businessType = 'restaurant' } = req.body;
     if (!name) return res.status(400).json({ message: 'El nombre del negocio es obligatorio' });
-    if (!email) return res.status(400).json({ message: 'El email del restaurante es obligatorio' });
+    if (!email) return res.status(400).json({ message: 'El email del negocio es obligatorio' });
+    if (!BUSINESS_TYPES.includes(businessType)) return res.status(400).json({ message: 'Tipo de negocio no valido' });
 
     const business = await Business.create({
       name,
@@ -24,6 +27,7 @@ exports.createBusiness = async (req, res) => {
       phone,
       address,
       cif,
+      businessType,
       ownerId: req.user.id,
     });
 
@@ -49,6 +53,7 @@ exports.createBusiness = async (req, res) => {
     res.status(201).json({
       id:   business._id,
       name: business.name,
+      businessType: business.businessType,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

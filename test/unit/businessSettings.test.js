@@ -87,7 +87,7 @@ describe('business settings endpoints', () => {
     await auth.updateBusinessSettings({ businessId: 'biz1', body: {} }, res);
     const b = res.body;
     assert.deepEqual(Object.keys(b), [
-      'id', 'name', 'email', 'phone', 'address', 'cif', 'brandColor', 'timezone',
+      'id', 'name', 'email', 'phone', 'address', 'cif', 'brandColor', 'timezone', 'businessType',
       'maxReservationPeople', 'maxPeoplePerSlot', 'reservationDuration', 'minBookingNoticeHours',
       'requireApprovalAbove', 'reminderHoursBefore',
       'plan', 'subscriptionStatus', 'trialEndsAt', 'currentPeriodEnd', 'cancelAtPeriodEnd', 'capabilities', 'modules',

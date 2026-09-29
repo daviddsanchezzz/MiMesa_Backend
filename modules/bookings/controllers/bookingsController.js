@@ -214,7 +214,7 @@ exports.updateBookingNotes = handle(async (req, res) => {
 async function publicBusiness(businessId) {
   v.objectId(businessId, 'businessId');
   const business = await Business.findById(businessId)
-    .select('name phone email address brandColor timezone plan subscriptionStatus moduleOverrides').lean();
+    .select('name phone email address brandColor timezone plan subscriptionStatus moduleOverrides businessType').lean();
   if (!business || !canUseModule(business, 'bookings')) throw notFound('Negocio');
   return business;
 }

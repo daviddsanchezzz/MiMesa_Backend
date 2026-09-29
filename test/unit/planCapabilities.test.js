@@ -58,6 +58,12 @@ describe('planCapabilities', () => {
     assert.deepEqual(Object.keys(plans.getAllModuleAccess(biz('pro', 'active'))).sort(), ['bookings', 'expenses', 'purchases', 'staff', 'thefork']);
   });
 
+  test('appointment businesses get the agenda by default (can still be turned off)', () => {
+    assert.equal(plans.canUseModule(biz('free', null, { businessType: 'appointments' }), 'bookings'), true);
+    assert.equal(plans.canUseModule(biz('free', null, { businessType: 'restaurant' }), 'bookings'), false);
+    assert.equal(plans.canUseModule(biz('pro', 'active', { businessType: 'appointments', moduleOverrides: { bookings: { enabled: false } } }), 'bookings'), false);
+  });
+
   test('bookings module is opt-in per business on every plan', () => {
     for (const plan of [biz('free', null), biz('basic', 'active'), biz('pro', 'active')]) {
       assert.equal(plans.canUseModule(plan, 'bookings'), false);

@@ -13,6 +13,7 @@ const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
   phone: b.phone, address: b.address, cif: b.cif, brandColor: b.brandColor,
   timezone: b.timezone || 'Europe/Madrid',
+  businessType: b.businessType || 'restaurant',
   ...serializeBusinessExtensions(b),
   // Billing / plan
   plan:               b.plan               ?? 'free',
@@ -45,7 +46,7 @@ exports.me = async (req, res) => {
     // All active memberships for multi-business support
     let membershipDocs = req.user
       ? await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
-          .populate('businessId', 'name brandColor plan subscriptionStatus')
+          .populate('businessId', 'name brandColor plan subscriptionStatus businessType')
           .sort({ createdAt: 1 })
           .lean()
       : [];
@@ -60,7 +61,7 @@ exports.me = async (req, res) => {
           { $set: { userId: req.user.id } }
         );
         membershipDocs = await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
-          .populate('businessId', 'name brandColor plan subscriptionStatus')
+          .populate('businessId', 'name brandColor plan subscriptionStatus businessType')
           .sort({ createdAt: 1 })
           .lean();
       }
@@ -71,6 +72,7 @@ exports.me = async (req, res) => {
       businessName: m.businessId?.name ?? '',
       brandColor:   m.businessId?.brandColor ?? '#4f46e5',
       plan:         m.businessId?.plan ?? 'free',
+      businessType: m.businessId?.businessType ?? 'restaurant',
       role:         m.role,
     }));
 

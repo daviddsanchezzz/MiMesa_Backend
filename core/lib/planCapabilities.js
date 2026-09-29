@@ -145,7 +145,10 @@ function getModuleAccess(business, moduleKey) {
   const caps = getCapabilities(business);
   const allowedByPlan = !!caps?.modulesAllowed?.[moduleKey];
   const override = business?.moduleOverrides?.[moduleKey];
-  const defaultOverrideEnabled = !OPT_IN_MODULES.has(moduleKey);
+  // Appointment businesses get the agenda on by default; everyone else must opt in.
+  const defaultOverrideEnabled = moduleKey === 'bookings'
+    ? business?.businessType === 'appointments'
+    : !OPT_IN_MODULES.has(moduleKey);
 
   const overrideEnabled =
     typeof override?.enabled === 'boolean'

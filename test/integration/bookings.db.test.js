@@ -63,6 +63,22 @@ describe('generic agenda (bookings module)', { skip }, () => {
     }
   });
 
+  test('a new appointments business has the agenda on from the start', async () => {
+    addUser({ id: 'salonOwner', email: 'salon@example.test' });
+    const created = await request(app).post('/api/businesses').set(as('salonOwner'))
+      .send({ name: 'Salón Nuevo', email: 'salon-nuevo@example.test', businessType: 'appointments' });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.equal(created.body.businessType, 'appointments');
+    const me = await request(app).get('/api/auth/me').set(as('salonOwner'));
+    assert.equal(me.body.businessType, 'appointments');
+    assert.equal(me.body.modules.bookings.enabled, true);
+    const res = await request(app).get('/api/bookings/services').set(as('salonOwner'));
+    assert.equal(res.status, 200);
+    const bad = await request(app).post('/api/businesses').set(as('salonOwner'))
+      .send({ name: 'X', email: 'x@example.test', businessType: 'garage' });
+    assert.equal(bad.status, 400);
+  });
+
   test('module is off unless enabled for the business', async () => {
     const res = await request(app).get('/api/bookings/services').set(as('otherOwner'));
     assert.equal(res.status, 403);

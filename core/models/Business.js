@@ -10,6 +10,10 @@ const businessSchema = new mongoose.Schema({
   address:   { type: String, default: '' },
   cif:       { type: String, default: '' },
   brandColor:  { type: String, default: '#3B82F6' },
+  // What kind of business this is. Decides menus, settings and default modules:
+  // 'restaurant' = table reservations (Vetra's original product),
+  // 'appointments' = service appointments (salons, therapists, studios...).
+  businessType: { type: String, enum: ['restaurant', 'appointments'], default: 'restaurant' },
   // Better Auth user ID that owns this business (null for legacy users)
   ownerId: { type: String, default: null, index: true },
   // IANA timezone used to interpret reservation date/time (reminders, notice windows, refunds)
