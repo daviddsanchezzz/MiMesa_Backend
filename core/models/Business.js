@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { businessFieldExtensions } = require('../lib/verticals');
 
 const businessSchema = new mongoose.Schema({
   name:      { type: String, required: true },
@@ -9,12 +10,6 @@ const businessSchema = new mongoose.Schema({
   address:   { type: String, default: '' },
   cif:       { type: String, default: '' },
   brandColor:  { type: String, default: '#3B82F6' },
-  maxReservationPeople: { type: Number, default: 20, min: 1 },
-  maxPeoplePerSlot: { type: Number, default: null },
-  reservationDuration: { type: Number, default: null },
-  minBookingNoticeHours: { type: Number, default: 0, min: 0 },
-  requireApprovalAbove: { type: Number, default: null, min: 1 },
-  reminderHoursBefore: { type: Number, default: 24, min: 1, max: 168 },
   // Better Auth user ID that owns this business (null for legacy users)
   ownerId: { type: String, default: null, index: true },
   // IANA timezone used to interpret reservation date/time (reminders, notice windows, refunds)
@@ -38,20 +33,6 @@ const businessSchema = new mongoose.Schema({
   stripeConnectId:      { type: String, default: null },
   stripeConnectEnabled: { type: Boolean, default: false },
 
-  // ── Config de pagos en reservas ──────────────────────────────────────────
-  reservationPayment: {
-    enabled:                { type: Boolean, default: false },
-    mode:                   { type: String, enum: ['none', 'deposit'], default: 'none' },
-    depositAmount:          { type: Number, default: 0 },   // céntimos, ej: 500 = 5€
-    depositPerPerson:       { type: Boolean, default: false }, // true = por persona, false = fijo
-    noShowFeeAmount:        { type: Number, default: 0 },   // céntimos
-    freeCancellationHours:  { type: Number, default: 24 },  // horas antes de la reserva
-    currency:               { type: String, default: 'eur' },
-  },
-
-  // ── Finanzas config ──────────────────────────────────────────────────────────
-  ticketAverage: { type: Number, default: 25, min: 0 }, // euros por comensal
-
   // Module-level tenant overrides, e.g.:
   // moduleOverrides.staff.enabled = false
   moduleOverrides: {
@@ -59,5 +40,9 @@ const businessSchema = new mongoose.Schema({
     default: {},
   },
 }, { timestamps: true });
+
+// Sector-specific fields (e.g. restaurant reservation settings) are declared by
+// each enabled vertical in verticals/<name>/business.js.
+for (const fields of businessFieldExtensions()) businessSchema.add(fields);
 
 module.exports = mongoose.model('Business', businessSchema);

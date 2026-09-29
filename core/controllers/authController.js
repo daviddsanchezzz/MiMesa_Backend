@@ -3,16 +3,16 @@ const BusinessMember = require('../models/BusinessMember');
 const { isDev } = require('../middleware/requireDev');
 const { getAllModuleAccess, serializeCapabilities } = require('../lib/planCapabilities');
 const { isValidTimezone } = require('../lib/timezone');
+const {
+  serializeBusinessExtensions,
+  applyBusinessExtensionUpdates,
+  publicBusinessExtensionFields,
+} = require('../lib/verticals');
 
 const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
   phone: b.phone, address: b.address, cif: b.cif, brandColor: b.brandColor,
-  maxReservationPeople: b.maxReservationPeople,
-  maxPeoplePerSlot: b.maxPeoplePerSlot ?? null,
-  reservationDuration: b.reservationDuration ?? null,
-  minBookingNoticeHours: b.minBookingNoticeHours ?? 0,
-  requireApprovalAbove: b.requireApprovalAbove ?? null,
-  reminderHoursBefore: b.reminderHoursBefore ?? 24,
+  ...serializeBusinessExtensions(b),
   // Billing / plan
   plan:               b.plan               ?? 'free',
   subscriptionStatus: b.subscriptionStatus ?? null,
@@ -102,7 +102,7 @@ exports.me = async (req, res) => {
 
 exports.getPublicBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id).select('name email phone address brandColor maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours');
+    const business = await Business.findById(req.params.id).select(`name email phone address brandColor ${publicBusinessExtensionFields()}`.trim());
     if (!business) return res.status(404).json({ message: 'Business not found' });
     res.json(business);
   } catch (err) {
@@ -112,19 +112,14 @@ exports.getPublicBusiness = async (req, res) => {
 
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    const { brandColor, maxReservationPeople, maxPeoplePerSlot, name, phone, address, email, cif, requireApprovalAbove, reminderHoursBefore, minBookingNoticeHours } = req.body;
+    const { brandColor, name, phone, address, email, cif } = req.body;
     const updateData = {};
     if (name !== undefined) updateData.name = String(name).trim();
     if (phone !== undefined) updateData.phone = String(phone).trim();
     if (address !== undefined) updateData.address = String(address).trim();
     if (cif !== undefined) updateData.cif = String(cif).trim();
     if (brandColor !== undefined) updateData.brandColor = brandColor;
-    if (maxReservationPeople !== undefined) updateData.maxReservationPeople = maxReservationPeople;
-    if (maxPeoplePerSlot !== undefined) updateData.maxPeoplePerSlot = maxPeoplePerSlot;
-    if (req.body.reservationDuration !== undefined) updateData.reservationDuration = req.body.reservationDuration;
-    if (requireApprovalAbove !== undefined) updateData.requireApprovalAbove = requireApprovalAbove;
-    if (minBookingNoticeHours !== undefined) updateData.minBookingNoticeHours = minBookingNoticeHours === null || minBookingNoticeHours === '' ? 0 : Number(minBookingNoticeHours);
-    if (reminderHoursBefore !== undefined) updateData.reminderHoursBefore = reminderHoursBefore;
+    applyBusinessExtensionUpdates(req.body, updateData);
     if (req.body.timezone !== undefined) {
       if (!isValidTimezone(req.body.timezone)) return res.status(400).json({ message: 'Zona horaria no valida' });
       updateData.timezone = req.body.timezone;

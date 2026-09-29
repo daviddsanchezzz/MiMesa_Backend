@@ -29,6 +29,17 @@ verticals/restaurant/ Lo específico de restaurantes
 - `modules/` no importa nada de `verticals/`.
 - Las excepciones que aún existen están congeladas en `test/unit/architecture.test.js` (`KNOWN_DEBT`). Esa lista solo puede reducirse.
 
+## Verticales y el modelo Business
+
+`verticals.config.js` indica qué verticales están activas (hoy solo `restaurant`). Cada vertical declara en `verticals/<nombre>/business.js` lo que añade al negocio:
+
+- `fields`: campos extra del esquema `Business` (reservas, recordatorios, pagos de reservas, ticket medio)
+- `publicFields`: campos que puede leer la página pública de reservas
+- `serialize(b)`: campos extra que recibe la app en el payload del negocio
+- `applyUpdate(body, update)`: ajustes que el propietario puede cambiar
+
+Los campos siguen guardándose en el mismo sitio del documento en MongoDB, así que no hay migración de datos. `test/unit/businessSchema.test.js` garantiza que el esquema resultante es idéntico campo a campo.
+
 ## Tests
 
 ```bash
