@@ -12,7 +12,8 @@ const path = require('node:path');
 const SNAPSHOT = path.join(__dirname, '..', '__snapshots__', 'emails.json');
 const CANDIDATES = {
   delivery: ['../../services/emailDelivery', '../../core/services/emailDelivery'],
-  email: ['../../services/email', '../../verticals/restaurant/services/reservationEmails'],
+  reservation: ['../../services/email', '../../verticals/restaurant/services/reservationEmails'],
+  system: ['../../services/email', '../../core/services/systemEmails'],
 };
 
 function resolveFirst(list) {
@@ -31,7 +32,7 @@ require.cache[deliveryPath].exports.sendTrackedEmail = async ({ payload, source,
   return { data: { id: 'test' } };
 };
 
-const email = require(resolveFirst(CANDIDATES.email));
+const email = { ...require(resolveFirst(CANDIDATES.reservation)), ...require(resolveFirst(CANDIDATES.system)) };
 
 const business = {
   _id: 'biz1',

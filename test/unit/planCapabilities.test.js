@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { lib } = require('../helpers/load');
+const { lib, load } = require('../helpers/load');
 
 const plans = lib('planCapabilities');
 
@@ -59,7 +59,8 @@ describe('planCapabilities', () => {
   });
 
   test('checkReservationLimit short-circuits on unlimited plans', async () => {
-    assert.deepEqual(await plans.checkReservationLimit('id', biz('pro', 'active')), { allowed: true });
+    const { checkReservationLimit } = load('verticals/restaurant/lib/reservationLimits');
+    assert.deepEqual(await checkReservationLimit('id', biz('pro', 'active')), { allowed: true });
   });
 
   test('markLockedEntities locks items beyond the limit', () => {

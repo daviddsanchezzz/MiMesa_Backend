@@ -1,5 +1,5 @@
 require('dotenv').config();
-require('./lib/asyncErrors');
+require('./core/lib/asyncErrors');
 const express    = require('express');
 const cors       = require('cors');
 const cookieParser = require('cookie-parser');
@@ -72,7 +72,7 @@ app.use(cors({
 // Stripe signature verification requires the raw request body (Buffer).
 // express.raw() captures it without parsing; express.json() would destroy it.
 // Stripe webhook needs raw body for signature verification
-const stripeWebhookHandler = require('./controllers/stripeController').handleWebhook;
+const stripeWebhookHandler = require('./core/controllers/stripeController').handleWebhook;
 app.post(
   '/api/stripe/webhook',
   express.raw({ type: 'application/json' }),
@@ -119,7 +119,7 @@ app.post('/api/reservations/public/payment-intent', makePublicLimiter(15, 30, 'D
 app.use('/api/reservations/public/details',       makePublicLimiter(15, 60, 'Demasiadas consultas, inténtalo más tarde'));
 app.use('/api/reservations/public/cancel',        makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
 
-app.use('/api/contact', require('./routes/contact'));
+app.use('/api/contact', require('./core/routes/contact'));
 
 // Compatibility aliases for legacy frontend versions:
 // /forget-password and /forgot-password now map to Better Auth's
@@ -145,31 +145,31 @@ app.use('/api', (req, res, next) => {
 });
 
 // ── Application routes ───────────────────────────────────────────────────────
-app.use('/api/dev',          require('./routes/dev'));
-app.use('/api/auth',         require('./routes/auth'));
-app.use('/api/users',        require('./routes/users'));
-app.use('/api/businesses',   require('./routes/businesses'));
-app.use('/api/stripe',       require('./routes/stripe'));
-app.use('/api/members',      require('./routes/members'));
-app.use('/api/invitations',  require('./routes/invitations'));
-app.use('/api/rooms',        require('./routes/rooms'));
-app.use('/api/tables',       require('./routes/tables'));
-app.use('/api/customers',    require('./routes/customers'));
-app.use('/api/reservations', require('./routes/reservations'));
-app.use('/api/shifts',       require('./routes/shifts'));
-app.use('/api/vacations',    require('./routes/vacations'));
-app.use('/api/exceptions',   require('./routes/exceptions'));
-app.use('/api/pricing',      require('./routes/pricing'));
-app.use('/api/marketing',    require('./routes/marketing'));
-app.use('/api/promos',       require('./routes/promos'));
-app.use('/api/analytics',    require('./routes/analytics'));
-app.use('/api/staff',        require('./routes/staff'));
-app.use('/api/suppliers',    require('./routes/suppliers'));
-app.use('/api/expenses',     require('./routes/expenses'));
-app.use('/api/revenue',      require('./routes/revenue'));
-app.use('/api/categories',   require('./routes/categories'));
-app.use('/api/purchases',    require('./routes/purchases'));
-app.use('/api/push',         require('./routes/pushNotifications'));
+app.use('/api/dev',          require('./core/routes/dev'));
+app.use('/api/auth',         require('./core/routes/auth'));
+app.use('/api/users',        require('./core/routes/users'));
+app.use('/api/businesses',   require('./core/routes/businesses'));
+app.use('/api/stripe',       require('./core/routes/stripe'));
+app.use('/api/members',      require('./core/routes/members'));
+app.use('/api/invitations',  require('./core/routes/invitations'));
+app.use('/api/rooms',        require('./verticals/restaurant/routes/rooms'));
+app.use('/api/tables',       require('./verticals/restaurant/routes/tables'));
+app.use('/api/customers',    require('./core/routes/customers'));
+app.use('/api/reservations', require('./verticals/restaurant/routes/reservations'));
+app.use('/api/shifts',       require('./verticals/restaurant/routes/shifts'));
+app.use('/api/vacations',    require('./verticals/restaurant/routes/vacations'));
+app.use('/api/exceptions',   require('./verticals/restaurant/routes/exceptions'));
+app.use('/api/pricing',      require('./core/routes/pricing'));
+app.use('/api/marketing',    require('./core/routes/marketing'));
+app.use('/api/promos',       require('./verticals/restaurant/routes/promos'));
+app.use('/api/analytics',    require('./verticals/restaurant/routes/analytics'));
+app.use('/api/staff',        require('./modules/staff/routes/staff'));
+app.use('/api/suppliers',    require('./modules/purchases/routes/suppliers'));
+app.use('/api/expenses',     require('./modules/finance/routes/expenses'));
+app.use('/api/revenue',      require('./modules/finance/routes/revenue'));
+app.use('/api/categories',   require('./modules/finance/routes/categories'));
+app.use('/api/purchases',    require('./modules/purchases/routes/purchases'));
+app.use('/api/push',         require('./core/routes/pushNotifications'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

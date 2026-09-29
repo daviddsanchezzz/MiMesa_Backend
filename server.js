@@ -1,10 +1,14 @@
 require('dotenv').config();
-require('./lib/asyncErrors');
-const connectDB  = require('./config/db');
-const { getMongoClient } = require('./lib/mongoClient');
-const { initAuth }       = require('./lib/auth');
-const { startSchedulers } = require('./services/scheduler');
+require('./core/lib/asyncErrors');
+const connectDB  = require('./core/config/db');
+const { getMongoClient } = require('./core/lib/mongoClient');
+const { initAuth }       = require('./core/lib/auth');
+const { startSchedulers } = require('./core/services/scheduler');
 const { app, mountAuthAndErrorHandlers } = require('./app');
+
+// Background jobs register themselves with the core scheduler.
+require('./verticals/restaurant/jobs/reservationReminders');
+require('./modules/finance/jobs/recurringExpenses');
 
 process.on('unhandledRejection', (reason) => {
   console.error('[process] unhandledRejection:', reason);

@@ -15,7 +15,7 @@
 
 require('dotenv').config();
 const mongoose = require('mongoose');
-const { toStoredNormalizedPhone } = require('../lib/phoneMatching');
+const { toStoredNormalizedPhone } = require('../core/lib/phoneMatching');
 
 function uniqueNotes(values) {
   const items = values

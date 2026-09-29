@@ -1,0 +1,43 @@
+# Arquitectura del backend
+
+El código está separado en tres capas para poder reutilizar la base con clientes de otros sectores.
+
+```
+core/                 Común a cualquier negocio
+  config/ lib/ middleware/ models/ controllers/ routes/ services/
+  - auth (Better Auth), negocios, miembros y roles, invitaciones
+  - planes y módulos (planCapabilities, requireModule, requirePlan)
+  - clientes, marketing, Stripe (suscripciones), push, contacto, consola dev
+  - emails: emailKit (envío + layout común) y systemEmails
+  - scheduler: registro de tareas programadas (cada módulo registra las suyas)
+
+modules/              Funcionalidades reutilizables entre sectores
+  staff/              Personal: puestos, empleados, salarios, asignaciones, costes
+  finance/            Gastos, gastos recurrentes (job diario), ingresos, categorías
+  purchases/          Proveedores, productos y pedidos de compra
+
+verticals/restaurant/ Lo específico de restaurantes
+  - reservas (públicas y privadas), pagos de reservas, salas, mesas,
+    turnos de servicio, vacaciones, excepciones, códigos promo, analítica
+  - services/reservationEmails, jobs/reservationReminders (cada 15 min)
+  - lib/reservationLimits (cupo mensual del plan Free)
+```
+
+## Reglas
+
+- `core/` no importa nada de `modules/` ni de `verticals/`.
+- `modules/` no importa nada de `verticals/`.
+- Las excepciones que aún existen están congeladas en `test/unit/architecture.test.js` (`KNOWN_DEBT`). Esa lista solo puede reducirse.
+
+## Tests
+
+```bash
+npm test                                             # sin base de datos
+MONGO_TEST_URI="mongodb://127.0.0.1:27017" npm test  # + tests con MongoDB real (base temporal que se borra)
+UPDATE_SNAPSHOT=1 npm test                           # regenerar snapshots a propósito
+```
+
+- `test/routes.snapshot.test.js`: lista de las rutas con su middleware y controlador. Un refactor no debe cambiarla.
+- `test/unit/emails.test.js`: HTML exacto de los 11 emails.
+- `test/unit/http.test.js`: todas las rutas privadas responden 401 sin sesión, y validación de reservas públicas.
+- `test/integration/`: reservas, aislamiento entre negocios, roles y módulos por plan (necesita MongoDB).

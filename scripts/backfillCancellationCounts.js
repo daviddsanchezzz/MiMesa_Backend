@@ -12,7 +12,7 @@
 
 require('dotenv').config();
 const mongoose = require('mongoose');
-const { toStoredNormalizedPhone } = require('../lib/phoneMatching');
+const { toStoredNormalizedPhone } = require('../core/lib/phoneMatching');
 
 async function run() {
   await mongoose.connect(process.env.MONGO_URI);
