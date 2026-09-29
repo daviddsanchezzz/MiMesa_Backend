@@ -12,6 +12,7 @@ const {
 const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
   phone: b.phone, address: b.address, cif: b.cif, brandColor: b.brandColor,
+  timezone: b.timezone || 'Europe/Madrid',
   ...serializeBusinessExtensions(b),
   // Billing / plan
   plan:               b.plan               ?? 'free',
