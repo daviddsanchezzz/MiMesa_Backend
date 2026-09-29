@@ -30,7 +30,8 @@ function fmtDate(dateStr) {
   });
 }
 
-function baseLayout(accentColor, content) {
+// `title` is the header text; restaurant emails keep the original default.
+function baseLayout(accentColor, content, title = 'Confirmación de reserva') {
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -46,7 +47,7 @@ function baseLayout(accentColor, content) {
           <!-- Header bar -->
           <tr>
             <td style="background:${accentColor};padding:24px 32px;">
-              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Confirmación de reserva</p>
+              <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">${escapeHtml(title)}</p>
             </td>
           </tr>
           <!-- Body -->

@@ -13,6 +13,10 @@ const Booking = require('../models/Booking');
 const svc = require('../services/bookingsService');
 const v = require('../lib/validation');
 const { BookingError } = require('../lib/errors');
+const emails = require('../services/bookingEmails');
+
+// Emails never block or fail the request; errors are logged inside.
+const later = (fn) => { Promise.resolve().then(fn).catch(() => {}); };
 
 function handle(fn) {
   return async function bookingsHandler(req, res) {
@@ -184,6 +188,8 @@ exports.createBooking = handle(async (req, res) => {
   const booking = await svc.createBooking({
     businessId: req.businessId, ...input, online: false, source, userId: req.user?.id || null,
   });
+  // Booked by phone/at the desk: the customer still gets the confirmation if we have their email.
+  later(() => emails.sendBookingConfirmation(booking));
   const out = booking.toObject();
   delete out.publicToken;
   res.status(201).json(out);
@@ -193,7 +199,10 @@ exports.setBookingStatus = handle(async (req, res) => {
   v.objectId(req.params.id, 'id');
   const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId });
   if (!booking) throw notFound('Cita');
+  const previous = booking.status;
   await svc.changeStatus(booking, String(req.body?.status || ''));
+  if (previous === 'pending' && booking.status === 'confirmed') later(() => emails.sendBookingConfirmation(booking));
+  if (booking.status === 'cancelled' && previous !== 'cancelled') later(() => emails.sendBookingCancelled(booking));
   const out = booking.toObject();
   delete out.publicToken;
   res.json(out);
@@ -272,6 +281,8 @@ exports.publicCreateBooking = handle(async (req, res) => {
   if (req.body?.consent !== true) throw new BookingError(400, 'Debes aceptar la política de privacidad', 'BAD_REQUEST');
   const input = v.bookingInput(req.body || {}, { online: true });
   const booking = await svc.createBooking({ businessId: business._id, ...input, online: true, source: 'online' });
+  later(() => emails.sendBookingConfirmation(booking));
+  later(() => emails.notifyStaffNewBooking(booking));
   res.status(201).json({ ...publicBookingView(booking), token: booking.publicToken });
 });
 
@@ -294,5 +305,6 @@ exports.publicCancelBooking = handle(async (req, res) => {
   if (!['pending', 'confirmed'].includes(booking.status)) throw new BookingError(400, 'Esta cita ya no se puede cancelar', 'BAD_TRANSITION');
   if (booking.start.getTime() < Date.now()) throw new BookingError(400, 'Esta cita ya ha pasado', 'BAD_TRANSITION');
   await svc.cancelBooking(booking);
+  later(() => emails.notifyStaffCancelled(booking));
   res.json(publicBookingView(booking));
 });

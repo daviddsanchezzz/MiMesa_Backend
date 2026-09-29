@@ -9,6 +9,7 @@ const { app, mountAuthAndErrorHandlers } = require('./app');
 // Background jobs register themselves with the core scheduler.
 require('./verticals/restaurant/jobs/reservationReminders');
 require('./modules/finance/jobs/recurringExpenses');
+require('./modules/bookings/jobs/bookingReminders');
 
 process.on('unhandledRejection', (reason) => {
   console.error('[process] unhandledRejection:', reason);

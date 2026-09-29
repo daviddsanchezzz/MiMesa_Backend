@@ -40,12 +40,14 @@ const bookingSchema = new mongoose.Schema({
   internalNotes: { type: String, default: '', maxlength: 2000 },
   totalPrice:    { type: Number, default: 0 },          // cents
   cancelledAt:   { type: Date, default: null },
+  reminderSentAt:{ type: Date, default: null },   // 24h reminder email already sent
   createdBy:     { type: String, default: null },       // user id, null for online
   // Secret for the guest's cancel link
   publicToken:   { type: String, default: () => crypto.randomBytes(24).toString('hex'), index: true },
 }, { timestamps: true });
 
 bookingSchema.index({ businessId: 1, start: 1 });
+bookingSchema.index({ status: 1, reminderSentAt: 1, start: 1 });
 bookingSchema.index({ businessId: 1, customerId: 1, start: -1 });
 
 module.exports = mongoose.model('Booking', bookingSchema);

@@ -29,9 +29,18 @@ describe('generic agenda (bookings module)', { skip }, () => {
   const day = nextTuesday();
   const as = (user) => ({ 'x-test-user': user });
   const ids = {};
+  const sent = []; // every email the app tries to send
+  const waitForEmails = () => new Promise((r) => setTimeout(r, 150));
 
   before(async () => {
     installFakeAuth();
+    // Capture emails instead of calling Resend (must run before the app loads).
+    const delivery = require.resolve(path.join(ROOT, 'core/services/emailDelivery'));
+    require(delivery);
+    require.cache[delivery].exports.sendTrackedEmail = async ({ payload, source }) => {
+      sent.push({ source, to: [].concat(payload.to), subject: payload.subject, html: payload.html });
+      return { data: { id: 'test' } };
+    };
     mongoose = require('mongoose');
     await mongoose.connect(URI, { dbName: `vetra_bookings_${Date.now()}` });
     const mod = require('../../app');
@@ -51,7 +60,7 @@ describe('generic agenda (bookings module)', { skip }, () => {
     addUser({ id: 'owner' });
     addUser({ id: 'staff' });
     addUser({ id: 'otherOwner' });
-    await BusinessMember.create({ userId: 'owner', businessId: biz._id, role: 'owner' });
+    await BusinessMember.create({ userId: 'owner', businessId: biz._id, role: 'owner', userEmail: 'owner@pelu.test' });
     await BusinessMember.create({ userId: 'staff', businessId: biz._id, role: 'staff' });
     await BusinessMember.create({ userId: 'otherOwner', businessId: other._id, role: 'owner' });
   });
@@ -277,6 +286,69 @@ describe('generic agenda (bookings module)', { skip }, () => {
       Occupancy.create({ businessId: biz._id, resourceId: ids.ana, cell: taken.cell, bookingId: new mongoose.Types.ObjectId() }),
       (err) => err.code === 11000,
     );
+  });
+
+  test('online booking emails the customer and the owner; guest cancel emails the owner', async () => {
+    sent.length = 0;
+    const res = await request(app).post(`/api/bookings/public/${biz._id}/bookings`).send({
+      date: day, time: '17:30', items: [{ serviceId: ids.corte }],
+      guestName: 'Eva', guestPhone: '644555666', guestEmail: 'eva@example.test', consent: true,
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    await waitForEmails();
+    const toGuest = sent.find((e) => e.source === 'booking.confirmed');
+    const toOwner = sent.find((e) => e.source === 'booking.staff_created');
+    assert.ok(toGuest && toGuest.to.includes('eva@example.test'), JSON.stringify(sent.map((e) => e.source)));
+    assert.ok(toGuest.html.includes(`bookingId=${res.body.id}`), 'confirmation has the cancel link');
+    assert.ok(toOwner && toOwner.to.includes('owner@pelu.test'));
+    assert.ok(!toOwner.to.includes('staff@example.test'), 'plain staff members are not emailed');
+
+    sent.length = 0;
+    await request(app).post('/api/bookings/public/cancel').send({ bookingId: res.body.id, token: res.body.token });
+    await waitForEmails();
+    assert.deepEqual(sent.map((e) => e.source), ['booking.staff_cancelled']);
+  });
+
+  test('desk booking without email sends nothing; staff cancel emails the customer', async () => {
+    sent.length = 0;
+    const noEmail = await request(app).post('/api/bookings').set(as('staff'))
+      .send({ date: day, time: '13:00', items: [{ serviceId: ids.corte }], guestName: 'Sin email' });
+    assert.equal(noEmail.status, 201);
+    const withEmail = await request(app).post('/api/bookings').set(as('staff'))
+      .send({ date: day, time: '13:30', items: [{ serviceId: ids.corte }], guestName: 'Pau', guestEmail: 'pau@example.test' });
+    await waitForEmails();
+    assert.deepEqual(sent.map((e) => e.source), ['booking.confirmed']);
+    sent.length = 0;
+    await request(app).patch(`/api/bookings/${withEmail.body._id}/status`).set(as('staff')).send({ status: 'cancelled' });
+    await waitForEmails();
+    assert.deepEqual(sent.map((e) => e.source), ['booking.cancelled']);
+  });
+
+  test('reminder: sent once ~24h before, skipped for last-minute bookings', async () => {
+    const Booking = require(path.join(ROOT, 'modules/bookings/models/Booking'));
+    const { runBookingReminders } = require(path.join(ROOT, 'modules/bookings/jobs/bookingReminders'));
+    const now = new Date();
+    const inHours = (h) => new Date(now.getTime() + h * 3600000);
+    const seg = (start) => [{ serviceId: ids.corte, serviceName: 'Corte', start, end: new Date(start.getTime() + 1800000),
+      busyStart: start, busyEnd: new Date(start.getTime() + 1800000), resourceIds: [] }];
+    const base = { businessId: biz._id, guestName: 'R', partySize: 1, source: 'online', status: 'confirmed' };
+    const due = await Booking.create({ ...base, guestEmail: 'due@example.test', start: inHours(20), end: inHours(20.5), segments: seg(inHours(20)) });
+    await Booking.updateOne({ _id: due._id }, { $set: { createdAt: inHours(-72) } }, { timestamps: false });
+    const lastMinute = await Booking.create({ ...base, guestEmail: 'late@example.test', start: inHours(5), end: inHours(5.5), segments: seg(inHours(5)) });
+    const tooFar = await Booking.create({ ...base, guestEmail: 'far@example.test', start: inHours(30), end: inHours(30.5), segments: seg(inHours(30)) });
+    await Booking.updateOne({ _id: tooFar._id }, { $set: { createdAt: inHours(-72) } }, { timestamps: false });
+
+    sent.length = 0;
+    await runBookingReminders(now);
+    const reminders = sent.filter((e) => e.source === 'booking.reminder').map((e) => e.to[0]);
+    assert.deepEqual(reminders, ['due@example.test']);
+    assert.ok((await Booking.findById(due._id)).reminderSentAt);
+    assert.ok((await Booking.findById(lastMinute._id)).reminderSentAt, 'last-minute booking marked as handled');
+    assert.equal((await Booking.findById(tooFar._id)).reminderSentAt, null);
+
+    sent.length = 0;
+    await Promise.all([runBookingReminders(now), runBookingReminders(now)]);
+    assert.equal(sent.filter((e) => e.source === 'booking.reminder').length, 0, 'never sent twice');
   });
 
   test('closed day from override', async () => {
