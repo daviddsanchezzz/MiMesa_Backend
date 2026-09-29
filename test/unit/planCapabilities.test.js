@@ -55,7 +55,14 @@ describe('planCapabilities', () => {
   });
 
   test('getAllModuleAccess lists every module of the plan', () => {
-    assert.deepEqual(Object.keys(plans.getAllModuleAccess(biz('pro', 'active'))).sort(), ['expenses', 'purchases', 'staff', 'thefork']);
+    assert.deepEqual(Object.keys(plans.getAllModuleAccess(biz('pro', 'active'))).sort(), ['bookings', 'expenses', 'purchases', 'staff', 'thefork']);
+  });
+
+  test('bookings module is opt-in per business on every plan', () => {
+    for (const plan of [biz('free', null), biz('basic', 'active'), biz('pro', 'active')]) {
+      assert.equal(plans.canUseModule(plan, 'bookings'), false);
+      assert.equal(plans.canUseModule({ ...plan, moduleOverrides: { bookings: { enabled: true } } }, 'bookings'), true);
+    }
   });
 
   test('checkReservationLimit short-circuits on unlimited plans', async () => {

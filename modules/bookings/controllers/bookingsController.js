@@ -1,0 +1,298 @@
+/**
+ * HTTP handlers for the generic agenda. Private handlers run behind
+ * requireAuth + requireModule('bookings'); public ones check that the
+ * business exists and has the module enabled.
+ */
+const Business = require('../../../core/models/Business');
+const { canUseModule } = require('../../../core/lib/planCapabilities');
+const { businessTimezone } = require('../../../core/lib/timezone');
+const Resource = require('../models/Resource');
+const Schedule = require('../models/Schedule');
+const Service = require('../models/Service');
+const Booking = require('../models/Booking');
+const svc = require('../services/bookingsService');
+const v = require('../lib/validation');
+const { BookingError } = require('../lib/errors');
+
+function handle(fn) {
+  return async function bookingsHandler(req, res) {
+    try {
+      await fn(req, res);
+    } catch (err) {
+      if (err instanceof BookingError) {
+        return res.status(err.status).json({ message: err.message, code: err.code, ...(err.reason ? { reason: err.reason } : {}) });
+      }
+      if (err?.name === 'ValidationError' || err?.name === 'CastError') {
+        return res.status(400).json({ message: 'Datos no válidos', code: 'BAD_REQUEST' });
+      }
+      console.error('[bookings]', err);
+      return res.status(500).json({ message: 'Error interno del servidor' });
+    }
+  };
+}
+
+const notFound = (what) => new BookingError(404, `${what} no encontrado`, 'NOT_FOUND');
+
+async function assertResourcesBelong(businessId, ids) {
+  const unique = [...new Set(ids.map(String))];
+  if (!unique.length) return;
+  const count = await Resource.countDocuments({ businessId, _id: { $in: unique } });
+  if (count !== unique.length) throw new BookingError(400, 'Algún recurso no pertenece al negocio', 'BAD_REQUEST');
+}
+
+// ── Resources ───────────────────────────────────────────────────────────────
+exports.listResources = handle(async (req, res) => {
+  const filter = { businessId: req.businessId };
+  if (req.query.includeInactive !== 'true') filter.active = true;
+  res.json(await Resource.find(filter).sort({ kind: 1, sortOrder: 1, name: 1 }).lean());
+});
+
+exports.createResource = handle(async (req, res) => {
+  const data = v.resourceInput(req.body || {});
+  if (data.parentId) await assertResourcesBelong(req.businessId, [data.parentId]);
+  res.status(201).json(await Resource.create({ ...data, businessId: req.businessId }));
+});
+
+exports.updateResource = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const data = v.resourceInput(req.body || {}, { partial: true });
+  if (data.parentId) await assertResourcesBelong(req.businessId, [data.parentId]);
+  const doc = await Resource.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, data, { new: true, runValidators: true });
+  if (!doc) throw notFound('Recurso');
+  if (doc.minCapacity > doc.capacity) throw new BookingError(400, 'La capacidad mínima supera la capacidad', 'BAD_REQUEST');
+  res.json(doc);
+});
+
+// Soft delete: past bookings keep pointing to it.
+exports.deleteResource = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const doc = await Resource.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, { active: false }, { new: true });
+  if (!doc) throw notFound('Recurso');
+  res.json({ ok: true });
+});
+
+// ── Services ────────────────────────────────────────────────────────────────
+exports.listServices = handle(async (req, res) => {
+  const filter = { businessId: req.businessId };
+  if (req.query.includeInactive !== 'true') filter.active = true;
+  res.json(await Service.find(filter).sort({ sortOrder: 1, name: 1 }).lean());
+});
+
+exports.createService = handle(async (req, res) => {
+  const data = v.serviceInput(req.body || {});
+  v.checkServiceConsistency(data);
+  await assertResourcesBelong(req.businessId, (data.requirements || []).flatMap((r) => r.resourceIds));
+  res.status(201).json(await Service.create({ ...data, businessId: req.businessId }));
+});
+
+exports.updateService = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const doc = await Service.findOne({ _id: req.params.id, businessId: req.businessId });
+  if (!doc) throw notFound('Servicio');
+  const data = v.serviceInput(req.body || {}, { partial: true });
+  doc.set(data);
+  v.checkServiceConsistency(doc.toObject());
+  await assertResourcesBelong(req.businessId, (doc.requirements || []).flatMap((r) => r.resourceIds));
+  await doc.save();
+  res.json(doc);
+});
+
+exports.deleteService = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const doc = await Service.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, { active: false }, { new: true });
+  if (!doc) throw notFound('Servicio');
+  res.json({ ok: true });
+});
+
+// ── Schedules ───────────────────────────────────────────────────────────────
+function scheduleOwner(req) {
+  const ownerType = req.query.ownerType || req.body?.ownerType || 'business';
+  if (ownerType === 'business') return { ownerType, ownerId: req.businessId };
+  if (ownerType !== 'resource') throw new BookingError(400, 'ownerType no es válido', 'BAD_REQUEST');
+  return { ownerType, ownerId: v.objectId(req.query.ownerId || req.body?.ownerId, 'ownerId') };
+}
+
+exports.getSchedule = handle(async (req, res) => {
+  const owner = scheduleOwner(req);
+  const doc = await Schedule.findOne({ businessId: req.businessId, ...owner }).lean();
+  res.json(doc || { ...owner, rules: [], overrides: [] });
+});
+
+exports.putSchedule = handle(async (req, res) => {
+  const owner = scheduleOwner(req);
+  if (owner.ownerType === 'resource') await assertResourcesBelong(req.businessId, [owner.ownerId]);
+  const data = v.scheduleInput(req.body || {});
+  const doc = await Schedule.findOneAndUpdate(
+    { businessId: req.businessId, ...owner },
+    { $set: data, $setOnInsert: { businessId: req.businessId, ...owner } },
+    { new: true, upsert: true, runValidators: true },
+  );
+  res.json(doc);
+});
+
+// Remove a resource's own schedule so it follows business hours again.
+exports.deleteSchedule = handle(async (req, res) => {
+  const owner = scheduleOwner(req);
+  if (owner.ownerType !== 'resource') throw new BookingError(400, 'Solo se puede borrar el horario de un recurso', 'BAD_REQUEST');
+  await Schedule.deleteOne({ businessId: req.businessId, ...owner });
+  res.json({ ok: true });
+});
+
+// ── Availability & bookings (staff side) ────────────────────────────────────
+function slotView(s) {
+  return { date: s.date, time: s.time, start: s.start, end: s.end, resourceIds: s.resourceIds };
+}
+
+exports.getAvailability = handle(async (req, res) => {
+  const { from, to } = v.dateRange(req.query, { maxDays: 62 });
+  const { slots } = await svc.getAvailability({
+    businessId: req.businessId,
+    serviceId: v.objectId(req.query.serviceId, 'serviceId'),
+    from, to,
+    partySize: req.query.partySize ? Number(req.query.partySize) : 1,
+    resourceId: req.query.resourceId ? v.objectId(req.query.resourceId, 'resourceId') : null,
+    online: false,
+  });
+  res.json(slots.map(slotView));
+});
+
+exports.listBookings = handle(async (req, res) => {
+  const { from, to } = v.dateRange(req.query, { maxDays: 62 });
+  const business = await Business.findById(req.businessId).select('timezone').lean();
+  const tz = businessTimezone(business);
+  const { localToUtc } = require('../lib/availability');
+  const filter = {
+    businessId: req.businessId,
+    start: { $lt: localToUtc(to, 1440, tz) },
+    end: { $gt: localToUtc(from, 0, tz) },
+  };
+  if (req.query.status) filter.status = { $in: String(req.query.status).split(',') };
+  if (req.query.resourceId) filter['segments.resourceIds'] = v.objectId(req.query.resourceId, 'resourceId');
+  res.json(await Booking.find(filter).sort({ start: 1 }).select('-publicToken').lean());
+});
+
+exports.getBooking = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const doc = await Booking.findOne({ _id: req.params.id, businessId: req.businessId }).select('-publicToken').lean();
+  if (!doc) throw notFound('Cita');
+  res.json(doc);
+});
+
+exports.createBooking = handle(async (req, res) => {
+  const input = v.bookingInput(req.body || {}, { online: false });
+  const source = ['phone', 'walk_in', 'staff'].includes(req.body?.source) ? req.body.source : 'staff';
+  const booking = await svc.createBooking({
+    businessId: req.businessId, ...input, online: false, source, userId: req.user?.id || null,
+  });
+  const out = booking.toObject();
+  delete out.publicToken;
+  res.status(201).json(out);
+});
+
+exports.setBookingStatus = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId });
+  if (!booking) throw notFound('Cita');
+  await svc.changeStatus(booking, String(req.body?.status || ''));
+  const out = booking.toObject();
+  delete out.publicToken;
+  res.json(out);
+});
+
+exports.updateBookingNotes = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const update = {};
+  if (req.body?.notes !== undefined) update.notes = String(req.body.notes).slice(0, 1000);
+  if (req.body?.internalNotes !== undefined) update.internalNotes = String(req.body.internalNotes).slice(0, 2000);
+  const doc = await Booking.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, update, { new: true })
+    .select('-publicToken').lean();
+  if (!doc) throw notFound('Cita');
+  res.json(doc);
+});
+
+// ── Public (guest) side ─────────────────────────────────────────────────────
+async function publicBusiness(businessId) {
+  v.objectId(businessId, 'businessId');
+  const business = await Business.findById(businessId)
+    .select('name phone email address brandColor timezone plan subscriptionStatus moduleOverrides').lean();
+  if (!business || !canUseModule(business, 'bookings')) throw notFound('Negocio');
+  return business;
+}
+
+exports.publicCatalog = handle(async (req, res) => {
+  const business = await publicBusiness(req.params.businessId);
+  const services = await Service.find({ businessId: business._id, active: true, 'onlineBooking.enabled': { $ne: false } })
+    .sort({ sortOrder: 1, name: 1 }).lean();
+  const choosableIds = new Set();
+  const anyStaffKinds = services.some((s) => (s.requirements || []).some((r) => r.customerCanChoose && !(r.resourceIds || []).length));
+  services.forEach((s) => (s.requirements || []).forEach((r) => r.customerCanChoose && (r.resourceIds || []).forEach((id) => choosableIds.add(String(id)))));
+  const staff = await Resource.find({
+    businessId: business._id, active: true, bookableOnline: { $ne: false }, kind: 'staff',
+    ...(anyStaffKinds ? {} : { _id: { $in: [...choosableIds] } }),
+  }).select('name kind').sort({ sortOrder: 1, name: 1 }).lean();
+  res.json({
+    business: { id: business._id, name: business.name, phone: business.phone, address: business.address, brandColor: business.brandColor, timezone: businessTimezone(business) },
+    services: services.map((s) => ({
+      id: s._id, name: s.name, category: s.category, description: s.description, durationMin: s.durationMin,
+      bookingMode: s.bookingMode, partySize: s.partySize, price: s.price,
+      staffChoice: (s.requirements || []).some((r) => r.kind === 'staff' && r.customerCanChoose)
+        ? (s.requirements.find((r) => r.kind === 'staff' && r.customerCanChoose).resourceIds || []).map(String)
+        : null,
+    })),
+    staff: staff.map((r) => ({ id: r._id, name: r.name })),
+  });
+});
+
+exports.publicAvailability = handle(async (req, res) => {
+  const business = await publicBusiness(req.params.businessId);
+  const { from, to } = v.dateRange(req.query, { maxDays: 31 });
+  const { slots } = await svc.getAvailability({
+    businessId: business._id,
+    serviceId: v.objectId(req.query.serviceId, 'serviceId'),
+    from, to,
+    partySize: req.query.partySize ? Number(req.query.partySize) : 1,
+    resourceId: req.query.resourceId ? v.objectId(req.query.resourceId, 'resourceId') : null,
+    online: true,
+  });
+  // Guests see times, not which resource would be used.
+  res.json(slots.map((s) => ({ date: s.date, time: s.time, start: s.start, end: s.end })));
+});
+
+function publicBookingView(b) {
+  return {
+    id: b._id, status: b.status, start: b.start, end: b.end, partySize: b.partySize,
+    guestName: b.guestName,
+    services: b.segments.map((s) => ({ name: s.serviceName, start: s.start, end: s.end })),
+    totalPrice: b.totalPrice,
+  };
+}
+
+exports.publicCreateBooking = handle(async (req, res) => {
+  const business = await publicBusiness(req.params.businessId);
+  if (req.body?.consent !== true) throw new BookingError(400, 'Debes aceptar la política de privacidad', 'BAD_REQUEST');
+  const input = v.bookingInput(req.body || {}, { online: true });
+  const booking = await svc.createBooking({ businessId: business._id, ...input, online: true, source: 'online' });
+  res.status(201).json({ ...publicBookingView(booking), token: booking.publicToken });
+});
+
+async function bookingByToken(req) {
+  const id = req.body?.bookingId || req.query.bookingId;
+  const token = req.body?.token || req.query.token;
+  v.objectId(id, 'bookingId');
+  if (typeof token !== 'string' || token.length < 20) throw notFound('Cita');
+  const booking = await Booking.findOne({ _id: id, publicToken: token });
+  if (!booking) throw notFound('Cita');
+  return booking;
+}
+
+exports.publicBookingDetails = handle(async (req, res) => {
+  res.json(publicBookingView(await bookingByToken(req)));
+});
+
+exports.publicCancelBooking = handle(async (req, res) => {
+  const booking = await bookingByToken(req);
+  if (!['pending', 'confirmed'].includes(booking.status)) throw new BookingError(400, 'Esta cita ya no se puede cancelar', 'BAD_TRANSITION');
+  if (booking.start.getTime() < Date.now()) throw new BookingError(400, 'Esta cita ya ha pasado', 'BAD_TRANSITION');
+  await svc.cancelBooking(booking);
+  res.json(publicBookingView(booking));
+});

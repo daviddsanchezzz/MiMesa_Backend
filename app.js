@@ -41,6 +41,7 @@ app.use('/api/marketing/public',    publicCors);
 app.use('/api/promos/public',       publicCors);
 app.use('/api/pricing/public',      publicCors);
 app.use('/api/contact',             publicCors);
+app.use('/api/bookings/public',     publicCors);
 
 // Authenticated + Better Auth endpoints: specific origin with credentials
 // FRONTEND_URLS supports comma-separated list for multiple origins (e.g. Netlify + custom domain)
@@ -118,6 +119,9 @@ app.post('/api/reservations/public',              makePublicLimiter(15, 20, 'Dem
 app.post('/api/reservations/public/payment-intent', makePublicLimiter(15, 30, 'Demasiados intentos de pago, inténtalo más tarde'));
 app.use('/api/reservations/public/details',       makePublicLimiter(15, 60, 'Demasiadas consultas, inténtalo más tarde'));
 app.use('/api/reservations/public/cancel',        makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
+app.use('/api/bookings/public', makePublicLimiter(15, 120, 'Demasiadas consultas, inténtalo más tarde'));
+app.post('/api/bookings/public/:businessId/bookings', makePublicLimiter(15, 20, 'Demasiadas reservas desde esta conexión, inténtalo más tarde'));
+app.post('/api/bookings/public/cancel', makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
 
 app.use('/api/contact', require('./core/routes/contact'));
 
@@ -169,6 +173,7 @@ app.use('/api/expenses',     require('./modules/finance/routes/expenses'));
 app.use('/api/revenue',      require('./modules/finance/routes/revenue'));
 app.use('/api/categories',   require('./modules/finance/routes/categories'));
 app.use('/api/purchases',    require('./modules/purchases/routes/purchases'));
+app.use('/api/bookings',     require('./modules/bookings/routes/bookings'));
 app.use('/api/push',         require('./core/routes/pushNotifications'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

@@ -31,6 +31,7 @@ const PLANS = {
       expenses: false,
       purchases: false,
       thefork: false,
+      bookings: true,
     },
   },
 
@@ -60,6 +61,7 @@ const PLANS = {
       expenses: false,
       purchases: false,
       thefork: false,
+      bookings: true,
     },
   },
 
@@ -89,9 +91,14 @@ const PLANS = {
       expenses: true,
       purchases: true,
       thefork: true,
+      bookings: true,
     },
   },
 };
+
+// Modules that stay off until enabled per business (moduleOverrides.<key>.enabled = true).
+// 'bookings' is the new generic agenda, enabled only for pilot businesses.
+const OPT_IN_MODULES = new Set(['thefork', 'bookings']);
 
 function getEffectivePlan(business) {
   const { plan, subscriptionStatus } = business;
@@ -138,7 +145,7 @@ function getModuleAccess(business, moduleKey) {
   const caps = getCapabilities(business);
   const allowedByPlan = !!caps?.modulesAllowed?.[moduleKey];
   const override = business?.moduleOverrides?.[moduleKey];
-  const defaultOverrideEnabled = moduleKey === 'thefork' ? false : true;
+  const defaultOverrideEnabled = !OPT_IN_MODULES.has(moduleKey);
 
   const overrideEnabled =
     typeof override?.enabled === 'boolean'

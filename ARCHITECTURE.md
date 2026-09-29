@@ -15,6 +15,7 @@ modules/              Funcionalidades reutilizables entre sectores
   staff/              Personal: puestos, empleados, salarios, asignaciones, costes
   finance/            Gastos, gastos recurrentes (job diario), ingresos, categorías
   purchases/          Proveedores, productos y pedidos de compra
+  bookings/           Agenda genérica: recursos, horarios, servicios y citas (opcional por negocio, ver su README)
 
 verticals/restaurant/ Lo específico de restaurantes
   - reservas (públicas y privadas), pagos de reservas, salas, mesas,
@@ -48,7 +49,14 @@ MONGO_TEST_URI="mongodb://127.0.0.1:27017" npm test  # + tests con MongoDB real 
 UPDATE_SNAPSHOT=1 npm test                           # regenerar snapshots a propósito
 ```
 
+Para los tests con base de datos sirve un MongoDB local o [FerretDB](https://github.com/FerretDB/FerretDB) (compatible con MongoDB, un solo binario, sin instalar nada):
+
+```bash
+ferretdb --handler=sqlite --sqlite-url=file:./.ferretdb/ --listen-addr=127.0.0.1:27017 --telemetry=disable
+```
+
 - `test/routes.snapshot.test.js`: lista de las rutas con su middleware y controlador. Un refactor no debe cambiarla.
 - `test/unit/emails.test.js`: HTML exacto de los 11 emails.
 - `test/unit/http.test.js`: todas las rutas privadas responden 401 sin sesión, y validación de reservas públicas.
-- `test/integration/`: reservas, aislamiento entre negocios, roles y módulos por plan (necesita MongoDB).
+- `test/integration/`: reservas del restaurante y agenda genérica de principio a fin, aislamiento entre negocios, roles, módulos, doble booking (necesita MongoDB).
+- `test/unit/bookings*.test.js`: motor de huecos libres y validación de la agenda genérica.
