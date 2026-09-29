@@ -1,0 +1,170 @@
+{
+  "__v": {
+    "instance": "Number"
+  },
+  "_id": {
+    "instance": "ObjectId",
+    "auto": true
+  },
+  "address": {
+    "instance": "String",
+    "default": ""
+  },
+  "brandColor": {
+    "instance": "String",
+    "default": "#3B82F6"
+  },
+  "cancelAtPeriodEnd": {
+    "instance": "Boolean",
+    "default": false
+  },
+  "cif": {
+    "instance": "String",
+    "default": ""
+  },
+  "createdAt": {
+    "instance": "Date",
+    "immutable": true
+  },
+  "currentPeriodEnd": {
+    "instance": "Date",
+    "default": null
+  },
+  "currentPeriodStart": {
+    "instance": "Date",
+    "default": null
+  },
+  "email": {
+    "instance": "String",
+    "required": true,
+    "unique": true,
+    "lowercase": true
+  },
+  "maxPeoplePerSlot": {
+    "instance": "Number",
+    "default": null
+  },
+  "maxReservationPeople": {
+    "instance": "Number",
+    "default": 20,
+    "min": 1
+  },
+  "minBookingNoticeHours": {
+    "instance": "Number",
+    "default": 0,
+    "min": 0
+  },
+  "moduleOverrides": {
+    "instance": "Mixed",
+    "default": "<fn>"
+  },
+  "name": {
+    "instance": "String",
+    "required": true
+  },
+  "ownerId": {
+    "instance": "String",
+    "default": null,
+    "index": true
+  },
+  "password": {
+    "instance": "String",
+    "required": false,
+    "default": null
+  },
+  "phone": {
+    "instance": "String",
+    "default": ""
+  },
+  "plan": {
+    "instance": "String",
+    "default": "free"
+  },
+  "reminderHoursBefore": {
+    "instance": "Number",
+    "default": 24,
+    "min": 1,
+    "max": 168
+  },
+  "requireApprovalAbove": {
+    "instance": "Number",
+    "default": null,
+    "min": 1
+  },
+  "reservationDuration": {
+    "instance": "Number",
+    "default": null
+  },
+  "reservationPayment.currency": {
+    "instance": "String",
+    "default": "eur"
+  },
+  "reservationPayment.depositAmount": {
+    "instance": "Number",
+    "default": 0
+  },
+  "reservationPayment.depositPerPerson": {
+    "instance": "Boolean",
+    "default": false
+  },
+  "reservationPayment.enabled": {
+    "instance": "Boolean",
+    "default": false
+  },
+  "reservationPayment.freeCancellationHours": {
+    "instance": "Number",
+    "default": 24
+  },
+  "reservationPayment.mode": {
+    "instance": "String",
+    "enum": [
+      "none",
+      "deposit"
+    ],
+    "default": "none"
+  },
+  "reservationPayment.noShowFeeAmount": {
+    "instance": "Number",
+    "default": 0
+  },
+  "stripeConnectEnabled": {
+    "instance": "Boolean",
+    "default": false
+  },
+  "stripeConnectId": {
+    "instance": "String",
+    "default": null
+  },
+  "stripeCustomerId": {
+    "instance": "String",
+    "default": null
+  },
+  "stripeEventAt": {
+    "instance": "Date",
+    "default": null
+  },
+  "stripeSubscriptionId": {
+    "instance": "String",
+    "default": null
+  },
+  "subscriptionStatus": {
+    "instance": "String",
+    "default": null
+  },
+  "ticketAverage": {
+    "instance": "Number",
+    "default": 25,
+    "min": 0
+  },
+  "timezone": {
+    "instance": "String",
+    "default": "Europe/Madrid"
+  },
+  "trialEndsAt": {
+    "instance": "Date",
+    "default": null
+  },
+  "updatedAt": {
+    "instance": "Date"
+  }
+}
