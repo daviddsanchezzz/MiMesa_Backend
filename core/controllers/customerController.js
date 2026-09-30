@@ -109,7 +109,7 @@ exports.updateCustomer = async (req, res) => {
     });
     if (duplicate) {
       return res.status(409).json({
-        message: 'Ya existe un cliente con ese telefono o email',
+        message: 'Ya existe un cliente con ese teléfono o email',
         duplicateCustomerId: duplicate._id,
       });
     }
