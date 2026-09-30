@@ -1,7 +1,8 @@
 const router         = require('express').Router();
 const requireSession = require('../middleware/requireSession');
-const { createBusiness, deleteBusiness } = require('../controllers/businessesController');
+const { createBusiness, deleteBusiness, listTemplates } = require('../controllers/businessesController');
 
+router.get('/templates', requireSession, listTemplates);
 router.post('/', requireSession, createBusiness);
 router.delete('/:id', requireSession, deleteBusiness);
 

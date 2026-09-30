@@ -85,6 +85,26 @@ describe('generic agenda (bookings module)', { skip }, () => {
     assert.equal(me.body.modules.bookings.enabled, true);
     const res = await request(app).get('/api/bookings/services').set(as('salonOwner'));
     assert.equal(res.status, 200);
+    // Without a sector: the owner as professional and opening hours, no services
+    const pros = await request(app).get('/api/bookings/resources').set(as('salonOwner'));
+    assert.equal(pros.body.filter((r) => r.kind === 'staff').length, 1);
+    const tpl = await request(app).get('/api/businesses/templates').set(as('salonOwner'));
+    assert.ok(tpl.body.some((t) => t.key === 'peluqueria' && t.businessType === 'appointments'));
+    // With a sector: typical services too
+    addUser({ id: 'barberOwner', email: 'barber@example.test', name: 'Toni Ruiz' });
+    process.env.SIGNUP_MODE = 'open';
+    const barber = await request(app).post('/api/businesses').set(as('barberOwner'))
+      .send({ name: 'Barbería Toni', email: 'toni@example.test', businessType: 'appointments', template: 'barberia', acceptLegal: true });
+    const wrong = await request(app).post('/api/businesses').set(as('barberOwner'))
+      .send({ name: 'X', email: 'x2@example.test', businessType: 'restaurant', template: 'barberia', acceptLegal: true });
+    delete process.env.SIGNUP_MODE;
+    assert.equal(barber.status, 201, JSON.stringify(barber.body));
+    assert.equal(barber.body.template, 'barberia');
+    assert.equal(wrong.status, 400);
+    const Service = require(path.join(ROOT, 'modules/bookings/models/Service'));
+    const Resource = require(path.join(ROOT, 'modules/bookings/models/Resource'));
+    assert.ok(await Service.countDocuments({ businessId: barber.body.id }) >= 5);
+    assert.equal((await Resource.findOne({ businessId: barber.body.id, kind: 'staff' })).name, 'Toni');
     const bad = await request(app).post('/api/businesses').set(as('salonOwner'))
       .send({ name: 'X', email: 'x@example.test', businessType: 'garage' });
     assert.equal(bad.status, 400);

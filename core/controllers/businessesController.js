@@ -28,6 +28,14 @@ exports.createBusiness = async (req, res) => {
       }
     }
 
+    // Sector starting point (services, hours, the owner as professional)
+    const { getTemplate } = require('../lib/businessTemplates');
+    const templateKey = req.body?.template || (businessType === 'appointments' ? 'citas_vacio' : null);
+    const template = templateKey ? getTemplate(templateKey) : null;
+    if (req.body?.template && (!template || template.businessType !== businessType)) {
+      return res.status(400).json({ message: 'Tipo de negocio no válido' });
+    }
+
     const business = await Business.create({
       name,
       email: email.toLowerCase(),
@@ -51,6 +59,14 @@ exports.createBusiness = async (req, res) => {
       userId: req.user.id, email: req.user.email, businessId: business._id, role: 'owner', context: 'onboarding',
     });
 
+    if (template && template.businessType === businessType) {
+      try {
+        await template.apply(business, { ownerName: req.user.name || '' });
+      } catch (err) {
+        console.error('[businesses] template failed:', err.message); // the business works without it
+      }
+    }
+
     await sendNewBusinessOwnerNotification({
       business,
       owner: {
@@ -65,10 +81,17 @@ exports.createBusiness = async (req, res) => {
       id:   business._id,
       name: business.name,
       businessType: business.businessType,
+      template: template?.key || null,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+};
+
+// GET /api/businesses/templates — sector starting points for the sign-up form
+exports.listTemplates = (req, res) => {
+  const { listTemplates } = require('../lib/businessTemplates');
+  res.json(listTemplates());
 };
 
 // DELETE /api/businesses/:id
