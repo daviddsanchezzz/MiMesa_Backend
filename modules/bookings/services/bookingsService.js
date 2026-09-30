@@ -137,6 +137,62 @@ async function occupy(businessId, bookingId, segments) {
 }
 
 /**
+ * Plans the consecutive segments of a booking at date/startMin with the engine
+ * data already loaded. Pure apart from the context: throws BookingError when
+ * something doesn't fit.
+ */
+function planSegments(contextFor, { ordered, items, date, startMin, partySize, online, now }) {
+  const segments = [];
+  const extraBusy = [];
+  let cursor = startMin;
+  for (let i = 0; i < ordered.length; i++) {
+    const service = ordered[i];
+    const ctx = contextFor(service, { online, ...(now ? { now } : {}) });
+    const preferred = {};
+    if (items[i].resourceId) {
+      const idx = (service.requirements || []).findIndex((r) => r.kind === 'staff' && (!online || r.customerCanChoose));
+      if (idx === -1) throw new BookingError(400, 'Este servicio no permite elegir profesional', 'BAD_REQUEST');
+      preferred[idx] = String(items[i].resourceId);
+    }
+    // "Any professional" on a later service: keep the same person as the
+    // previous one when they can do it, otherwise anyone free.
+    const staffIdx = (service.requirements || []).findIndex((q) => q.kind === 'staff');
+    const previousStaff = segments.length ? segments[segments.length - 1].staffId : null;
+    let r = null;
+    if (!items[i].resourceId && staffIdx !== -1 && previousStaff) {
+      r = evaluateStart(ctx, date, cursor, { partySize, preferred: { ...preferred, [staffIdx]: previousStaff }, extraBusy });
+      if (!r.ok) r = null;
+    }
+    if (!r) r = evaluateStart(ctx, date, cursor, { partySize, preferred, extraBusy });
+    if (!r.ok) {
+      throw new BookingError(409, REASON_MESSAGES[r.reason] || 'No hay disponibilidad', 'NOT_AVAILABLE', { reason: r.reason, segment: i });
+    }
+    const resourceIds = r.assignments.flat();
+    segments.push({
+      serviceId: service._id,
+      serviceName: service.name,
+      start: r.start, end: r.end, busyStart: r.busyStart, busyEnd: r.busyEnd,
+      resourceIds,
+      anyStaff: !items[i].resourceId,
+      staffId: staffIdx !== -1 ? (r.assignments[staffIdx] || [])[0] || null : null,
+      price: (service.price?.amount || 0) * (service.price?.perPerson ? partySize : 1),
+    });
+    for (const rid of resourceIds) extraBusy.push({ resourceId: rid, start: r.busyStart, end: r.busyEnd });
+    cursor += service.durationMin;
+  }
+  return segments;
+}
+
+async function loadOrderedServices(businessId, items, { activeOnly = true } = {}) {
+  const ids = items.map((i) => i.serviceId);
+  const services = await Service.find({ _id: { $in: ids }, businessId, ...(activeOnly ? { active: true } : {}) }).lean();
+  const byId = new Map(services.map((s) => [String(s._id), s]));
+  const ordered = ids.map((id) => byId.get(String(id)));
+  if (ordered.some((s) => !s)) throw new BookingError(404, 'Servicio no encontrado', 'NOT_FOUND');
+  return ordered;
+}
+
+/**
  * Creates a booking of one or more consecutive services starting at date/time.
  * items: [{ serviceId, resourceId? }] — resourceId = chosen professional.
  */
@@ -149,53 +205,11 @@ async function createBooking({
   }
   const startMin = toMinutes(time);
   if (!isAligned(startMin)) throw new BookingError(400, 'La hora debe ser múltiplo de 5 minutos', 'BAD_REQUEST');
-
-  const ids = items.map((i) => i.serviceId);
-  const services = await Service.find({ _id: { $in: ids }, businessId, active: true }).lean();
-  const byId = new Map(services.map((s) => [String(s._id), s]));
-  const ordered = ids.map((id) => byId.get(String(id)));
-  if (ordered.some((s) => !s)) throw new BookingError(404, 'Servicio no encontrado', 'NOT_FOUND');
+  const ordered = await loadOrderedServices(businessId, items);
 
   return withLock(`bookings:${businessId}:${date}`, async () => {
     const { contextFor } = await loadEngineData(businessId, ordered, date, addDaysToDate(date, 1));
-    const segments = [];
-    const extraBusy = [];
-    let cursor = startMin;
-    for (let i = 0; i < ordered.length; i++) {
-      const service = ordered[i];
-      const ctx = contextFor(service, { online });
-      const preferred = {};
-      if (items[i].resourceId) {
-        const idx = (service.requirements || []).findIndex((r) => r.kind === 'staff' && (!online || r.customerCanChoose));
-        if (idx === -1) throw new BookingError(400, 'Este servicio no permite elegir profesional', 'BAD_REQUEST');
-        preferred[idx] = String(items[i].resourceId);
-      }
-      // "Any professional" on a later service: keep the same person as the
-      // previous one when they can do it, otherwise anyone free.
-      const staffIdx = (service.requirements || []).findIndex((q) => q.kind === 'staff');
-      const previousStaff = segments.length ? segments[segments.length - 1].staffId : null;
-      let r = null;
-      if (!items[i].resourceId && staffIdx !== -1 && previousStaff) {
-        r = evaluateStart(ctx, date, cursor, { partySize, preferred: { ...preferred, [staffIdx]: previousStaff }, extraBusy });
-        if (!r.ok) r = null;
-      }
-      if (!r) r = evaluateStart(ctx, date, cursor, { partySize, preferred, extraBusy });
-      if (!r.ok) {
-        throw new BookingError(409, REASON_MESSAGES[r.reason] || 'No hay disponibilidad', 'NOT_AVAILABLE', { reason: r.reason, segment: i });
-      }
-      const resourceIds = r.assignments.flat();
-      segments.push({
-        serviceId: service._id,
-        serviceName: service.name,
-        start: r.start, end: r.end, busyStart: r.busyStart, busyEnd: r.busyEnd,
-        resourceIds,
-        anyStaff: !items[i].resourceId,
-        staffId: staffIdx !== -1 ? (r.assignments[staffIdx] || [])[0] || null : null,
-        price: (service.price?.amount || 0) * (service.price?.perPerson ? partySize : 1),
-      });
-      for (const rid of resourceIds) extraBusy.push({ resourceId: rid, start: r.busyStart, end: r.busyEnd });
-      cursor += service.durationMin;
-    }
+    const segments = planSegments(contextFor, { ordered, items, date, startMin, partySize, online });
 
     const needsApproval = online && ordered.some((s) => s.onlineBooking?.requireApproval);
     const customer = await findOrCreateCustomer(businessId, guest);
@@ -225,6 +239,111 @@ async function createBooking({
       throw err;
     }
     return booking;
+  });
+}
+
+// ── Change the day, time, services or professional of an appointment ────────
+const MOVABLE = ['pending', 'confirmed', 'checked_in'];
+
+/** The services and chosen professionals of a booking, as createBooking items. */
+async function itemsOf(booking) {
+  const ids = [...new Set(booking.segments.flatMap((s) => (s.resourceIds || []).map(String)))];
+  const staff = new Set((await Resource.find({ _id: { $in: ids }, kind: 'staff' }).select('_id').lean()).map((r) => String(r._id)));
+  return booking.segments.map((s) => ({
+    serviceId: s.serviceId,
+    resourceId: s.anyStaff ? null : ((s.resourceIds || []).map(String).find((id) => staff.has(id)) || null),
+  }));
+}
+
+function assertMovable(booking, { online }) {
+  const allowed = online ? ['pending', 'confirmed'] : MOVABLE;
+  if (booking.payment) throw new BookingError(400, 'Esta cita ya está cobrada. Deshaz el cobro para cambiarla.', 'ALREADY_PAID');
+  if (!allowed.includes(booking.status)) throw new BookingError(400, 'Esta cita ya no se puede cambiar', 'BAD_TRANSITION');
+}
+
+/**
+ * Free start times for `booking` (with its own services/professionals, or
+ * `items`) between two dates, ignoring the booking itself.
+ */
+async function rescheduleSlots(booking, { from, to, items = null, online }) {
+  assertMovable(booking, { online });
+  const list = items || await itemsOf(booking);
+  const ordered = await loadOrderedServices(booking.businessId, list, { activeOnly: online });
+  const { contextFor } = await loadEngineData(booking.businessId, ordered, from, to, { excludeBookingId: booking._id });
+  const first = ordered[0];
+  const ctx = contextFor(first, { online });
+  const preferred = {};
+  if (list[0].resourceId) {
+    const idx = (first.requirements || []).findIndex((r) => r.kind === 'staff');
+    if (idx !== -1) preferred[idx] = String(list[0].resourceId);
+  }
+  const partySize = booking.partySize || 1;
+  const candidates = findSlots(ctx, { from, to, partySize, preferred, maxDays: 31 });
+  const out = [];
+  for (const c of candidates) {
+    if (ordered.length > 1) {
+      try {
+        planSegments(contextFor, { ordered, items: list, date: c.date, startMin: toMinutes(c.time), partySize, online });
+      } catch { continue; }
+    }
+    out.push({ date: c.date, time: c.time, start: c.start, end: c.end });
+  }
+  return out;
+}
+
+/**
+ * Moves an appointment: new date/time and, optionally, new services or
+ * professionals (`items`). The old slot is only released once the new one is
+ * held, so a failed move leaves the appointment exactly as it was.
+ */
+async function rescheduleBooking(booking, { date, time, items = null, online, notBefore = null }) {
+  assertMovable(booking, { online });
+  const startMin = toMinutes(time);
+  if (!isAligned(startMin)) throw new BookingError(400, 'La hora debe ser múltiplo de 5 minutos', 'BAD_REQUEST');
+  const list = items || await itemsOf(booking);
+  if (!Array.isArray(list) || !list.length || list.length > 5) throw new BookingError(400, 'Indica entre 1 y 5 servicios', 'BAD_REQUEST');
+  const ordered = await loadOrderedServices(booking.businessId, list, { activeOnly: online });
+  const partySize = booking.partySize || 1;
+
+  return withLock(`bookings:${booking.businessId}:${date}`, async () => {
+    const { contextFor } = await loadEngineData(booking.businessId, ordered, date, addDaysToDate(date, 1), { excludeBookingId: booking._id });
+    const segments = planSegments(contextFor, { ordered, items: list, date, startMin, partySize, online });
+    if (notBefore && segments[0].start.getTime() < notBefore.getTime()) {
+      throw new BookingError(400, 'Esa hora está demasiado cerca. Elige otra con más antelación.', 'TOO_LATE');
+    }
+
+    const before = {
+      segments: booking.segments.map((s) => (s.toObject ? s.toObject() : s)),
+      start: booking.start, end: booking.end, totalPrice: booking.totalPrice,
+    };
+    // Free the old cells, take the new ones; put the old ones back if that fails.
+    await Occupancy.deleteMany({ bookingId: booking._id });
+    try {
+      await occupy(booking.businessId, booking._id, segments);
+    } catch (err) {
+      await occupy(booking.businessId, booking._id, before.segments).catch(() => {});
+      throw err;
+    }
+    const servicesChanged = before.segments.map((s) => String(s.serviceId)).join() !== segments.map((s) => String(s.serviceId)).join();
+    booking.segments = segments;
+    booking.start = segments[0].start;
+    booking.end = segments[segments.length - 1].end;
+    // Keep an agreed price when only the time changes.
+    if (servicesChanged) booking.totalPrice = segments.reduce((sum, s) => sum + s.price, 0);
+    if (before.start.getTime() !== booking.start.getTime()) {
+      booking.reminderSentAt = null;
+      booking.rescheduledAt = new Date();
+      booking.rescheduleCount = (booking.rescheduleCount || 0) + 1;
+      booking.previousStart = before.start;
+    }
+    try {
+      await booking.save();
+    } catch (err) {
+      await Occupancy.deleteMany({ bookingId: booking._id });
+      await occupy(booking.businessId, booking._id, before.segments).catch(() => {});
+      throw err;
+    }
+    return { booking, previousStart: before.start };
   });
 }
 
@@ -355,6 +474,6 @@ function todayFor(timezone) {
 }
 
 module.exports = {
-  BookingError, getAvailability, createBooking, cancelBooking, changeStatus, todayFor, reassignOptions, reassignBooking,
+  BookingError, getAvailability, createBooking, cancelBooking, rescheduleBooking, rescheduleSlots, planSegments, changeStatus, todayFor, reassignOptions, reassignBooking,
   isValidObjectId: (id) => mongoose.isValidObjectId(id),
 };

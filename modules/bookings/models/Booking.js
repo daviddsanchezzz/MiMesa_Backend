@@ -58,6 +58,10 @@ const bookingSchema = new mongoose.Schema({
   // Follow-up emails, at most one of each per visit (see followUpsService)
   reviewRequestedAt:    { type: Date, default: null },
   rebookReminderSentAt: { type: Date, default: null },
+  // Last change of day/time (by the business or by the customer from their link)
+  rescheduledAt:   { type: Date, default: null },
+  rescheduleCount: { type: Number, default: 0 },
+  previousStart:   { type: Date, default: null },
   payment:       { type: paymentSchema, default: null },
   createdBy:     { type: String, default: null },       // user id, null for online
   // Secret for the guest's cancel link

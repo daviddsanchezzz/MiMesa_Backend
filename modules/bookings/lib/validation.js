@@ -257,6 +257,13 @@ function bookingInput(body, { online }) {
   };
 }
 
+// A new day/time for an existing appointment.
+function dateTimeInput(body = {}) {
+  const d = date(body.date, 'La fecha');
+  if (typeof body.time !== 'string' || !TIME.test(body.time)) bad('La hora no es válida');
+  return { date: d, time: body.time };
+}
+
 // Absence of a professional: whole days (from..to) or some hours of one day.
 function absenceInput(body = {}) {
   const resourceId = objectId(body.resourceId, 'Profesional');
@@ -282,5 +289,5 @@ function absenceInput(body = {}) {
 
 module.exports = {
   absenceInput,
-  resourceInput, imageDataUrl, serviceInput, checkServiceConsistency, scheduleInput, bookingInput, dateRange, objectId, bad,
+  resourceInput, imageDataUrl, serviceInput, checkServiceConsistency, scheduleInput, bookingInput, dateTimeInput, dateRange, objectId, bad,
 };

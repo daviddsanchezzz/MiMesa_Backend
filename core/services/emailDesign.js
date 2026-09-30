@@ -299,12 +299,14 @@ function icsEscape(s) {
 }
 
 /** An .ics invite (Apple Calendar, Outlook…) to attach to confirmation emails. */
-function icsInvite({ uid, title, start, end, location = '', description = '', organizerName = '', stamp = null }) {
+function icsInvite({ uid, title, start, end, location = '', description = '', organizerName = '', stamp = null, sequence = 0 }) {
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Vetra//Reservas//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     'BEGIN:VEVENT',
     `UID:${icsEscape(uid)}@vetrareserve.com`,
     `DTSTAMP:${utcStamp(stamp || start)}`,
+    // Same UID with a higher SEQUENCE: calendars update the event instead of adding another
+    sequence ? `SEQUENCE:${sequence}` : '',
     `DTSTART:${utcStamp(start)}`,
     `DTEND:${utcStamp(end)}`,
     `SUMMARY:${icsEscape(title)}`,

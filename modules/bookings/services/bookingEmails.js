@@ -107,10 +107,10 @@ function calendarTitle(booking, business) {
 }
 
 /**
- * Builds a customer email. `kind`: confirmed | pending | reminder | cancelled.
+ * Builds a customer email. `kind`: confirmed | pending | reminder | cancelled | rescheduled.
  * Pure given its inputs (tested with fixed data).
  */
-function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null }) {
+function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null, previousStart = null }) {
   const brand = brandFor(business);
   const a = appointment(booking, business, staff);
   const name = esc(d.firstName(booking.guestName));
@@ -134,6 +134,9 @@ function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null }
     location: business.address || business.name, details: `Para cambiar o cancelar: ${cancelUrl(booking)}`,
   });
   const cancelLink = `<a href="${esc(cancelUrl(booking))}" target="_blank" style="color:${brand.color};font-weight:600;text-decoration:none;">`;
+  const before = previousStart
+    ? `${d.dateParts(dateInTimezone(new Date(previousStart), a.tz)).long.toLowerCase()} a las ${timeText(previousStart, a.tz)}`
+    : '';
 
   const copy = {
     confirmed: {
@@ -141,8 +144,8 @@ function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null }
       preheader: `${a.services}${staff ? ` con ${staff}` : ''}. Te esperamos.`,
       title: '¡Cita confirmada!',
       intro: `${hello}, tu cita en <strong>${biz}</strong> está confirmada. Te esperamos.`,
-      actions: d.buttons([{ href: calendarUrl, label: 'Añadir al calendario' }, { href: cancelUrl(booking), label: 'Ver o cancelar' }], brand.color),
-      after: d.small('¿Te ha surgido algo? Cancela con antelación desde el botón para que otra persona pueda aprovechar el hueco.'),
+      actions: d.buttons([{ href: calendarUrl, label: 'Añadir al calendario' }, { href: cancelUrl(booking), label: 'Cambiar o cancelar' }], brand.color),
+      after: d.small('¿Te ha surgido algo? Cambia o cancela con antelación desde el botón para que otra persona pueda aprovechar el hueco.'),
     },
     pending: {
       subject: `Solicitud recibida: ${whenLong} a las ${a.start} · ${business.name}`,
@@ -160,9 +163,17 @@ function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null }
       intro: `${hello}, te recordamos tu cita en <strong>${biz}</strong>.`,
       actions: d.buttons([
         business.address ? { href: d.mapsUrl(business.address), label: 'Cómo llegar' } : null,
-        { href: cancelUrl(booking), label: 'Ver o cancelar', variant: business.address ? 'secondary' : 'primary' },
+        { href: cancelUrl(booking), label: 'Cambiar o cancelar', variant: business.address ? 'secondary' : 'primary' },
       ], brand.color),
-      after: d.small(`Si no puedes venir, ${cancelLink}cancélala aquí</a> para que otra persona pueda usar el hueco.`),
+      after: d.small(`Si no puedes venir, ${cancelLink}cámbiala o cancélala aquí</a> para que otra persona pueda usar el hueco.`),
+    },
+    rescheduled: {
+      subject: `Cita cambiada: ${whenLong} a las ${a.start} · ${business.name}`,
+      preheader: before ? `Antes era el ${before}.` : `${a.services}${staff ? ` con ${staff}` : ''}.`,
+      title: 'Tu cita ha cambiado',
+      intro: `${hello}, tu cita en <strong>${biz}</strong> tiene nueva fecha y hora.${before ? ` Antes era el ${esc(before)}.` : ''}`,
+      actions: d.buttons([{ href: calendarUrl, label: 'Añadir al calendario' }, { href: cancelUrl(booking), label: 'Cambiar o cancelar' }], brand.color),
+      after: '',
     },
     cancelled: {
       subject: `Cita cancelada · ${business.name}`,
@@ -197,7 +208,8 @@ function buildInvite(booking, business, staff) {
     location: business.address || business.name,
     description: `${booking.segments.map((s) => s.serviceName).join(' + ')}${staff ? ` con ${staff}` : ''}\nPara cambiar o cancelar: ${cancelUrl(booking)}`,
     organizerName: business.name,
-    stamp: booking.createdAt || null,
+    stamp: booking.rescheduledAt || booking.createdAt || null,
+    sequence: booking.rescheduleCount || 0,
   });
   return { filename: 'cita.ics', content: Buffer.from(content).toString('base64'), contentType: 'text/calendar; charset=utf-8; method=PUBLISH' };
 }
@@ -252,16 +264,21 @@ async function sendFollowUp(kind, { booking, customer, reviewUrl }) {
   }
 }
 
-/** Email for the business team. `kind`: created | cancelled. */
-function buildStaffEmail(kind, { booking, business, staff }) {
+/** Email for the business team. `kind`: created | cancelled | rescheduled. */
+function buildStaffEmail(kind, { booking, business, staff, previousStart = null }) {
   const brand = brandFor(business);
   const a = appointment(booking, business, staff);
   const created = kind === 'created';
+  const moved = kind === 'rescheduled';
   const pending = created && booking.status === 'pending';
-  const title = !created ? 'Cita cancelada por el cliente' : pending ? 'Nueva solicitud de cita' : 'Nueva cita online';
-  const intro = !created ? 'Un cliente ha cancelado su cita. El hueco vuelve a estar libre para reservar.'
-    : pending ? 'Tienes una solicitud pendiente de aprobar. El cliente espera tu respuesta.'
-      : 'Un cliente ha reservado desde tu página de reservas.';
+  const before = previousStart
+    ? `${d.dateParts(dateInTimezone(new Date(previousStart), a.tz)).long.toLowerCase()} a las ${timeText(previousStart, a.tz)}`
+    : '';
+  const title = moved ? 'Cita cambiada por el cliente' : !created ? 'Cita cancelada por el cliente' : pending ? 'Nueva solicitud de cita' : 'Nueva cita online';
+  const intro = moved ? `Un cliente ha cambiado su cita desde su enlace.${before ? ` Antes era el ${esc(before)}; ese hueco vuelve a estar libre.` : ''}`
+    : !created ? 'Un cliente ha cancelado su cita. El hueco vuelve a estar libre para reservar.'
+      : pending ? 'Tienes una solicitud pendiente de aprobar. El cliente espera tu respuesta.'
+        : 'Un cliente ha reservado desde tu página de reservas.';
   const guest = d.details([
     { label: 'Cliente', value: booking.guestName || '-' },
     booking.guestPhone ? { label: 'Teléfono', valueHtml: `<a href="${esc(d.telHref(booking.guestPhone))}" style="color:${brand.color};text-decoration:none;">${esc(booking.guestPhone)}</a>` } : null,
@@ -274,7 +291,7 @@ function buildStaffEmail(kind, { booking, business, staff }) {
     title,
     preheader: `${booking.guestName || 'Cliente'} · ${a.services} · ${when}`,
     content: `${d.h1(title)}${d.p(intro)}
-      ${d.eventCard({ localDate: a.localDate, title: a.services, color: brand.color, muted: !created, lines: [`${a.when}${staff ? ` · con ${staff}` : ''}`] })}
+      ${d.eventCard({ localDate: a.localDate, title: a.services, color: brand.color, muted: !created && !moved, lines: [`${a.when}${staff ? ` · con ${staff}` : ''}`] })}
       ${d.card(guest)}
       ${d.buttons([{ href: `${appUrl()}/agenda`, label: pending ? 'Revisar solicitud' : 'Abrir agenda' }], brand.color)}`,
     footer: { note: `Recibes este aviso porque gestionas ${esc(business.name || '')} en Vetra. Puedes desactivarlo en tu Perfil.` },
@@ -283,6 +300,7 @@ function buildStaffEmail(kind, { booking, business, staff }) {
 }
 
 async function staffRecipients(businessId, kind) {
+  // A change counts as a new booking for the notification preferences.
   const members = await BusinessMember.find({
     businessId, status: { $ne: 'invited' }, role: { $in: ['owner', 'manager'] }, userEmail: { $ne: '' },
   }).select('userEmail notificationPreferences').lean();
@@ -295,7 +313,7 @@ async function staffRecipients(businessId, kind) {
     .filter(Boolean))];
 }
 
-async function sendToCustomer(kind, booking) {
+async function sendToCustomer(kind, booking, { previousStart = null } = {}) {
   try {
     if (!emailEnabled() || !booking.guestEmail) return false;
     const business = await loadBusiness(booking.businessId);
@@ -308,9 +326,9 @@ async function sendToCustomer(kind, booking) {
       const fs = await FollowUpSettings.findOne({ businessId: booking.businessId }).lean();
       if (fs?.rebook?.enabled || fs?.review?.enabled) optOutUrl = await optOutUrlFor(booking.customerId);
     }
-    const { subject, html } = buildCustomerEmail(kind, { booking, business, staff, optOutUrl });
+    const { subject, html } = buildCustomerEmail(kind, { booking, business, staff, optOutUrl, previousStart });
     const payload = { from: fromBusiness(business.name), to: booking.guestEmail, replyTo: business.email || undefined, subject, html };
-    if (kind === 'confirmed') payload.attachments = [buildInvite(booking, business, staff)];
+    if (kind === 'confirmed' || kind === 'rescheduled') payload.attachments = [buildInvite(booking, business, staff)];
     const result = await sendEmail(payload, `booking.${kind}`, { businessId: String(booking.businessId), bookingId: String(booking._id) });
     return !result?.error;
   } catch (err) {
@@ -319,13 +337,13 @@ async function sendToCustomer(kind, booking) {
   }
 }
 
-async function sendToStaff(kind, booking) {
+async function sendToStaff(kind, booking, { previousStart = null } = {}) {
   try {
     if (!emailEnabled()) return false;
     const [business, to] = await Promise.all([loadBusiness(booking.businessId), staffRecipients(booking.businessId, kind)]);
     if (!business || !to.length) return false;
     const staff = await staffNames(booking);
-    const { subject, html } = buildStaffEmail(kind, { booking, business, staff });
+    const { subject, html } = buildStaffEmail(kind, { booking, business, staff, previousStart });
     await sendEmail({ from: fromBusiness('Vetra'), to, replyTo: booking.guestEmail || undefined, subject, html },
       `booking.staff_${kind}`, { businessId: String(booking.businessId), bookingId: String(booking._id) });
     return true;
@@ -345,7 +363,9 @@ module.exports = {
   sendBookingConfirmation: (b) => sendToCustomer(b.status === 'pending' ? 'pending' : 'confirmed', b),
   sendBookingReminder: (b) => sendToCustomer('reminder', b),
   sendBookingCancelled: (b) => sendToCustomer('cancelled', b),
+  sendBookingRescheduled: (b, previousStart) => sendToCustomer('rescheduled', b, { previousStart }),
   // Business team
   notifyStaffNewBooking: (b) => sendToStaff('created', b),
+  notifyStaffRescheduled: (b, previousStart) => sendToStaff('rescheduled', b, { previousStart }),
   notifyStaffCancelled: (b) => sendToStaff('cancelled', b),
 };

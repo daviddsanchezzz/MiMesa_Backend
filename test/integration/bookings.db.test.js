@@ -697,4 +697,128 @@ describe('generic agenda (bookings module)', { skip }, () => {
 
     await request(app).put('/api/bookings/follow-ups').set(as('owner')).send({ rebook: { enabled: false }, review: { enabled: false } });
   });
+
+  test('agenda: move an appointment to another time, services and professional', async () => {
+    const d = nextTuesday(49);
+    let res = await request(app).post('/api/bookings').set(as('staff')).send({
+      date: d, time: '17:00', items: [{ serviceId: ids.corte, resourceId: ids.luis }], guestName: 'Mover', guestEmail: 'mover@example.test', source: 'phone',
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const id = res.body._id;
+    const priceBefore = res.body.totalPrice;
+
+    // Free times for this appointment ignore the appointment itself
+    res = await request(app).post(`/api/bookings/${id}/reschedule-slots`).set(as('staff')).send({ from: d });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(res.body.some((s) => s.time === '17:00'), 'its own time is still offered');
+    assert.ok(!res.body.some((s) => s.time === '10:00'), 'Luis does not work mornings');
+
+    // Another appointment sits at 18:00 with Luis
+    res = await request(app).post('/api/bookings').set(as('staff')).send({
+      date: d, time: '18:00', items: [{ serviceId: ids.corte, resourceId: ids.luis }], guestName: 'Ocupa', source: 'phone',
+    });
+    assert.equal(res.status, 201);
+    res = await request(app).patch(`/api/bookings/${id}/reschedule`).set(as('staff')).send({ date: d, time: '18:00' });
+    assert.equal(res.status, 409, 'taken slot refused');
+    assert.equal(await Occupancy.countDocuments({ bookingId: id }), 6, 'failed move keeps the old cells');
+
+    sent.length = 0;
+    res = await request(app).patch(`/api/bookings/${id}/reschedule`).set(as('staff')).send({ date: d, time: '19:00' });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.rescheduleCount, 1);
+    assert.equal(res.body.totalPrice, priceBefore);
+    assert.equal(res.body.reminderSentAt, null);
+    await waitForEmails();
+    const moved = sent.find((e) => e.source === 'booking.rescheduled');
+    assert.ok(moved, 'customer told about the change');
+    assert.match(moved.subject, /Cita cambiada/);
+    assert.match(moved.html, /Antes era el/);
+
+    // The old time is free again for someone else
+    res = await request(app).post('/api/bookings').set(as('staff')).send({
+      date: d, time: '17:00', items: [{ serviceId: ids.corte, resourceId: ids.luis }], guestName: 'Hueco', source: 'phone',
+    });
+    assert.equal(res.status, 201, 'old slot released');
+
+    // Change services and professional: corte + tinte with Ana in the morning
+    sent.length = 0;
+    res = await request(app).patch(`/api/bookings/${id}/reschedule`).set(as('staff')).send({
+      date: d, time: '10:00', notify: false,
+      items: [{ serviceId: ids.corte, resourceId: ids.ana }, { serviceId: ids.tinte, resourceId: ids.ana }],
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.segments.length, 2);
+    assert.equal(res.body.totalPrice, 1800 + 4500, 'price follows the new services');
+    assert.deepEqual(res.body.segments[0].resourceIds, [ids.ana]);
+    await waitForEmails();
+    assert.ok(!sent.some((e) => e.source === 'booking.rescheduled'), 'notify: false');
+
+    // Charged appointments are not moved
+    res = await request(app).post(`/api/bookings/${id}/checkout`).set(as('owner')).send({ method: 'cash' });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    res = await request(app).patch(`/api/bookings/${id}/reschedule`).set(as('staff')).send({ date: d, time: '12:00' });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'ALREADY_PAID');
+  });
+
+  test('customer changes or cancels from the link, within the business policy', async () => {
+    const d = nextTuesday(35);
+    let res = await request(app).get('/api/bookings/policy').set(as('staff'));
+    assert.deepEqual(res.body, { changeMinHours: 0, allowReschedule: true, note: '' });
+    res = await request(app).put('/api/bookings/policy').set(as('staff')).send({ changeMinHours: 24 });
+    assert.equal(res.status, 403, 'managers only');
+    res = await request(app).put('/api/bookings/policy').set(as('owner')).send({ changeMinHours: 5 });
+    assert.equal(res.status, 400);
+    res = await request(app).put('/api/bookings/policy').set(as('owner')).send({ changeMinHours: 24, note: 'Avisa con un día de antelación.' });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    const cat = await request(app).get(`/api/bookings/public/${biz._id}/catalog`);
+    assert.equal(cat.body.policy.changeMinHours, 24);
+    assert.equal(cat.body.policy.note, 'Avisa con un día de antelación.');
+
+    res = await request(app).post(`/api/bookings/public/${biz._id}/bookings`).send({
+      date: d, time: '17:00', items: [{ serviceId: ids.corte }],
+      guestName: 'Paula', guestPhone: '644555666', guestEmail: 'paula@example.test', consent: true,
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const auth = { bookingId: res.body.id, token: res.body.token };
+
+    res = await request(app).get(`/api/bookings/public/cancel?bookingId=${auth.bookingId}&token=${auth.token}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.canReschedule, true);
+    assert.equal(res.body.canCancel, true);
+    assert.equal(res.body.business.name, 'Peluquería Test');
+    assert.equal(res.body.policy.changeMinHours, 24);
+
+    res = await request(app).post('/api/bookings/public/reschedule/slots').send({ ...auth, from: d });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const six = res.body.find((s) => s.time === '18:00');
+    assert.ok(six);
+    assert.ok(!('resourceIds' in (res.body[0] || {})));
+
+    res = await request(app).post('/api/bookings/public/reschedule').send({ ...auth, date: d, time: '18:00', token: 'y'.repeat(48) });
+    assert.equal(res.status, 404, 'wrong token');
+
+    sent.length = 0;
+    res = await request(app).post('/api/bookings/public/reschedule').send({ ...auth, date: d, time: '18:00' });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(new Date(res.body.start).toISOString(), new Date(six.start).toISOString());
+    await waitForEmails();
+    assert.ok(sent.some((e) => e.source === 'booking.rescheduled' && e.to[0] === 'paula@example.test'));
+    assert.ok(sent.some((e) => e.source === 'booking.staff_rescheduled' && /Antes era el/.test(e.html)));
+
+    // Inside the notice window: no more online changes
+    const Booking = require(path.join(ROOT, 'modules/bookings/models/Booking'));
+    await Booking.updateOne({ _id: auth.bookingId }, { $set: { start: new Date(Date.now() + 5 * 3600000), end: new Date(Date.now() + 5.5 * 3600000) } });
+    res = await request(app).get(`/api/bookings/public/cancel?bookingId=${auth.bookingId}&token=${auth.token}`);
+    assert.equal(res.body.canCancel, false);
+    assert.equal(res.body.reason, 'too_late');
+    res = await request(app).post('/api/bookings/public/cancel').send(auth);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'TOO_LATE');
+    res = await request(app).post('/api/bookings/public/reschedule').send({ ...auth, date: d, time: '19:00' });
+    assert.equal(res.body.code, 'TOO_LATE');
+
+    await request(app).put('/api/bookings/policy').set(as('owner')).send({ changeMinHours: 0, note: '' });
+  });
 });

@@ -9,6 +9,8 @@ const c = require('../controllers/bookingsController');
 const publicCors = cors({ origin: '*' });
 router.get('/public/cancel', publicCors, c.publicBookingDetails);
 router.post('/public/cancel', publicCors, c.publicCancelBooking);
+router.post('/public/reschedule/slots', publicCors, c.publicRescheduleSlots);
+router.post('/public/reschedule', publicCors, c.publicReschedule);
 router.get('/public/:businessId/catalog', publicCors, c.publicCatalog);
 router.get('/public/:businessId/availability', publicCors, c.publicAvailability);
 router.post('/public/:businessId/bookings', publicCors, c.publicCreateBooking);
@@ -51,6 +53,9 @@ router.post('/team/:resourceId/payments', requireRole('manager'), requireModule(
 router.get('/cash', c.cashDay);
 router.post('/cash/close', c.closeCash);
 router.delete('/cash/close', requireRole('manager'), c.reopenCash);
+// What customers can do from their link (managers)
+router.get('/policy', c.getPolicy);
+router.put('/policy', requireRole('manager'), c.savePolicy);
 // Follow-up emails to customers (managers)
 router.get('/follow-ups', requireRole('manager'), c.getFollowUps);
 router.put('/follow-ups', requireRole('manager'), c.saveFollowUps);
@@ -62,6 +67,8 @@ router.delete('/absences/:id', c.deleteAbsence);
 router.get('/:id', c.getBooking);
 router.get('/:id/reassign-options', c.reassignOptions);
 router.patch('/:id/reassign', c.reassignBooking);
+router.post('/:id/reschedule-slots', c.rescheduleSlots);
+router.patch('/:id/reschedule', c.rescheduleBooking);
 router.post('/:id/checkout', c.checkout);
 router.delete('/:id/checkout', requireRole('manager'), c.undoCheckout);
 router.patch('/:id/status', c.setBookingStatus);

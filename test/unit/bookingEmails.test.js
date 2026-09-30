@@ -47,7 +47,7 @@ describe('appointment emails', () => {
     assert.match(buildCustomerEmail('pending', { booking, business }).html, /Te enviaremos otro email en cuanto/);
     const reminder = buildCustomerEmail('reminder', { booking, business });
     assert.equal(reminder.subject, 'Recordatorio: tu cita martes, 13 de octubre a las 19:00 · Peluquería <Laura>');
-    assert.match(reminder.html, /Ver o cancelar/);
+    assert.match(reminder.html, /Cambiar o cancelar/);
     assert.match(reminder.html, /Cómo llegar/);
     const cancelled = buildCustomerEmail('cancelled', { booking, business });
     assert.match(cancelled.html, /Reservar otra cita/);
@@ -105,7 +105,7 @@ describe('appointment emails', () => {
     const text = htmlToText(buildCustomerEmail('confirmed', { booking, business, staff: 'Ana' }).html);
     assert.match(text, /¡Cita confirmada!/);
     assert.match(text, /Corte mujer \+ Peinado/);
-    assert.match(text, /Ver o cancelar: https:\/\/dev\.vetrareserve\.com\/public\/biz1\/cita\/cancelar/);
+    assert.match(text, /Cambiar o cancelar: https:\/\/dev\.vetrareserve\.com\/public\/biz1\/cita\/cancelar/);
     assert.ok(!/<(table|td|tr|a|p|h1|div|span|img)\b/i.test(text), 'no tags left');
     assert.equal(text.split('¡Cita confirmada!').length - 1, 1, 'title once');
   });

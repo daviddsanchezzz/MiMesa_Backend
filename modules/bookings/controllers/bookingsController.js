@@ -24,6 +24,7 @@ const { dateInTimezone } = require('../../../core/lib/timezone');
 const { businessLogoUrl } = require('../../../core/lib/images');
 const absences = require('../services/absencesService');
 const followUps = require('../services/followUpsService');
+const policy = require('../services/policyService');
 
 // Emails never block or fail the request; errors are logged inside.
 const later = (fn) => { Promise.resolve().then(fn).catch(() => {}); };
@@ -446,8 +447,10 @@ exports.publicCatalog = handle(async (req, res) => {
     businessId: business._id, active: true, bookableOnline: { $ne: false }, kind: 'staff',
     ...(anyStaffKinds ? {} : { _id: { $in: [...choosableIds] } }),
   }).select('name kind color photo').sort({ sortOrder: 1, name: 1 }).lean();
+  const rules = await policy.getPolicy(business._id);
   res.json({
     business: { id: business._id, name: business.name, phone: business.phone, address: business.address, brandColor: business.brandColor, logoUrl: businessLogoUrl(business), timezone: businessTimezone(business) },
+    policy: { changeMinHours: rules.changeMinHours, allowReschedule: rules.allowReschedule, note: rules.note },
     services: services.map((s) => ({
       id: s._id, name: s.name, category: s.category, description: s.description, durationMin: s.durationMin,
       bookingMode: s.bookingMode, partySize: s.partySize, price: s.price,
@@ -503,17 +506,66 @@ async function bookingByToken(req) {
   return booking;
 }
 
+async function manageView(booking) {
+  const [rules, business] = await Promise.all([
+    policy.getPolicy(booking.businessId),
+    Business.findById(booking.businessId).select('name phone slug brandColor logoUpdatedAt timezone').lean(),
+  ]);
+  const rights = policy.customerRights(booking, rules);
+  return {
+    ...publicBookingView(booking),
+    business: business ? {
+      id: business._id, name: business.name, phone: business.phone || '', slug: business.slug || null,
+      brandColor: business.brandColor || null, logoUrl: businessLogoUrl(business), timezone: businessTimezone(business),
+    } : null,
+    policy: { changeMinHours: rules.changeMinHours, note: rules.note },
+    ...rights,
+  };
+}
+
+function tooLate(rights, action) {
+  if (rights.reason === 'too_late') {
+    return new BookingError(400, `Ya no se puede ${action} online: hay que avisar con más antelación. Llama al negocio, por favor.`, 'TOO_LATE');
+  }
+  if (rights.reason === 'past') return new BookingError(400, 'Esta cita ya ha pasado', 'BAD_TRANSITION');
+  return new BookingError(400, `Esta cita ya no se puede ${action}`, 'BAD_TRANSITION');
+}
+
 exports.publicBookingDetails = handle(async (req, res) => {
-  res.json(publicBookingView(await bookingByToken(req)));
+  res.json(await manageView(await bookingByToken(req)));
 });
 
 exports.publicCancelBooking = handle(async (req, res) => {
   const booking = await bookingByToken(req);
-  if (!['pending', 'confirmed'].includes(booking.status)) throw new BookingError(400, 'Esta cita ya no se puede cancelar', 'BAD_TRANSITION');
-  if (booking.start.getTime() < Date.now()) throw new BookingError(400, 'Esta cita ya ha pasado', 'BAD_TRANSITION');
+  const rights = policy.customerRights(booking, await policy.getPolicy(booking.businessId));
+  if (!rights.canCancel) throw tooLate(rights, 'cancelar');
   await svc.cancelBooking(booking);
   later(() => emails.notifyStaffCancelled(booking));
-  res.json(publicBookingView(booking));
+  res.json(await manageView(booking));
+});
+
+exports.publicRescheduleSlots = handle(async (req, res) => {
+  const booking = await bookingByToken(req);
+  const rights = policy.customerRights(booking, await policy.getPolicy(booking.businessId));
+  if (!rights.canReschedule) throw tooLate(rights, 'cambiar');
+  const { from, to } = v.dateRange(req.body || {}, { maxDays: 31 });
+  const slots = await svc.rescheduleSlots(booking, { from, to, online: true });
+  // A new time must also respect the policy: not inside the notice window.
+  const minStart = Date.now() + (rights.deadline ? new Date(booking.start).getTime() - rights.deadline.getTime() : 0);
+  res.json(slots.filter((sl) => new Date(sl.start).getTime() > minStart).map((sl) => ({ date: sl.date, time: sl.time, start: sl.start, end: sl.end })));
+});
+
+exports.publicReschedule = handle(async (req, res) => {
+  const booking = await bookingByToken(req);
+  const rules = await policy.getPolicy(booking.businessId);
+  const rights = policy.customerRights(booking, rules);
+  if (!rights.canReschedule) throw tooLate(rights, 'cambiar');
+  const { date, time } = v.dateTimeInput(req.body || {});
+  const notBefore = rules.changeMinHours ? new Date(Date.now() + rules.changeMinHours * 3600000) : null;
+  const { previousStart } = await svc.rescheduleBooking(booking, { date, time, online: true, notBefore });
+  later(() => emails.sendBookingRescheduled(booking, previousStart));
+  later(() => emails.notifyStaffRescheduled(booking, previousStart));
+  res.json(await manageView(booking));
 });
 
 // ── Absences (time off) ─────────────────────────────────────────────────────
@@ -551,6 +603,43 @@ exports.reassignBooking = handle(async (req, res) => {
   const doc = updated.toObject();
   delete doc.publicToken;
   res.json(doc);
+});
+
+// ── Change day/time/services of an appointment (agenda) ─────────────────────
+function itemsInput(body) {
+  if (body.items === undefined || body.items === null) return null;
+  const items = body.items;
+  if (!Array.isArray(items) || !items.length || items.length > 5) v.bad('Indica entre 1 y 5 servicios');
+  return items.map((it, i) => ({
+    serviceId: v.objectId(it?.serviceId, `Servicio ${i + 1}`),
+    resourceId: it?.resourceId ? v.objectId(it.resourceId, `Profesional ${i + 1}`) : null,
+  }));
+}
+
+exports.rescheduleSlots = handle(async (req, res) => {
+  const booking = await loadBookingDoc(req);
+  const { from, to } = v.dateRange(req.body || {}, { maxDays: 31 });
+  res.json(await svc.rescheduleSlots(booking, { from, to, items: itemsInput(req.body || {}), online: false }));
+});
+
+exports.rescheduleBooking = handle(async (req, res) => {
+  const booking = await loadBookingDoc(req);
+  const { date, time } = v.dateTimeInput(req.body || {});
+  const { previousStart } = await svc.rescheduleBooking(booking, { date, time, items: itemsInput(req.body || {}), online: false });
+  const moved = previousStart.getTime() !== booking.start.getTime();
+  if (moved && req.body?.notify !== false) later(() => emails.sendBookingRescheduled(booking, previousStart));
+  const doc = booking.toObject();
+  delete doc.publicToken;
+  res.json(doc);
+});
+
+// ── Cancellation / change policy ────────────────────────────────────────────
+exports.getPolicy = handle(async (req, res) => {
+  res.json(await policy.getPolicy(req.businessId));
+});
+
+exports.savePolicy = handle(async (req, res) => {
+  res.json(await policy.savePolicy(req.businessId, req.body || {}));
 });
 
 // ── Follow-up emails (te toca volver, pedir opinión) ────────────────────────

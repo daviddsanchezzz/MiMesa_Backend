@@ -122,6 +122,7 @@ app.use('/api/reservations/public/cancel',        makePublicLimiter(15, 30, 'Dem
 app.use('/api/bookings/public', makePublicLimiter(15, 120, 'Demasiadas consultas, inténtalo más tarde'));
 app.post('/api/bookings/public/:businessId/bookings', makePublicLimiter(15, 20, 'Demasiadas reservas desde esta conexión, inténtalo más tarde'));
 app.post('/api/bookings/public/cancel', makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
+app.post('/api/bookings/public/reschedule', makePublicLimiter(15, 20, 'Demasiados cambios, inténtalo más tarde'));
 
 app.use('/api/contact', require('./core/routes/contact'));
 
