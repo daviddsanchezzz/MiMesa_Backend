@@ -103,6 +103,7 @@ GET /api/customers/export.csv  [requireRole("owner") > customerController.export
 GET /api/customers/:id  [requireRole("manager") > customerController.getCustomerDetail]
 GET /api/customers/:id/export  [requireRole("manager") > customerController.exportCustomer]
 POST /api/customers/  [requireRole("manager") > customerController.createCustomer]
+POST /api/customers/import  [requireRole("manager") > customerController.importCustomers]
 PUT /api/customers/:id  [requireRole("manager") > customerController.updateCustomer]
 DELETE /api/customers/:id  [requireRole("manager") > customerController.deleteCustomer]
 POST /api/reservations/public  [reservationController.createPublicReservation]

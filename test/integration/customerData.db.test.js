@@ -138,6 +138,37 @@ describe('customer data (RGPD) and staff visibility', { skip }, () => {
     assert.equal(link.status, 404);
   });
 
+  test('CSV import: new customers created, existing ones only filled in, repeats merged', async () => {
+    await Customer.create({ businessId: biz._id, name: 'Marta Ruiz', phone: '+34 622 000 111', normalizedPhone: '622000111', email: '', notes: 'Ya estaba' });
+    const rows = [
+      { name: 'Marta R.', phone: '622000111', email: 'marta@example.test', notes: 'no debe pisar' }, // existing by phone
+      { name: 'Pau Soler', phone: '633 111 222', email: 'PAU@example.test' },
+      { name: 'Pau Soler', phone: '', email: 'pau@example.test', notes: 'Viene los martes' },   // repeat in file
+      { name: '', phone: '600', email: '' },                                                     // no name
+      { name: '', phone: '', email: '' },                                                        // empty
+      { name: 'Sin contacto', phone: '', email: 'no-es-email' },
+    ];
+    const r = await request(app).post('/api/customers/import').set(as('owner')).send({ rows });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.created, 2);
+    assert.equal(r.body.updated, 1);
+    assert.deepEqual(r.body.skipped.map((x) => x.reason), ['sin nombre', 'vacía']);
+    const marta = await Customer.findOne({ businessId: biz._id, normalizedPhone: '622000111' }).lean();
+    assert.equal(marta.name, 'Marta Ruiz', 'name not overwritten');
+    assert.equal(marta.email, 'marta@example.test', 'missing email filled in');
+    assert.equal(marta.notes, 'Ya estaba', 'notes not overwritten');
+    const pau = await Customer.find({ businessId: biz._id, email: 'pau@example.test' }).lean();
+    assert.equal(pau.length, 1, 'no duplicate from the repeated row');
+    assert.equal(pau[0].notes, 'Viene los martes');
+    const sin = await Customer.findOne({ businessId: biz._id, name: 'Sin contacto' }).lean();
+    assert.equal(sin.email, '', 'invalid email dropped');
+
+    const again = await request(app).post('/api/customers/import').set(as('owner')).send({ rows });
+    assert.equal(again.body.created, 0, 'importing the same file twice creates nothing');
+    assert.equal((await request(app).post('/api/customers/import').set(as('staff')).send({ rows })).status, 403);
+    assert.equal((await request(app).post('/api/customers/import').set(as('owner')).send({ rows: [] })).status, 400);
+  });
+
   test('deleting the business deletes all its data', async () => {
     const r = await request(app).delete(`/api/businesses/${biz._id}`).set(as('owner'));
     assert.ok([200, 403, 404].includes(r.status));

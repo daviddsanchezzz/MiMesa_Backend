@@ -234,3 +234,13 @@ exports.exportCustomersCsv = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+/** POST /customers/import { rows: [{ name, phone, email, notes }] } — see services/customerImport. */
+exports.importCustomers = async (req, res) => {
+  try {
+    const { importCustomers } = require('../services/customerImport');
+    res.json(await importCustomers(req.businessId, req.body?.rows));
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message });
+  }
+};
