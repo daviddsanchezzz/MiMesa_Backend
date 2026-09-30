@@ -301,10 +301,9 @@ exports.updateBookingNotes = handle(async (req, res) => {
   const update = {};
   if (req.body?.notes !== undefined) update.notes = String(req.body.notes).slice(0, 1000);
   if (req.body?.internalNotes !== undefined) update.internalNotes = String(req.body.internalNotes).slice(0, 2000);
-  const doc = await Booking.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, update, { new: true })
-    .select('-publicToken').lean();
-  if (!doc) throw notFound('Cita');
-  res.json(doc);
+  const r = await Booking.updateOne({ _id: req.params.id, businessId: req.businessId }, update);
+  if (!r.matchedCount) throw notFound('Cita');
+  res.json(await Booking.findById(req.params.id).select('-publicToken').lean());
 });
 
 // ── Team (pay, commissions, what each professional leaves) ─────────────────
