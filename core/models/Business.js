@@ -9,6 +9,10 @@ const businessSchema = new mongoose.Schema({
   phone:     { type: String, default: '' },
   address:   { type: String, default: '' },
   cif:       { type: String, default: '' },
+  // Public address: https://vetrareserve.com/{slug}. Unique, generated from the
+  // name and editable. Old slugs stay in slugHistory so their links still work.
+  slug:        { type: String, lowercase: true, trim: true, default: undefined },
+  slugHistory: { type: [String], default: [] },
   brandColor:  { type: String, default: '#3B82F6' },
   // Logo as a small data URL. Not loaded by default: served by its own URL.
   logo:          { type: String, default: null, select: false },
@@ -51,5 +55,15 @@ const businessSchema = new mongoose.Schema({
 // Sector-specific fields (e.g. restaurant reservation settings) are declared by
 // each enabled vertical in verticals/<name>/business.js.
 for (const fields of businessFieldExtensions()) businessSchema.add(fields);
+
+businessSchema.index({ slug: 1 }, { unique: true, sparse: true });
+businessSchema.index({ slugHistory: 1 });
+
+// Every new business gets a free slug from its name.
+businessSchema.pre('save', async function assignSlug() {
+  if (this.slug || !this.name) return;
+  const { uniqueSlugFor } = require('../lib/slugs');
+  this.slug = await uniqueSlugFor(this.constructor, this.name, this._id);
+});
 
 module.exports = mongoose.model('Business', businessSchema);

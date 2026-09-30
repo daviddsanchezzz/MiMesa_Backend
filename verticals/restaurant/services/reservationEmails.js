@@ -3,6 +3,7 @@
  * reminders, pending approval, alternative proposals and staff notifications.
  * They share the design of every Vetra email (core/services/emailDesign).
  */
+const { publicBookingUrl } = require('../../../core/lib/publicUrls');
 const Business = require('../../../core/models/Business');
 const { escapeHtml: esc } = require('../../../core/lib/escapeHtml');
 const { businessTimezone, zonedDateTimeToUtc } = require('../../../core/lib/timezone');
@@ -45,7 +46,7 @@ async function brandingFor(business) {
   if (!plain._id || Business.db.readyState !== 1) return plain;
   try {
     const full = await Business.findById(plain._id)
-      .select('name email phone address brandColor logoUpdatedAt timezone reservationDuration').lean();
+      .select('name email phone address brandColor logoUpdatedAt timezone reservationDuration slug').lean();
     return { ...(full || {}), ...plain };
   } catch {
     return plain;
@@ -137,7 +138,7 @@ function buildCustomerEmail(kind, { reservation, business }) {
       title: 'Reserva cancelada',
       preheader: `Tu reserva del ${whenLong.toLowerCase()} a las ${reservation.time} se ha cancelado.`,
       intro: `${hello}, tu reserva en <strong>${biz}</strong> se ha cancelado. Si crees que es un error, contacta con nosotros.`,
-      actions: business._id ? d.buttons([{ href: `${frontendUrl()}/public/${business._id}/reserve`, label: 'Hacer otra reserva' }], color) : '',
+      actions: business._id ? d.buttons([{ href: publicBookingUrl({ _id: business._id, slug: business.slug, businessType: 'restaurant' }), label: 'Hacer otra reserva' }], color) : '',
       after: '',
     },
     pending: {

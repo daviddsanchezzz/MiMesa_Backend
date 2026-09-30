@@ -24,6 +24,7 @@ process.on('uncaughtException', (err) => {
 // Only start accepting traffic once MongoDB and Better Auth are ready.
 async function start() {
   await connectDB();
+  require('./core/services/businessSlugs').ensureBusinessSlugs().catch((err) => console.error('[slugs] backfill failed:', err.message));
   const mongoClient = await getMongoClient();
   const { toNodeHandler } = require('better-auth/node');
   const auth = initAuth(mongoClient);

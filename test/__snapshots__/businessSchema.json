@@ -144,6 +144,15 @@
     "instance": "Number",
     "default": 0
   },
+  "slug": {
+    "instance": "String",
+    "lowercase": true,
+    "trim": true
+  },
+  "slugHistory": {
+    "instance": "Array",
+    "default": []
+  },
   "stripeConnectEnabled": {
     "instance": "Boolean",
     "default": false

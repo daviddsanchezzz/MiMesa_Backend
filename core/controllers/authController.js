@@ -1,3 +1,5 @@
+const { findBusinessBySlug, changeBusinessSlug, SlugError } = require('../lib/slugs');
+const { publicBookingUrl } = require('../lib/publicUrls');
 const Business = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
 const { isDev } = require('../middleware/requireDev');
@@ -14,6 +16,8 @@ const {
 
 const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
+  slug: b.slug || null,
+  publicUrl: publicBookingUrl(b),
   phone: b.phone, address: b.address, cif: b.cif, brandColor: b.brandColor,
   logoUrl: logoUrl(b),
   timezone: b.timezone || 'Europe/Madrid',
@@ -109,9 +113,22 @@ exports.me = async (req, res) => {
 
 exports.getPublicBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id).select(`name email phone address brandColor ${publicBusinessExtensionFields()}`.trim());
+    const business = await Business.findById(req.params.id).select(`name email phone address brandColor slug businessType ${publicBusinessExtensionFields()}`.trim());
     if (!business) return res.status(404).json({ message: 'Business not found' });
     res.json(business);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/auth/public/business-by-slug/:slug  → the business behind a public address.
+// An old slug answers with the current one so the page can move to it.
+exports.getBusinessBySlug = async (req, res) => {
+  try {
+    const b = await findBusinessBySlug(Business, req.params.slug);
+    if (!b) return res.status(404).json({ message: 'No encontramos este negocio', code: 'NOT_FOUND' });
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({ id: b._id, slug: b.slug, name: b.name, businessType: b.businessType || 'restaurant', publicUrl: publicBookingUrl(b) });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -147,6 +164,14 @@ exports.updateBusinessSettings = async (req, res) => {
       updateData.logoUpdatedAt = logo.value ? new Date() : null;
     }
     applyBusinessExtensionUpdates(req.body, updateData);
+    if (req.body.slug !== undefined) {
+      try {
+        await changeBusinessSlug(Business, req.businessId, req.body.slug);
+      } catch (err) {
+        if (err instanceof SlugError) return res.status(err.status).json({ message: err.message, code: err.code });
+        throw err;
+      }
+    }
     if (req.body.timezone !== undefined) {
       if (!isValidTimezone(req.body.timezone)) return res.status(400).json({ message: 'Zona horaria no valida' });
       updateData.timezone = req.body.timezone;

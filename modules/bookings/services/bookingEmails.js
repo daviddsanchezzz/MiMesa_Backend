@@ -18,6 +18,7 @@ const d = require('../../../core/services/emailDesign');
 const { businessLogoUrl } = require('../../../core/lib/images');
 const Customer = require('../../../core/models/Customer');
 const crypto = require('crypto');
+const { publicBookingUrl } = require('../../../core/lib/publicUrls');
 
 function emailEnabled() {
   const key = process.env.RESEND_API_KEY;
@@ -32,8 +33,9 @@ function cancelUrl(booking) {
   return `${appUrl()}/public/${booking.businessId}/cita/cancelar?bookingId=${booking._id}&token=${encodeURIComponent(booking.publicToken)}`;
 }
 
-function bookAgainUrl(booking) {
-  return `${appUrl()}/public/${booking.businessId}/cita`;
+// The business's public page (vetrareserve.com/{slug}); old address if it has no slug yet.
+function bookAgainUrl(booking, business) {
+  return publicBookingUrl({ _id: booking.businessId, slug: business?.slug, businessType: 'appointments' });
 }
 
 function timeText(date, tz) {
@@ -97,7 +99,7 @@ async function optOutUrlFor(customerId) {
 }
 
 async function loadBusiness(businessId) {
-  return Business.findById(businessId).select('name email phone address brandColor logoUpdatedAt timezone').lean();
+  return Business.findById(businessId).select('name email phone address brandColor logoUpdatedAt timezone slug').lean();
 }
 
 function calendarTitle(booking, business) {
@@ -167,7 +169,7 @@ function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null }
       preheader: `Tu cita del ${whenLong.toLowerCase()} a las ${a.start} se ha cancelado.`,
       title: 'Cita cancelada',
       intro: `${hello}, tu cita en <strong>${biz}</strong> se ha cancelado.`,
-      actions: d.buttons([{ href: bookAgainUrl(booking), label: 'Reservar otra cita' }], brand.color),
+      actions: d.buttons([{ href: bookAgainUrl(booking, business), label: 'Reservar otra cita' }], brand.color),
       after: '',
     },
   }[kind];
@@ -239,7 +241,7 @@ async function sendFollowUp(kind, { booking, customer, reviewUrl }) {
     if (!business || !optOutUrl) return false; // no opt-out link, no commercial email
     const { subject, html } = buildFollowUpEmail(kind, {
       business, name: customer?.name || booking.guestName, service: booking.segments.map((s) => s.serviceName).join(' + '),
-      staff, reviewUrl, bookUrl: bookAgainUrl(booking), optOutUrl,
+      staff, reviewUrl, bookUrl: bookAgainUrl(booking, business), optOutUrl,
     });
     const result = await sendEmail({ from: fromBusiness(business.name), to, replyTo: business.email || undefined, subject, html },
       `booking.followup_${kind}`, { businessId: String(booking.businessId), bookingId: String(booking._id) });

@@ -1,3 +1,4 @@
+const { publicBookingUrl } = require('../lib/publicUrls');
 const Business       = require('../models/Business');
 const { escapeHtml } = require('../lib/escapeHtml');
 const BusinessMember = require('../models/BusinessMember');
@@ -552,6 +553,8 @@ exports.overview = async (req, res) => {
         phone: b.phone || '',
         address: b.address || '',
         businessType: b.businessType || 'restaurant',
+        slug: b.slug || null,
+        publicUrl: publicBookingUrl(b),
         plan: b.plan || 'free',
         subscriptionStatus: b.subscriptionStatus || null,
         createdAt: b.createdAt,
