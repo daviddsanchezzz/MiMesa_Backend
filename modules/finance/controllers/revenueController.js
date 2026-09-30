@@ -160,13 +160,17 @@ async function appointmentsDashboard(businessId, from, to) {
 
   const effectiveTo = to > revenue.today ? revenue.today : to;
   let billedTotal = 0; let appointments = 0; let actualTotal = 0; let anyActual = false; let collectedTotal = 0; let tipsTotal = 0;
+  let blended = 0; let daysWithActual = 0; let daysWithBilling = 0;
   const days = generateDateRange(from, effectiveTo).reverse().map((date) => {
     const r = revenue.byDate[date] || { appointments: 0, billed: 0, collected: 0, tips: 0, payments: 0 };
     const manual = manualByDate[date];
     const manualValue = manual?.actualRevenue ?? null;
     const actual = manualValue !== null ? manualValue : (r.payments > 0 ? r.collected : null);
     billedTotal += r.billed; appointments += r.appointments; collectedTotal += r.collected; tipsTotal += r.tips;
-    if (actual !== null) { actualTotal += actual; anyActual = true; }
+    if (actual !== null) { actualTotal += actual; anyActual = true; daysWithActual += 1; }
+    if (r.billed > 0 || actual !== null) daysWithBilling += 1;
+    // Profit base: what came in when we know it, what the appointments are worth otherwise
+    blended += actual !== null ? actual : r.billed;
     return {
       date,
       appointments: r.appointments,
@@ -190,7 +194,7 @@ async function appointmentsDashboard(businessId, from, to) {
     .sort((a, b) => b.amount - a.amount);
   const totalExpenses = round(expensesByCategory.reduce((s, c) => s + c.amount, 0));
   const actualRevenue = anyActual ? round(actualTotal) : null;
-  const revenueBase = actualRevenue !== null ? actualRevenue : round(billedTotal);
+  const revenueBase = round(blended);
 
   return {
     mode: 'appointments',
@@ -200,7 +204,7 @@ async function appointmentsDashboard(businessId, from, to) {
     tips: round(tipsTotal),
     totalExpenses,
     estimatedProfit: round(revenueBase - totalExpenses),
-    profitBasis: actualRevenue !== null ? 'actual' : 'estimated',
+    profitBasis: !anyActual ? 'estimated' : daysWithActual >= daysWithBilling ? 'actual' : 'mixed',
     appointments,
     averageTicket: appointments ? round(billedTotal / appointments) : 0,
     expensesByCategory,
