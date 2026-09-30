@@ -9,20 +9,19 @@ const { checkReservationLimit } = require('../../verticals/restaurant/lib/reserv
 
 exports.createCheckoutSession = async (req, res) => {
   try {
-    const planMap = { basic: process.env.STRIPE_PRICE_BASIC, pro: process.env.STRIPE_PRICE_PRO };
     const requestedPlan = req.body?.plan ?? 'basic';
-    if (!Object.prototype.hasOwnProperty.call(planMap, requestedPlan)) {
+    if (!['basic', 'pro'].includes(requestedPlan)) {
       return res.status(400).json({ message: 'Plan invalido' });
-    }
-    const priceId = planMap[requestedPlan];
-    if (!priceId) {
-      return res.status(400).json({
-        message: 'No hay precio configurado. Define STRIPE_PRICE_BASIC en backend.',
-      });
     }
 
     const business = await Business.findById(req.businessId);
     if (!business) return res.status(404).json({ message: 'Business not found' });
+
+    // Each business type has its own prices (see stripeService.priceFor)
+    const priceId = stripeService.priceFor(business, requestedPlan);
+    if (!priceId) {
+      return res.status(400).json({ message: 'No hay precio configurado para ese plan.' });
+    }
 
     if (business.stripeSubscriptionId && ['active', 'trialing'].includes(business.subscriptionStatus)) {
       return res.status(400).json({ message: 'Ya tienes una suscripcion activa' });
@@ -124,11 +123,11 @@ exports.reactivateSubscription = async (req, res) => {
 exports.changePlan = async (req, res) => {
   try {
     const { plan } = req.body;
-    const planMap = { basic: process.env.STRIPE_PRICE_BASIC, pro: process.env.STRIPE_PRICE_PRO };
-    const newPriceId = planMap[plan];
-    if (!newPriceId) return res.status(400).json({ message: 'Plan invalido' });
+    if (!['basic', 'pro'].includes(plan)) return res.status(400).json({ message: 'Plan invalido' });
 
     const business = await Business.findById(req.businessId);
+    const newPriceId = stripeService.priceFor(business, plan);
+    if (!newPriceId) return res.status(400).json({ message: 'Plan invalido' });
     if (!business?.stripeSubscriptionId) {
       return res.status(400).json({ message: 'No hay suscripcion activa' });
     }

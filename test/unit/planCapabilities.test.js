@@ -127,3 +127,23 @@ t2('payment failed email: grace date and link to update the card', () => {
   assert2.match(html, /configuracion\?tab=suscripcion/);
   assert2.ok(!html.includes('<b>Luz</b>'), 'business name escaped');
 });
+
+t2('each business type has its own Stripe prices (restaurants fall back until set)', () => {
+  const stripe = require('../helpers/load').load('core/services/stripe');
+  const appt = { businessType: 'appointments' };
+  const rest = { businessType: 'restaurant' };
+  assert2.equal(stripe.priceFor(appt, 'basic'), process.env.STRIPE_PRICE_BASIC);
+  assert2.equal(stripe.priceFor(rest, 'pro'), process.env.STRIPE_PRICE_PRO, 'no restaurant price yet: general one');
+  process.env.STRIPE_PRICE_RESTAURANT_BASIC = 'price_rest_basic';
+  process.env.STRIPE_PRICE_RESTAURANT_PRO = 'price_rest_pro';
+  try {
+    assert2.equal(stripe.priceFor(rest, 'basic'), 'price_rest_basic');
+    assert2.equal(stripe.priceFor(rest, 'pro'), 'price_rest_pro');
+    assert2.equal(stripe.priceFor(appt, 'pro'), process.env.STRIPE_PRICE_PRO);
+    assert2.equal(stripe.planFromPriceId('price_rest_pro'), 'pro');
+    assert2.equal(stripe.priceFor(rest, 'gold'), null);
+  } finally {
+    delete process.env.STRIPE_PRICE_RESTAURANT_BASIC;
+    delete process.env.STRIPE_PRICE_RESTAURANT_PRO;
+  }
+});

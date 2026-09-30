@@ -143,14 +143,30 @@ async function refundPaymentIntent({ paymentIntentId, amount }) {
   });
 }
 
+/**
+ * Stripe price of a plan for a business. Appointment businesses: Basic 24,99 €,
+ * Pro 39,99 € (per professional beyond 3). Restaurants: Basic 39,99 €,
+ * Pro 69,99 € (STRIPE_PRICE_RESTAURANT_*; until they exist, the general ones).
+ */
+function priceFor(business, plan) {
+  const restaurant = business?.businessType !== 'appointments';
+  if (plan === 'basic') return (restaurant && process.env.STRIPE_PRICE_RESTAURANT_BASIC) || process.env.STRIPE_PRICE_BASIC || null;
+  if (plan === 'pro') return (restaurant && process.env.STRIPE_PRICE_RESTAURANT_PRO) || process.env.STRIPE_PRICE_PRO || null;
+  return null;
+}
+
 function planFromPriceId(priceId) {
-  return {
+  const map = {
     [process.env.STRIPE_PRICE_BASIC]: 'basic',
     [process.env.STRIPE_PRICE_PRO]: 'pro',
-  }[priceId] ?? 'basic';
+  };
+  if (process.env.STRIPE_PRICE_RESTAURANT_BASIC) map[process.env.STRIPE_PRICE_RESTAURANT_BASIC] = 'basic';
+  if (process.env.STRIPE_PRICE_RESTAURANT_PRO) map[process.env.STRIPE_PRICE_RESTAURANT_PRO] = 'pro';
+  return map[priceId] ?? 'basic';
 }
 
 module.exports = {
+  priceFor,
   cancelSubscriptionAtPeriodEnd,
   changePlan,
   setQuantity,
