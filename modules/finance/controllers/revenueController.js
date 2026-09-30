@@ -4,6 +4,7 @@ const Business     = require('../../../core/models/Business');
 const Expense      = require('../models/Expense');
 const { calculateStaffCostForRange } = require('../../staff/lib/staffCosts');
 const { appointmentRevenue } = require('../../bookings/services/revenueService');
+const { teamReport } = require('../../bookings/services/teamService');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -149,12 +150,14 @@ async function getDashboard(req, res) {
 // worth) and the till (what was actually charged); a manual figure for a day
 // still wins over the till. Commissions count as an expense.
 async function appointmentsDashboard(businessId, from, to) {
-  const [revenue, actuals, expenses, staffCost] = await Promise.all([
+  const [revenue, actuals, expenses, team] = await Promise.all([
     appointmentRevenue(businessId, from, to),
     DailyRevenue.find({ businessId, date: { $gte: from, $lte: to } }).lean(),
     Expense.find({ businessId, expenseDate: { $gte: from, $lte: to }, category: { $ne: 'staff' } }).lean(),
-    calculateStaffCostForRange(businessId, from, to),
+    teamReport(businessId, from, to, new Date(), { ensure: false }),
   ]);
+  // Salaries follow each professional's pay (Personal); commissions per service or person
+  const staffCost = team.totals.salary || 0;
   const manualByDate = Object.fromEntries(actuals.map((a) => [a.date, a]));
   const round = (n) => Number(n.toFixed(2));
 
@@ -184,7 +187,7 @@ async function appointmentsDashboard(businessId, from, to) {
     };
   });
 
-  const commissions = revenue.byStaff.reduce((s, x) => s + x.commission, 0);
+  const commissions = team.totals.commission || 0;
   const byCat = {};
   for (const e of expenses) byCat[e.category] = (byCat[e.category] || 0) + (e.amount || 0);
   if (staffCost > 0) byCat.staff = (byCat.staff || 0) + staffCost;
@@ -208,7 +211,7 @@ async function appointmentsDashboard(businessId, from, to) {
     appointments,
     averageTicket: appointments ? round(billedTotal / appointments) : 0,
     expensesByCategory,
-    byStaff: revenue.byStaff,
+    byStaff: team.staff,
     days,
   };
 }

@@ -499,4 +499,29 @@ describe('generic agenda (bookings module)', { skip }, () => {
     res = await request(app).get('/api/categories').set(as('owner'));
     await Business.updateOne({ _id: biz._id }, { businessType: 'restaurant', plan: 'basic' });
   });
+
+  test('team: pay per professional, payments and finance salaries', async () => {
+    await Business.updateOne({ _id: biz._id }, { businessType: 'appointments', plan: 'pro', 'moduleOverrides.expenses': { enabled: true }, 'moduleOverrides.staff': { enabled: true } });
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
+    const monthStart = `${today.slice(0, 8)}01`;
+    let res = await request(app).get(`/api/bookings/team?from=${monthStart}&to=${today}`).set(as('owner'));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(res.body.staff.every((s) => s.employeeId), 'every professional gets a staff record');
+    res = await request(app).put(`/api/bookings/team/${ids.ana}/pay`).set(as('owner')).send({ type: 'monthly', amount: 1500, commissionPercent: 10, productCommissionPercent: 5 });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.paymentType, 'monthly_fixed');
+    assert.equal((await request(app).put(`/api/bookings/team/${ids.ana}/pay`).set(as('owner')).send({ type: 'weekly' })).status, 400);
+    assert.equal((await request(app).put(`/api/bookings/team/${ids.ana}/pay`).set(as('owner')).send({ type: 'commission', commissionPercent: 140 })).status, 400);
+    res = await request(app).post(`/api/bookings/team/${ids.ana}/payments`).set(as('owner')).send({ amount: 200, notes: 'adelanto' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    res = await request(app).get(`/api/bookings/team?from=${monthStart}&to=${today}`).set(as('owner'));
+    const ana = res.body.staff.find((s) => s.name === 'Ana');
+    assert.equal(ana.pay.type, 'monthly_fixed');
+    assert.ok(ana.salary > 0);
+    assert.equal(ana.paid, 200);
+    assert.equal((await request(app).get(`/api/bookings/team?from=${monthStart}&to=${today}`).set(as('staff'))).status, 403);
+    res = await request(app).get(`/api/revenue/dashboard?from=${monthStart}&to=${today}`).set(as('owner'));
+    assert.ok(res.body.expensesByCategory.find((c) => c.category === 'staff').amount > 0, 'salaries count as expense');
+    await Business.updateOne({ _id: biz._id }, { businessType: 'restaurant', plan: 'basic' });
+  });
 });

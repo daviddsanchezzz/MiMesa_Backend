@@ -42,6 +42,11 @@ router.get('/customers/:customerId', requireRole('manager'), c.customerBookings)
 router.get('/availability', c.getAvailability);
 router.get('/', c.listBookings);
 router.post('/', c.createBooking);
+// Team pay and results (managers, with the staff module)
+router.get('/team', requireRole('manager'), requireModule('staff'), c.teamReport);
+router.put('/team/:resourceId/pay', requireRole('manager'), requireModule('staff'), c.setTeamPay);
+router.post('/team/:resourceId/payments', requireRole('manager'), requireModule('staff'), c.addTeamPayment);
+
 // Caja (any member charges and closes; managers undo and reopen)
 router.get('/cash', c.cashDay);
 router.post('/cash/close', c.closeCash);

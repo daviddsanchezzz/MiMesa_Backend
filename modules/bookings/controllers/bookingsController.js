@@ -17,6 +17,7 @@ const emails = require('../services/bookingEmails');
 const { getDashboardStats } = require('../services/statsService');
 const { summarizeCustomer } = require('../lib/customers');
 const { buildPayment, tillTotals } = require('../lib/checkout');
+const team = require('../services/teamService');
 const CashClose = require('../models/CashClose');
 const { dateInTimezone } = require('../../../core/lib/timezone');
 const { businessLogoUrl } = require('../../../core/lib/images');
@@ -297,6 +298,23 @@ exports.updateBookingNotes = handle(async (req, res) => {
     .select('-publicToken').lean();
   if (!doc) throw notFound('Cita');
   res.json(doc);
+});
+
+// ── Team (pay, commissions, what each professional leaves) ─────────────────
+exports.teamReport = handle(async (req, res) => {
+  const { from, to } = v.dateRange(req.query, { maxDays: 366 });
+  res.json(await team.teamReport(req.businessId, from, to));
+});
+
+exports.setTeamPay = handle(async (req, res) => {
+  v.objectId(req.params.resourceId, 'resourceId');
+  const tz = await businessTz(req.businessId);
+  res.json(await team.setPay(req.businessId, req.params.resourceId, req.body || {}, dateInTimezone(new Date(), tz)));
+});
+
+exports.addTeamPayment = handle(async (req, res) => {
+  v.objectId(req.params.resourceId, 'resourceId');
+  res.status(201).json(await team.addPayment(req.businessId, req.params.resourceId, req.body || {}));
 });
 
 // ── Caja: charge appointments and close the day ─────────────────────────────
