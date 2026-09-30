@@ -158,6 +158,7 @@ app.use('/api/members',      require('./core/routes/members'));
 app.use('/api/invitations',  require('./core/routes/invitations'));
 // Starting templates for new businesses (registered with core/lib/businessTemplates)
 require('./modules/bookings/templates');
+require('./modules/bookings/memberLinks');
 require('./verticals/restaurant/templates');
 
 app.use('/api/rooms',        require('./verticals/restaurant/routes/rooms'));

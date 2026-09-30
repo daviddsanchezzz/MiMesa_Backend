@@ -141,6 +141,47 @@ describe('client onboarding by invitation', { skip }, () => {
     assert.equal(res.status, 404, 'a used invitation cannot be reused');
   });
 
+  test('inviting a team member as an existing professional links them when they accept', async () => {
+    const db = mongoose.connection.db;
+    const Resource = require(path.join(ROOT, 'modules/bookings/models/Resource'));
+    const biz = await Business.create({ name: 'Estudio Link', email: 'estudio@link.test', businessType: 'appointments', ownerId: 'linkOwner' });
+    await BusinessMember.create({ userId: 'linkOwner', businessId: biz._id, role: 'owner', userEmail: 'owner@link.test' });
+    addUser({ id: 'linkOwner', email: 'owner@link.test', name: 'Owner' });
+    const laura = await Resource.create({ businessId: biz._id, kind: 'staff', name: 'Laura' });
+    const taken = await Resource.create({ businessId: biz._id, kind: 'staff', name: 'Pau', userId: 'someone' });
+    const room = await Resource.create({ businessId: biz._id, kind: 'space', name: 'Cabina' });
+    const hdr = { ...as('linkOwner'), 'x-business-id': String(biz._id) };
+    const invite = (body) => request(app).post('/api/invitations').set(hdr).send({ name: 'Laura', role: 'staff', ...body });
+
+    assert.equal((await invite({ email: 'x@link.test', links: { resourceId: String(taken._id) } })).status, 409, 'already has an account');
+    assert.equal((await invite({ email: 'x@link.test', links: { resourceId: String(room._id) } })).status, 400, 'a room is not a person');
+    assert.equal((await invite({ email: 'x@link.test', links: { resourceId: 'nope' } })).status, 400);
+
+    let res = await invite({ email: 'Laura@link.test', links: { resourceId: String(laura._id), unknown: 'ignored' } });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.deepEqual(res.body.links, { resourceId: String(laura._id) });
+    assert.equal((await invite({ email: 'other@link.test', links: { resourceId: String(laura._id) } })).status, 409, 'another pending invitation for Laura');
+    res = await invite({ email: 'laura@link.test', links: { resourceId: String(laura._id) } });
+    assert.equal(res.status, 201, 're-inviting the same person is fine');
+    const list = (await request(app).get('/api/invitations').set(hdr)).body;
+    assert.equal(list.length, 1);
+    assert.equal(list[0].links.resourceId, String(laura._id));
+
+    const Invitation = require(path.join(ROOT, 'core/models/Invitation'));
+    const { token } = await Invitation.findOne({ email: 'laura@link.test', status: 'pending' }).lean();
+    const userId = new mongoose.Types.ObjectId();
+    await db.collection('user').insertOne({ _id: userId, email: 'laura@link.test', name: 'Laura Vidal' });
+    res = await request(app).post(`/api/invitations/accept/${token}`).send({ acceptLegal: true });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal((await Resource.findById(laura._id).lean()).userId, String(userId), 'Laura sees her own agenda');
+    assert.equal((await BusinessMember.findOne({ businessId: biz._id, userId: String(userId) }).lean()).role, 'staff');
+
+    // Without a link nothing is touched
+    res = await invite({ email: 'nolink@link.test' });
+    assert.equal(res.status, 201);
+    assert.deepEqual(res.body.links, {});
+  });
+
   test('resending the owner invitation replaces the old link', async () => {
     let res = await request(app).post('/api/dev/clients').set(as('dev')).send({
       business: { name: 'Casa Pepe', businessType: 'restaurant', template: 'restaurante' },

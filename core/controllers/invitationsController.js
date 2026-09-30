@@ -1,3 +1,4 @@
+const { validateLinks, applyLinks } = require('../lib/memberLinks');
 const { buildInvitationEmail } = require('../services/accountEmails');
 const Invitation     = require('../models/Invitation');
 const { escapeHtml } = require('../lib/escapeHtml');
@@ -80,9 +81,15 @@ exports.createInvitation = async (req, res) => {
     const businessId = isPlatform ? null : resolvedBusinessId;
 
     let business = null;
+    let links = {};
     if (!isPlatform) {
       business = await Business.findById(businessId);
       if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
+      try {
+        links = await validateLinks(businessId, req.body.links, { email: String(email).toLowerCase() });
+      } catch (err) {
+        return res.status(err.status || 400).json({ message: err.message });
+      }
     }
 
     // Cancel any previous pending invitation for this email+business (or platform)
@@ -98,6 +105,7 @@ exports.createInvitation = async (req, res) => {
       role: isPlatform ? 'owner' : role,
       type,
       invitedBy: req.user?.id,
+      links,
     });
 
     const inviteBase = resolveFrontendBaseUrl(req);
@@ -125,6 +133,7 @@ exports.createInvitation = async (req, res) => {
       type:   invitation.type,
       status: invitation.status,
       expiresAt: invitation.expiresAt,
+      links: invitation.links || {},
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -231,6 +240,11 @@ exports.acceptInvitation = async (req, res) => {
         },
         { upsert: true, new: true },
       );
+    }
+
+    // Whatever the invitation linked them to (e.g. their professional in the agenda)
+    if (invitation.type !== 'platform' && invitation.businessId && invitation.links && Object.keys(invitation.links).length) {
+      await applyLinks({ businessId: invitation.businessId, userId: canonicalUserId, links: invitation.links });
     }
 
     // Owner invited by Vetra: the business becomes theirs
