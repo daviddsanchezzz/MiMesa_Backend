@@ -31,17 +31,15 @@ app.use(helmet({
 // ── CORS ─────────────────────────────────────────────────────────────────────
 // Public endpoints: no credentials needed, embeddable from any domain
 const publicCors = cors({ origin: '*' });
-app.use('/api/auth/public',         publicCors);
-app.use('/api/rooms/public',        publicCors);
-app.use('/api/shifts/public',       publicCors);
-app.use('/api/vacations/public',    publicCors);
-app.use('/api/exceptions/public',   publicCors);
-app.use('/api/reservations/public', publicCors);
-app.use('/api/marketing/public',    publicCors);
-app.use('/api/promos/public',       publicCors);
-app.use('/api/pricing/public',      publicCors);
-app.use('/api/contact',             publicCors);
-app.use('/api/bookings/public',     publicCors);
+const PUBLIC_PREFIXES = [
+  '/api/auth/public', '/api/rooms/public', '/api/shifts/public', '/api/vacations/public',
+  '/api/exceptions/public', '/api/reservations/public', '/api/marketing/public', '/api/promos/public',
+  '/api/pricing/public', '/api/contact', '/api/bookings/public',
+];
+PUBLIC_PREFIXES.forEach((prefix) => app.use(prefix, publicCors));
+// Public pages are served from other origins too (vetrareserve.com/{slug}, business
+// websites): those routes must not go through the app-only CORS below.
+const isPublicPath = (path) => PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
 
 // Authenticated + Better Auth endpoints: specific origin with credentials
 // FRONTEND_URLS supports comma-separated list for multiple origins (e.g. Netlify + custom domain)
@@ -57,7 +55,7 @@ const allowedOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL ||
   .map(o => normalizeOrigin(o))
   .filter(Boolean);
 
-app.use(cors({
+const appCors = cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (e.g. Postman, server-to-server)
     if (!origin) return callback(null, true);
@@ -67,7 +65,8 @@ app.use(cors({
     callback(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials: true,
-}));
+});
+app.use((req, res, next) => (isPublicPath(req.path) ? next() : appCors(req, res, next)));
 
 // ── Stripe webhook — MUST be before express.json() ──────────────────────────
 // Stripe signature verification requires the raw request body (Buffer).

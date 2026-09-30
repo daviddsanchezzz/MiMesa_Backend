@@ -89,3 +89,19 @@ describe('public reservation input validation', () => {
     });
   }
 });
+
+// ── Public routes answer any origin (vetrareserve.com/{slug}, business websites) ──
+const { test: t3 } = require('node:test');
+const assert3 = require('node:assert/strict');
+t3('public endpoints are not blocked by the app-only CORS', async () => {
+  const request = require('supertest');
+  const { app } = require('../../app');
+  const res = await request(app).get('/api/pricing/public').set('Origin', 'https://www.vetrareserve.com');
+  assert3.notEqual(res.status, 403, 'not blocked');
+  assert3.equal(res.headers['access-control-allow-origin'], '*');
+  const pre = await request(app).options('/api/auth/public/business-by-slug/x').set('Origin', 'https://www.vetrareserve.com').set('Access-Control-Request-Method', 'GET');
+  assert3.equal(pre.status, 204);
+  assert3.equal(pre.headers['access-control-allow-origin'], '*');
+  const priv = await request(app).get('/api/customers').set('Origin', 'https://evil.example');
+  assert3.notEqual(priv.headers['access-control-allow-origin'], '*', 'private routes keep the app-only CORS');
+});
