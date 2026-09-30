@@ -330,23 +330,7 @@ exports.inviteUser = async (req, res) => {
       payload: {
       from:    process.env.RESEND_FROM_INVITE || 'Vetra <onboarding@resend.dev>',
       to:      email,
-      subject: 'Te han dado acceso a Vetra',
-      html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
-          <div style="margin-bottom:24px">
-            <span style="background:#4f46e5;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Vetra</span>
-          </div>
-          <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${escapeHtml(name)} 👋</h2>
-          <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
-            Te han dado acceso a <strong>Vetra</strong>, la plataforma de gestión de reservas para restaurantes.
-          </p>
-          <a href="${inviteUrl}"
-             style="display:inline-block;background:#4f46e5;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
-            Activar mi cuenta
-          </a>
-          <p style="color:#aaa;font-size:12px;margin-top:32px">El enlace caduca en 7 días.</p>
-        </div>
-      `,
+      ...require('../services/accountEmails').buildInvitationEmail({ name, url: inviteUrl, platform: true }),
       },
     });
 

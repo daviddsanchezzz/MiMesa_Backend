@@ -1,3 +1,4 @@
+const { buildInvitationEmail } = require('../services/accountEmails');
 const Invitation     = require('../models/Invitation');
 const { escapeHtml } = require('../lib/escapeHtml');
 const BusinessMember = require('../models/BusinessMember');
@@ -106,60 +107,13 @@ exports.createInvitation = async (req, res) => {
       await sendEmailOrThrow({
         from:    resolveInviteFrom(),
         to:      email,
-        subject: `Te han invitado a Vetra`,
-        html: `
-          <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
-            <div style="margin-bottom:24px">
-              <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Vetra</span>
-            </div>
-            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${escapeHtml(name)}</h2>
-            <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px">
-              Te han dado acceso a <strong>Vetra</strong>, la plataforma de gestión de reservas para restaurantes.
-              Haz clic en el botón para activar tu cuenta.
-            </p>
-            <a href="${inviteUrl}"
-               style="display:inline-block;background:#7C3AED;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
-              Activar mi cuenta
-            </a>
-            <p style="color:#aaa;font-size:12px;margin-top:32px">
-              Si no esperabas esta invitación, ignora este email. El enlace caduca en 7 días.
-            </p>
-            <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
-              Powered by <a href="${process.env.LANDING_URL || 'https://vetrareserve.com'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
-            </p>
-          </div>
-        `,
+        ...buildInvitationEmail({ name, url: inviteUrl, platform: true }),
       });
     } else {
       await sendEmailOrThrow({
         from:    resolveInviteFrom(),
         to:      email,
-        subject: `${business.name} te invita a unirte a Vetra`,
-        html: `
-          <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#fff">
-            <div style="margin-bottom:24px">
-              <span style="background:#7C3AED;color:#fff;font-size:12px;font-weight:600;padding:4px 10px;border-radius:9999px">Vetra</span>
-            </div>
-            <h2 style="font-size:22px;font-weight:700;color:#111;margin:0 0 8px">Hola, ${escapeHtml(name)}</h2>
-            <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 8px">
-              <strong>${escapeHtml(business.name)}</strong> te ha invitado a unirte a su equipo en Vetra
-              con el rol de <strong>${role === 'owner' ? 'Propietario' : role === 'manager' ? 'Encargado' : 'Personal'}</strong>.
-            </p>
-            <p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 24px">
-              Haz clic en el botón para activar tu cuenta. El enlace caduca en 7 días.
-            </p>
-            <a href="${inviteUrl}"
-               style="display:inline-block;background:#7C3AED;color:#fff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:12px;text-decoration:none">
-              Activar cuenta y unirme
-            </a>
-            <p style="color:#aaa;font-size:12px;margin-top:32px">
-              Si no esperabas esta invitación, ignora este email.
-            </p>
-            <p style="color:#d1d5db;font-size:11px;margin-top:16px;text-align:center;">
-              Powered by <a href="${process.env.LANDING_URL || 'https://vetrareserve.com'}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
-            </p>
-          </div>
-        `,
+        ...buildInvitationEmail({ name, businessName: business.name, role, url: inviteUrl }),
       });
     }
 

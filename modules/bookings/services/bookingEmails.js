@@ -1,23 +1,23 @@
 /**
  * Emails for appointments (bookings module):
  *  - to the customer: confirmation (or "request received" when the business
- *    must approve), 24h reminder, cancellation — all with the cancel link
+ *    must approve), 24h reminder, cancellation — all with the cancel link;
+ *    the confirmation also carries an .ics invite and "add to calendar"
  *  - follow-ups (commercial, opt-out in every email): "te toca volver" and
  *    "¿qué tal tu visita?" with the business's Google review link
  *  - to the business team: new online booking and online cancellation
  *
- * Every function is safe to call fire-and-forget: it never throws.
+ * Builders are pure (tested with fixed data); senders never throw.
  */
 const Business = require('../../../core/models/Business');
 const BusinessMember = require('../../../core/models/BusinessMember');
-const { escapeHtml } = require('../../../core/lib/escapeHtml');
-const { businessTimezone } = require('../../../core/lib/timezone');
-const { fromBusiness, sendEmail, baseLayout, detailRow } = require('../../../core/services/emailKit');
+const { escapeHtml: esc } = require('../../../core/lib/escapeHtml');
+const { businessTimezone, dateInTimezone } = require('../../../core/lib/timezone');
+const { fromBusiness, sendEmail } = require('../../../core/services/emailKit');
+const d = require('../../../core/services/emailDesign');
 const { businessLogoUrl } = require('../../../core/lib/images');
 const Customer = require('../../../core/models/Customer');
 const crypto = require('crypto');
-
-const DEFAULT_ACCENT = '#7c3aed';
 
 function emailEnabled() {
   const key = process.env.RESEND_API_KEY;
@@ -36,11 +36,8 @@ function bookAgainUrl(booking) {
   return `${appUrl()}/public/${booking.businessId}/cita`;
 }
 
-function whenText(date, tz) {
-  const d = new Date(date);
-  const day = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: tz });
-  const time = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: tz });
-  return { day: day.charAt(0).toUpperCase() + day.slice(1), time };
+function timeText(date, tz) {
+  return new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: tz });
 }
 
 function euros(cents) {
@@ -56,34 +53,33 @@ async function staffNames(booking) {
   return rows.map((r) => r.name).join(', ');
 }
 
-function button(href, label, color) {
-  return `<table cellpadding="0" cellspacing="0" style="margin:22px 0 4px;"><tr><td style="border-radius:10px;background:${color};">
-    <a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">${escapeHtml(label)}</a>
-  </td></tr></table>`;
+function brandFor(business) {
+  return d.brandOf(business, { logoUrl: businessLogoUrl(business) });
 }
 
-function detailsTable(rows) {
-  return `<table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:12px 20px;margin-top:16px;">
-    <tr><td><table width="100%" cellpadding="0" cellspacing="0">${rows.filter(Boolean).join('')}</table></td></tr>
-  </table>`;
-}
-
-function contactBlock(business) {
-  const parts = [business.phone, business.email].filter(Boolean).map(escapeHtml);
-  if (!parts.length) return '';
-  return `<p style="margin:16px 0 0;font-size:13px;color:#6b7280;">¿Dudas? Contacta con ${escapeHtml(business.name)}: ${parts.join(' · ')}</p>`;
+/** What the customer sees about the appointment in every email. */
+function appointment(booking, business, staff) {
+  const tz = businessTimezone(business);
+  const start = timeText(booking.start, tz);
+  const end = booking.end ? timeText(booking.end, tz) : '';
+  return {
+    tz,
+    localDate: dateInTimezone(new Date(booking.start), tz),
+    services: booking.segments.map((s) => s.serviceName).join(' + '),
+    when: end ? `${start} – ${end}` : start,
+    start,
+    staff,
+  };
 }
 
 // Legal notice + one-click opt-out (LSSI art. 21.2) for customer emails.
-function optOutBlock(business, optOutUrl, { followUp }) {
+function optOutNote(business, optOutUrl, { followUp }) {
   if (!optOutUrl) return '';
-  const biz = escapeHtml(business.name || '');
+  const biz = esc(business.name || '');
   const text = followUp
     ? `Te escribimos porque eres cliente de ${biz}. Si no quieres recibir más avisos como este,`
     : `Como cliente de ${biz}, podemos avisarte de cuándo te toca volver o pedirte tu opinión después de la visita. Si no quieres recibir esos avisos,`;
-  return `<p style="margin:20px 0 0;padding-top:14px;border-top:1px solid #f3f4f6;font-size:11px;line-height:1.5;color:#9ca3af;">
-    ${text} <a href="${escapeHtml(optOutUrl)}" style="color:#6b7280;text-decoration:underline;">date de baja aquí</a>.
-  </p>`;
+  return `${text} <a href="${esc(optOutUrl)}" style="color:#6b7280;text-decoration:underline;">date de baja aquí</a>.`;
 }
 
 /** Opt-out link for a customer, creating their token the first time. */
@@ -104,66 +100,104 @@ async function loadBusiness(businessId) {
   return Business.findById(businessId).select('name email phone address brandColor logoUpdatedAt timezone').lean();
 }
 
+function calendarTitle(booking, business) {
+  return `${booking.segments.map((s) => s.serviceName).join(' + ')} · ${business.name}`;
+}
+
 /**
  * Builds a customer email. `kind`: confirmed | pending | reminder | cancelled.
  * Pure given its inputs (tested with fixed data).
  */
 function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null }) {
-  const tz = businessTimezone(business);
-  const color = business.brandColor || DEFAULT_ACCENT;
-  const { day, time } = whenText(booking.start, tz);
-  const services = booking.segments.map((s) => s.serviceName).join(' + ');
-  const name = escapeHtml(booking.guestName || '');
-  const biz = escapeHtml(business.name || '');
+  const brand = brandFor(business);
+  const a = appointment(booking, business, staff);
+  const name = esc(d.firstName(booking.guestName));
+  const biz = esc(business.name || '');
+  const hello = name ? `Hola ${name}` : 'Hola';
+  const whenLong = d.dateParts(a.localDate).long;
+  const addressRow = business.address
+    ? { label: 'Dónde', valueHtml: `${esc(business.address)}<br><a href="${esc(d.mapsUrl(business.address))}" target="_blank" style="color:${brand.color};font-weight:600;text-decoration:none;font-size:13px;">Cómo llegar</a>` }
+    : null;
+  const rows = [
+    booking.totalPrice ? { label: 'Precio', value: euros(booking.totalPrice) } : null,
+    booking.partySize > 1 ? { label: 'Personas', value: String(booking.partySize) } : null,
+    addressRow,
+  ];
+  const card = d.eventCard({
+    localDate: a.localDate, title: a.services, color: brand.color, muted: kind === 'cancelled',
+    lines: [`${a.when}${staff ? ` · con ${staff}` : ''}`], rows: kind === 'cancelled' ? [] : rows,
+  });
+  const calendarUrl = d.googleCalendarUrl({
+    title: calendarTitle(booking, business), start: booking.start, end: booking.end || booking.start,
+    location: business.address || business.name, details: `Para cambiar o cancelar: ${cancelUrl(booking)}`,
+  });
+  const cancelLink = `<a href="${esc(cancelUrl(booking))}" target="_blank" style="color:${brand.color};font-weight:600;text-decoration:none;">`;
 
   const copy = {
     confirmed: {
-      subject: `Cita confirmada - ${business.name}`,
-      title: 'Cita confirmada',
-      intro: `Hola ${name}, tu cita en <strong>${biz}</strong> está confirmada.`,
+      subject: `Cita confirmada: ${whenLong} a las ${a.start} · ${business.name}`,
+      preheader: `${a.services}${staff ? ` con ${staff}` : ''}. Te esperamos.`,
+      title: '¡Cita confirmada!',
+      intro: `${hello}, tu cita en <strong>${biz}</strong> está confirmada. Te esperamos.`,
+      actions: d.buttons([{ href: calendarUrl, label: 'Añadir al calendario' }, { href: cancelUrl(booking), label: 'Ver o cancelar' }], brand.color),
+      after: d.small('¿Te ha surgido algo? Cancela con antelación desde el botón para que otra persona pueda aprovechar el hueco.'),
     },
     pending: {
-      subject: `Hemos recibido tu solicitud - ${business.name}`,
-      title: 'Solicitud recibida',
-      intro: `Hola ${name}, hemos recibido tu solicitud de cita en <strong>${biz}</strong>. Te avisaremos cuando la confirmen.`,
+      subject: `Solicitud recibida: ${whenLong} a las ${a.start} · ${business.name}`,
+      preheader: 'Te avisaremos por email en cuanto la confirmen.',
+      title: 'Hemos recibido tu solicitud',
+      intro: `${hello}, tu solicitud de cita en <strong>${biz}</strong> está pendiente de confirmar.`,
+      actions: d.notice(`Te enviaremos otro email en cuanto ${biz} la confirme. Mientras tanto, el hueco queda reservado para ti.`, 'info')
+        + d.buttons([{ href: cancelUrl(booking), label: 'Ver o cancelar solicitud', variant: 'secondary' }], brand.color),
+      after: '',
     },
     reminder: {
-      subject: `Recordatorio: tu cita mañana - ${business.name}`,
-      title: 'Recordatorio de cita',
-      intro: `Hola ${name}, te recordamos tu cita en <strong>${biz}</strong>.`,
+      subject: `Recordatorio: tu cita ${whenLong.toLowerCase()} a las ${a.start} · ${business.name}`,
+      preheader: `${a.services}${staff ? ` con ${staff}` : ''} a las ${a.start}.`,
+      title: 'Te esperamos pronto',
+      intro: `${hello}, te recordamos tu cita en <strong>${biz}</strong>.`,
+      actions: d.buttons([
+        business.address ? { href: d.mapsUrl(business.address), label: 'Cómo llegar' } : null,
+        { href: cancelUrl(booking), label: 'Ver o cancelar', variant: business.address ? 'secondary' : 'primary' },
+      ], brand.color),
+      after: d.small(`Si no puedes venir, ${cancelLink}cancélala aquí</a> para que otra persona pueda usar el hueco.`),
     },
     cancelled: {
-      subject: `Cita cancelada - ${business.name}`,
+      subject: `Cita cancelada · ${business.name}`,
+      preheader: `Tu cita del ${whenLong.toLowerCase()} a las ${a.start} se ha cancelado.`,
       title: 'Cita cancelada',
-      intro: `Hola ${name}, tu cita en <strong>${biz}</strong> ha sido cancelada.`,
+      intro: `${hello}, tu cita en <strong>${biz}</strong> se ha cancelado.`,
+      actions: d.buttons([{ href: bookAgainUrl(booking), label: 'Reservar otra cita' }], brand.color),
+      after: '',
     },
   }[kind];
 
-  const rows = [
-    detailRow('Servicio', services),
-    detailRow('Día', day),
-    detailRow('Hora', time),
-    staff ? detailRow('Con', staff) : '',
-    booking.totalPrice ? detailRow('Precio', euros(booking.totalPrice)) : '',
-    business.address ? detailRow('Dirección', business.address) : '',
-  ];
-
-  const action = kind === 'cancelled'
-    ? button(bookAgainUrl(booking), 'Reservar otra cita', color)
-    : `${button(cancelUrl(booking), kind === 'pending' ? 'Ver o cancelar solicitud' : 'Ver o cancelar mi cita', color)}
-       <p style="margin:6px 0 0;font-size:12px;color:#9ca3af;">Si no puedes venir, cancela con antelación para que otra persona pueda usar el hueco.</p>`;
-
-  const logo = businessLogoUrl(business);
-  const html = baseLayout(color, `
-    ${logo ? `<img src="${escapeHtml(logo)}" alt="${escapeHtml(business.name)}" style="display:block;max-height:56px;max-width:180px;margin:0 0 18px;border:0;" />` : ''}
-    <p style="margin:0;font-size:15px;color:#111827;line-height:1.6;">${copy.intro}</p>
-    ${detailsTable(rows)}
-    ${action}
-    ${contactBlock(business)}
-    ${['confirmed', 'pending'].includes(kind) ? optOutBlock(business, optOutUrl, { followUp: false }) : ''}
-  `, copy.title);
-
+  const html = d.layout({
+    brand,
+    title: copy.title,
+    preheader: copy.preheader,
+    content: `${d.h1(copy.title)}${d.p(copy.intro)}${card}${copy.actions}${copy.after}`,
+    footer: {
+      replyHint: true,
+      note: ['confirmed', 'pending'].includes(kind) ? optOutNote(business, optOutUrl, { followUp: false }) : '',
+    },
+  });
   return { subject: copy.subject, html };
+}
+
+/** .ics invite for the confirmation email (Apple Calendar, Outlook…). */
+function buildInvite(booking, business, staff) {
+  const content = d.icsInvite({
+    uid: String(booking._id),
+    title: calendarTitle(booking, business),
+    start: booking.start,
+    end: booking.end || booking.start,
+    location: business.address || business.name,
+    description: `${booking.segments.map((s) => s.serviceName).join(' + ')}${staff ? ` con ${staff}` : ''}\nPara cambiar o cancelar: ${cancelUrl(booking)}`,
+    organizerName: business.name,
+    stamp: booking.createdAt || null,
+  });
+  return { filename: 'cita.ics', content: Buffer.from(content).toString('base64'), contentType: 'text/calendar; charset=utf-8; method=PUBLISH' };
 }
 
 /**
@@ -171,26 +205,29 @@ function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null }
  * Pure given its inputs (tested with fixed data). Always carries the opt-out.
  */
 function buildFollowUpEmail(kind, { business, name, service, staff, reviewUrl, bookUrl, optOutUrl }) {
-  const color = business.brandColor || DEFAULT_ACCENT;
-  const who = escapeHtml(name || '');
-  const biz = escapeHtml(business.name || '');
-  const logo = businessLogoUrl(business);
-  const head = logo ? `<img src="${escapeHtml(logo)}" alt="${biz}" style="display:block;max-height:56px;max-width:180px;margin:0 0 18px;border:0;" />` : '';
-  let subject; let title; let body;
+  const brand = brandFor(business);
+  const who = esc(d.firstName(name));
+  const hello = who ? `Hola ${who}` : 'Hola';
+  const biz = esc(business.name || '');
+  let subject; let title; let preheader; let body;
   if (kind === 'rebook') {
-    subject = `¿Te reservamos tu próxima cita? - ${business.name}`;
+    subject = `¿Te reservamos tu próxima cita? · ${business.name}`;
     title = '¿Repetimos?';
-    body = `<p style="margin:0;font-size:15px;color:#111827;line-height:1.6;">Hola ${who}, ya ha pasado un tiempo desde tu última visita a <strong>${biz}</strong>${service ? ` (${escapeHtml(service)}${staff ? ` con ${escapeHtml(staff)}` : ''})` : ''}.</p>
-      <p style="margin:12px 0 0;font-size:15px;color:#111827;line-height:1.6;">Si te apetece repetir, puedes elegir día y hora en un momento:</p>
-      ${button(bookUrl, 'Reservar cita', color)}`;
+    preheader = 'Elige día y hora en un momento.';
+    body = `${d.h1(title)}
+      ${d.p(`${hello}, ya ha pasado un tiempo desde tu última visita a <strong>${biz}</strong>${service ? ` (${esc(service)}${staff ? ` con ${esc(staff)}` : ''})` : ''}.`)}
+      ${d.p('Si te apetece repetir, puedes elegir día y hora en un momento, sin llamar:')}
+      ${d.buttons([{ href: bookUrl, label: 'Reservar cita' }], brand.color)}`;
   } else {
     subject = `¿Qué tal tu visita a ${business.name}?`;
     title = '¿Qué tal fue?';
-    body = `<p style="margin:0;font-size:15px;color:#111827;line-height:1.6;">Hola ${who}, gracias por venir a <strong>${biz}</strong>.</p>
-      <p style="margin:12px 0 0;font-size:15px;color:#111827;line-height:1.6;">Tu opinión nos ayuda muchísimo. ¿Nos cuentas qué tal en Google? Solo es un minuto.</p>
-      ${button(reviewUrl, 'Dejar mi opinión', color)}`;
+    preheader = 'Tu opinión nos ayuda muchísimo. Solo es un minuto.';
+    body = `${d.h1(title)}
+      ${d.p(`${hello}, gracias por venir a <strong>${biz}</strong>.`)}
+      ${d.p('Tu opinión nos ayuda muchísimo a mejorar y a que nos encuentren otras personas. ¿Nos cuentas qué tal en Google? Solo es un minuto.')}
+      ${d.buttons([{ href: reviewUrl, label: 'Dejar mi opinión' }], brand.color)}`;
   }
-  const html = baseLayout(color, `${head}${body}${contactBlock(business)}${optOutBlock(business, optOutUrl, { followUp: true })}`, title);
+  const html = d.layout({ brand, title, preheader, content: body, footer: { replyHint: true, note: optOutNote(business, optOutUrl, { followUp: true }) } });
   return { subject, html };
 }
 
@@ -215,30 +252,32 @@ async function sendFollowUp(kind, { booking, customer, reviewUrl }) {
 
 /** Email for the business team. `kind`: created | cancelled. */
 function buildStaffEmail(kind, { booking, business, staff }) {
-  const tz = businessTimezone(business);
-  const color = business.brandColor || DEFAULT_ACCENT;
-  const { day, time } = whenText(booking.start, tz);
-  const services = booking.segments.map((s) => s.serviceName).join(' + ');
+  const brand = brandFor(business);
+  const a = appointment(booking, business, staff);
   const created = kind === 'created';
   const pending = created && booking.status === 'pending';
   const title = !created ? 'Cita cancelada por el cliente' : pending ? 'Nueva solicitud de cita' : 'Nueva cita online';
-  const html = baseLayout(color, `
-    <p style="margin:0;font-size:15px;color:#111827;line-height:1.6;">
-      ${created ? (pending ? 'Tienes una solicitud de cita pendiente de aprobar.' : 'Un cliente ha reservado desde tu página de reservas.') : 'Un cliente ha cancelado su cita. El hueco vuelve a estar libre.'}
-    </p>
-    ${detailsTable([
-      detailRow('Cliente', booking.guestName || '-'),
-      detailRow('Teléfono', booking.guestPhone || '-'),
-      detailRow('Email', booking.guestEmail || '-'),
-      detailRow('Servicio', services),
-      detailRow('Día', day),
-      detailRow('Hora', time),
-      staff ? detailRow('Con', staff) : '',
-      booking.notes ? detailRow('Notas', booking.notes) : '',
-    ])}
-    ${button(`${appUrl()}/agenda`, 'Abrir agenda', color)}
-  `, title);
-  return { subject: `${title} - ${booking.guestName || 'Cliente'} · ${day} ${time}`, html };
+  const intro = !created ? 'Un cliente ha cancelado su cita. El hueco vuelve a estar libre para reservar.'
+    : pending ? 'Tienes una solicitud pendiente de aprobar. El cliente espera tu respuesta.'
+      : 'Un cliente ha reservado desde tu página de reservas.';
+  const guest = d.details([
+    { label: 'Cliente', value: booking.guestName || '-' },
+    booking.guestPhone ? { label: 'Teléfono', valueHtml: `<a href="${esc(d.telHref(booking.guestPhone))}" style="color:${brand.color};text-decoration:none;">${esc(booking.guestPhone)}</a>` } : null,
+    booking.guestEmail ? { label: 'Email', valueHtml: `<a href="mailto:${esc(booking.guestEmail)}" style="color:${brand.color};text-decoration:none;">${esc(booking.guestEmail)}</a>` } : null,
+    booking.notes ? { label: 'Notas', value: booking.notes } : null,
+  ]);
+  const when = `${d.dateParts(a.localDate).long} ${a.start}`;
+  const html = d.layout({
+    brand,
+    title,
+    preheader: `${booking.guestName || 'Cliente'} · ${a.services} · ${when}`,
+    content: `${d.h1(title)}${d.p(intro)}
+      ${d.eventCard({ localDate: a.localDate, title: a.services, color: brand.color, muted: !created, lines: [`${a.when}${staff ? ` · con ${staff}` : ''}`] })}
+      ${d.card(guest)}
+      ${d.buttons([{ href: `${appUrl()}/agenda`, label: pending ? 'Revisar solicitud' : 'Abrir agenda' }], brand.color)}`,
+    footer: { note: `Recibes este aviso porque gestionas ${esc(business.name || '')} en Vetra. Puedes desactivarlo en tu Perfil.` },
+  });
+  return { subject: `${title}: ${booking.guestName || 'Cliente'} · ${when}`, html };
 }
 
 async function staffRecipients(businessId, kind) {
@@ -268,8 +307,9 @@ async function sendToCustomer(kind, booking) {
       if (fs?.rebook?.enabled || fs?.review?.enabled) optOutUrl = await optOutUrlFor(booking.customerId);
     }
     const { subject, html } = buildCustomerEmail(kind, { booking, business, staff, optOutUrl });
-    const result = await sendEmail({ from: fromBusiness(business.name), to: booking.guestEmail, replyTo: business.email || undefined, subject, html },
-      `booking.${kind}`, { businessId: String(booking.businessId), bookingId: String(booking._id) });
+    const payload = { from: fromBusiness(business.name), to: booking.guestEmail, replyTo: business.email || undefined, subject, html };
+    if (kind === 'confirmed') payload.attachments = [buildInvite(booking, business, staff)];
+    const result = await sendEmail(payload, `booking.${kind}`, { businessId: String(booking.businessId), bookingId: String(booking._id) });
     return !result?.error;
   } catch (err) {
     console.error(`[bookings] ${kind} email failed:`, err.message);
@@ -297,6 +337,7 @@ module.exports = {
   buildCustomerEmail,
   buildStaffEmail,
   buildFollowUpEmail,
+  buildInvite,
   sendFollowUp,
   // Customer
   sendBookingConfirmation: (b) => sendToCustomer(b.status === 'pending' ? 'pending' : 'confirmed', b),

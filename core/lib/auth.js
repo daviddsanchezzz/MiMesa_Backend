@@ -76,15 +76,10 @@ const BusinessMember = require('../models/BusinessMember');
             payload: {
             from: process.env.RESEND_FROM_SYSTEM || 'Vetra <onboarding@resend.dev>',
             to: user.email,
-            subject: 'Restablecer contraseña - Vetra',
-            html: `
-              <p>Hola,</p>
-              <p>Haz clic en el siguiente enlace para restablecer tu contraseña. Caduca en 1 hora.</p>
-              <a href="${url}" style="background:#4f46e5;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">
-                Restablecer contraseña
-              </a>
-              <p style="color:#888;font-size:12px;margin-top:16px;">Si no solicitaste esto, ignora este email.</p>
-            `,
+            ...(() => {
+              const { buildResetPasswordEmail } = require('../services/accountEmails');
+              return buildResetPasswordEmail({ name: user.name, url });
+            })(),
             },
           });
         } catch (err) {
@@ -121,52 +116,10 @@ const BusinessMember = require('../models/BusinessMember');
             payload: {
             from: process.env.RESEND_FROM_INVITE || 'Vetra <onboarding@resend.dev>',
             to: user.email,
-            subject: 'Verifica tu email - Vetra',
-            html: `<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:40px 16px;">
-    <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
-
-        <!-- Header -->
-        <tr><td style="background:#0f0a1e;border-radius:12px 12px 0 0;padding:28px 40px;text-align:center;">
-          <span style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Vetra</span>
-        </td></tr>
-
-        <!-- Body -->
-        <tr><td style="background:#ffffff;padding:40px 40px 32px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
-          <p style="margin:0 0 8px;font-size:24px;font-weight:700;color:#111827;line-height:1.25;">Verifica tu dirección de email</p>
-          <p style="margin:0 0 28px;font-size:15px;color:#6b7280;line-height:1.6;">
-            Hola <strong style="color:#111827;">${escapeHtml(user.name)}</strong>, gracias por registrarte en Vetra.<br>
-            Haz clic en el botón para confirmar tu cuenta y empezar a gestionar tus reservas.
-          </p>
-          <table cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
-            <tr><td style="border-radius:10px;background:#7c3aed;">
-              <a href="${verificationLink}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.01em;">
-                Verificar email
-              </a>
-            </td></tr>
-          </table>
-          <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
-            Si no creaste esta cuenta puedes ignorar este correo.<br>
-            El enlace caduca en 24 horas.
-          </p>
-        </td></tr>
-
-        <!-- Footer -->
-        <tr><td style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:20px 40px;text-align:center;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;">
-            © ${new Date().getFullYear()} Vetra · Gestión de reservas para restaurantes
-          </p>
-        </td></tr>
-
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`,
+            ...(() => {
+              const { buildVerifyEmail } = require('../services/accountEmails');
+              return buildVerifyEmail({ name: user.name, url: verificationLink });
+            })(),
             },
           });
         } catch (err) {

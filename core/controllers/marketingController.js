@@ -47,7 +47,7 @@ exports.sendCampaign = async (req, res) => {
       return res.status(400).json({ message: 'Asunto y cuerpo son obligatorios' });
     }
 
-    const business = await Business.findById(req.businessId).select('name brandColor');
+    const business = await Business.findById(req.businessId).select('name brandColor email phone address logoUpdatedAt');
 
     const subscribers = await Customer.find({
       businessId:            req.businessId,
@@ -104,35 +104,10 @@ exports.sendCampaign = async (req, res) => {
       }
       const unsubUrl = `${frontendUrl}/public/unsubscribe?token=${customer.unsubscribeToken}`;
 
-      const html = `<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
-    <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
-        <tr><td style="background:${accent};padding:20px 32px;">
-          <p style="margin:0;font-size:17px;font-weight:700;color:#fff;">${escapeHtml(business?.name || '')}</p>
-        </td></tr>
-        <tr><td style="padding:28px 32px;">
-          <p style="margin:0 0 8px;font-size:15px;color:#374151;">Hola, <strong>${escapeHtml(customer.name)}</strong></p>
-          <div style="font-size:14px;color:#374151;line-height:1.7;">${escapeHtml(body).replace(/\r?\n/g, '<br>')}</div>
-        </td></tr>
-        <tr><td style="background:#f9fafb;padding:16px 32px 20px;border-top:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;line-height:1.7;">
-            Recibiste este email porque reservaste en <strong>${escapeHtml(business?.name || '')}</strong>
-            y aceptaste recibir comunicaciones.<br>
-            <a href="${unsubUrl}" style="color:#7C3AED;text-decoration:underline;">Darse de baja</a>
-          </p>
-          <p style="margin:10px 0 0;font-size:11px;color:#d1d5db;text-align:center;">
-            Powered by <a href="${landingUrl}" style="color:#7C3AED;text-decoration:none;font-weight:600;">Vetra</a>
-          </p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+      const html = require('../services/accountEmails').buildCampaignEmail({
+        business, logoUrl: require('../lib/images').businessLogoUrl(business),
+        customerName: customer.name, subject, body, unsubUrl,
+      });
 
       try {
         const result = await sendTrackedEmail({
@@ -142,7 +117,7 @@ exports.sendCampaign = async (req, res) => {
             businessId: String(req.businessId),
             customerId: String(customer._id),
           },
-          payload: { from, to: customer.email, subject, html },
+          payload: { from, to: customer.email, replyTo: business?.email || undefined, subject, html },
         });
         if (result.error) errors.push(customer.email);
         else sent++;

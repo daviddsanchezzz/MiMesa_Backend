@@ -17,6 +17,11 @@ async function sendTrackedEmail({ resend, payload, source = 'unknown', metadata 
   let status = 'sent';
   let thrown = null;
 
+  // Every email also carries a plain-text version (spam filters and some clients want it).
+  if (payload && payload.html && !payload.text) {
+    const { htmlToText } = require('./emailDesign');
+    payload = { ...payload, text: htmlToText(payload.html) };
+  }
   try {
     result = await resend.emails.send(payload);
     if (result?.error) status = 'failed';
