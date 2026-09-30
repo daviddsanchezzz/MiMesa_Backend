@@ -11,6 +11,7 @@ const BusinessMember = require('../../../core/models/BusinessMember');
 const { escapeHtml } = require('../../../core/lib/escapeHtml');
 const { businessTimezone } = require('../../../core/lib/timezone');
 const { fromBusiness, sendEmail, baseLayout, detailRow } = require('../../../core/services/emailKit');
+const { businessLogoUrl } = require('../../../core/lib/images');
 
 const DEFAULT_ACCENT = '#7c3aed';
 
@@ -70,7 +71,7 @@ function contactBlock(business) {
 }
 
 async function loadBusiness(businessId) {
-  return Business.findById(businessId).select('name email phone address brandColor timezone').lean();
+  return Business.findById(businessId).select('name email phone address brandColor logoUpdatedAt timezone').lean();
 }
 
 /**
@@ -122,7 +123,9 @@ function buildCustomerEmail(kind, { booking, business, staff }) {
     : `${button(cancelUrl(booking), kind === 'pending' ? 'Ver o cancelar solicitud' : 'Ver o cancelar mi cita', color)}
        <p style="margin:6px 0 0;font-size:12px;color:#9ca3af;">Si no puedes venir, cancela con antelación para que otra persona pueda usar el hueco.</p>`;
 
+  const logo = businessLogoUrl(business);
   const html = baseLayout(color, `
+    ${logo ? `<img src="${escapeHtml(logo)}" alt="${escapeHtml(business.name)}" style="display:block;max-height:56px;max-width:180px;margin:0 0 18px;border:0;" />` : ''}
     <p style="margin:0;font-size:15px;color:#111827;line-height:1.6;">${copy.intro}</p>
     ${detailsTable(rows)}
     ${action}

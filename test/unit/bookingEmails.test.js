@@ -33,6 +33,14 @@ describe('appointment emails', () => {
     assert.ok(html.includes('#db2777'), 'uses brand colour');
   });
 
+  test('shows the business logo when there is one', () => {
+    process.env.BACKEND_URL = 'https://api-dev.vetrareserve.com';
+    const withLogo = { ...business, logoUpdatedAt: new Date('2026-09-30T10:00:00Z') };
+    const { html } = buildCustomerEmail('confirmed', { booking, business: withLogo });
+    assert.ok(html.includes('src="https://api-dev.vetrareserve.com/api/auth/public/business/biz1/logo?v=1790762400000"'));
+    assert.ok(!buildCustomerEmail('confirmed', { booking, business }).html.includes('<img'));
+  });
+
   test('pending, reminder and cancelled wording', () => {
     assert.match(buildCustomerEmail('pending', { booking, business }).html, /Te avisaremos cuando la confirmen/);
     const reminder = buildCustomerEmail('reminder', { booking, business });

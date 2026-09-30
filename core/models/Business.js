@@ -10,6 +10,9 @@ const businessSchema = new mongoose.Schema({
   address:   { type: String, default: '' },
   cif:       { type: String, default: '' },
   brandColor:  { type: String, default: '#3B82F6' },
+  // Logo as a small data URL. Not loaded by default: served by its own URL.
+  logo:          { type: String, default: null, select: false },
+  logoUpdatedAt: { type: Date, default: null },
   // What kind of business this is. Decides menus, settings and default modules:
   // 'restaurant' = table reservations (Vetra's original product),
   // 'appointments' = service appointments (salons, therapists, studios...).

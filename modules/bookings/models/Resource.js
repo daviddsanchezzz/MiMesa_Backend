@@ -15,6 +15,9 @@ const resourceSchema = new mongoose.Schema({
   staffEmployeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffEmployee', default: null },
   bookableOnline:  { type: Boolean, default: true },
   sortOrder:  { type: Number, default: 0 },
+  // How it shows in the agenda: a colour and an optional small photo (data URL)
+  color:      { type: String, default: null },
+  photo:      { type: String, default: null },
   // Sector-specific extras (colour in the agenda, table shape...)
   attributes: { type: mongoose.Schema.Types.Mixed, default: {} },
   active:     { type: Boolean, default: true },

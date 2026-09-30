@@ -356,4 +356,65 @@ describe('generic agenda (bookings module)', { skip }, () => {
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, []);
   });
+
+  test('staff colour, photo and the services each person does', async () => {
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    let res = await request(app).put(`/api/bookings/resources/${ids.luis}`).set(as('owner')).send({ color: '#0EA5E9', photo: png });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.color, '#0ea5e9');
+    res = await request(app).put(`/api/bookings/resources/${ids.luis}`).set(as('owner')).send({ photo: 'data:text/html;base64,PGI+' });
+    assert.equal(res.status, 400);
+    res = await request(app).get(`/api/bookings/public/${biz._id}/catalog`);
+    assert.equal(res.body.staff.find((s) => String(s.id) === ids.luis).color, '#0ea5e9');
+
+    const staffOf = async (serviceId) => {
+      const list = (await request(app).get('/api/bookings/services').set(as('owner'))).body;
+      return list.find((x) => x._id === serviceId).requirements.find((r) => r.kind === 'staff').resourceIds.map(String).sort();
+    };
+    const sesion = (await request(app).get('/api/bookings/services').set(as('owner'))).body.find((x) => x.name === 'Sesión')._id;
+    // Luis also does Tinte → everybody does it → back to "anyone"
+    res = await request(app).put(`/api/bookings/resources/${ids.luis}/services`).set(as('owner')).send({ serviceIds: [ids.corte, ids.tinte, sesion] });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(await staffOf(ids.tinte), []);
+    // Luis stops doing Corte → only Ana does it
+    res = await request(app).put(`/api/bookings/resources/${ids.luis}/services`).set(as('owner')).send({ serviceIds: [ids.tinte, sesion] });
+    assert.deepEqual(await staffOf(ids.corte), [ids.ana]);
+    // Ana can't drop Corte: nobody else does it
+    res = await request(app).put(`/api/bookings/resources/${ids.ana}/services`).set(as('owner')).send({ serviceIds: [ids.tinte] });
+    assert.equal(res.status, 400);
+    assert.match(res.body.message, /Nadie más hace "Corte"/);
+    res = await request(app).put(`/api/bookings/resources/${ids.luis}/services`).set(as('staff')).send({ serviceIds: [] });
+    assert.equal(res.status, 403);
+    // Back to how it was: Corte anyone, Tinte only Ana
+    await request(app).put(`/api/bookings/resources/${ids.luis}/services`).set(as('owner')).send({ serviceIds: [ids.corte, sesion] });
+    assert.deepEqual(await staffOf(ids.corte), []);
+    assert.deepEqual(await staffOf(ids.tinte), [ids.ana]);
+  });
+
+  test('business logo: upload, public URL and removal', async () => {
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    let res = await request(app).put('/api/auth/settings').set(as('owner')).send({ logo: png });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.match(res.body.logoUrl, new RegExp(`/api/auth/public/business/${biz._id}/logo\\?v=\\d+$`));
+    assert.equal(res.body.logo, undefined, 'the image itself is not sent back');
+    res = await request(app).get(`/api/auth/public/business/${biz._id}/logo`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers['content-type'], 'image/png');
+    res = await request(app).get(`/api/bookings/public/${biz._id}/catalog`);
+    assert.ok(res.body.business.logoUrl);
+    res = await request(app).put('/api/auth/settings').set(as('owner')).send({ logo: 'nope' });
+    assert.equal(res.status, 400);
+    res = await request(app).put('/api/auth/settings').set(as('owner')).send({ logo: '' });
+    assert.equal(res.body.logoUrl, null);
+    assert.equal((await request(app).get(`/api/auth/public/business/${biz._id}/logo`)).status, 404);
+  });
+
+  test('dashboard stats for the business', async () => {
+    const res = await request(app).get('/api/bookings/stats').set(as('staff'));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    for (const k of ['today', 'tomorrow', 'week', 'actions', 'money', 'team', 'topServices', 'customers']) assert.ok(k in res.body, k);
+    assert.deepEqual(res.body.team.map((t) => t.name), ['Ana', 'Luis']);
+    const theirs = await request(app).get('/api/bookings/stats').set(as('otherOwner'));
+    assert.deepEqual(theirs.body.team, [], 'another business only sees its own numbers');
+  });
 });

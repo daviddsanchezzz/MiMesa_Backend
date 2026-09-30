@@ -19,6 +19,7 @@ router.use(requireAuth, requireModule('bookings'));
 router.get('/resources', c.listResources);
 router.post('/resources', requireRole('manager'), c.createResource);
 router.put('/resources/:id', requireRole('manager'), c.updateResource);
+router.put('/resources/:id/services', requireRole('manager'), c.setResourceServices);
 router.delete('/resources/:id', requireRole('manager'), c.deleteResource);
 
 router.get('/services', c.listServices);
@@ -29,6 +30,9 @@ router.delete('/services/:id', requireRole('manager'), c.deleteService);
 router.get('/schedule', c.getSchedule);
 router.put('/schedule', requireRole('manager'), c.putSchedule);
 router.delete('/schedule', requireRole('manager'), c.deleteSchedule);
+
+// Dashboard numbers (any member)
+router.get('/stats', c.getStats);
 
 // Day-to-day: any member can see the agenda and book
 router.get('/availability', c.getAvailability);

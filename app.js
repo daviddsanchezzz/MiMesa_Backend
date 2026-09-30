@@ -87,7 +87,7 @@ app.post(
 );
 
 // ── Body / cookie parsing ────────────────────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: '1mb' })); // logos and staff photos travel as small data URLs
 app.use(cookieParser());
 
 // ── Rate limiting on auth endpoints ─────────────────────────────────────────

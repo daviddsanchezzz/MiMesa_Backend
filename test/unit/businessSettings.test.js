@@ -32,12 +32,17 @@ describe('business settings endpoints', () => {
   let captured;
   beforeEach(() => {
     captured = {};
-    for (const k of ['findById', 'findOne', 'findByIdAndUpdate']) original[k] = Business[k];
-    Business.findById = (id) => ({ select: (s) => { captured.publicSelect = s; captured.publicId = id; return Promise.resolve(null); } });
+    for (const k of ['findById', 'findOne', 'updateOne']) original[k] = Business[k];
+    Business.findById = (id) => ({
+      select: (s) => {
+        if (s === '-password') return Promise.resolve({ ...stored, ...(captured.update || {}) }); // re-read after an update
+        captured.publicSelect = s; captured.publicId = id; return Promise.resolve(null);
+      },
+    });
     Business.findOne = () => ({ select: () => Promise.resolve(null) });
-    Business.findByIdAndUpdate = (id, update, opts) => {
-      captured.update = update; captured.opts = opts;
-      return { select: () => Promise.resolve({ ...stored, ...update }) };
+    Business.updateOne = (filter, update, opts) => {
+      captured.filter = filter; captured.update = update; captured.opts = opts;
+      return Promise.resolve({ acknowledged: true });
     };
   });
   afterEach(() => { Object.assign(Business, original); });
@@ -67,7 +72,8 @@ describe('business settings endpoints', () => {
       maxReservationPeople: 10, maxPeoplePerSlot: 30, reservationDuration: 120, requireApprovalAbove: 6,
       minBookingNoticeHours: 0, reminderHoursBefore: 48, timezone: 'Europe/Lisbon', email: 'new@example.test',
     });
-    assert.deepEqual(captured.opts, { new: true, runValidators: true });
+    assert.deepEqual(captured.filter, { _id: 'biz1' });
+    assert.deepEqual(captured.opts, { runValidators: true });
   });
 
   test('minBookingNoticeHours string becomes a number; untouched fields are not written', async () => {
@@ -87,7 +93,7 @@ describe('business settings endpoints', () => {
     await auth.updateBusinessSettings({ businessId: 'biz1', body: {} }, res);
     const b = res.body;
     assert.deepEqual(Object.keys(b), [
-      'id', 'name', 'email', 'phone', 'address', 'cif', 'brandColor', 'timezone', 'businessType',
+      'id', 'name', 'email', 'phone', 'address', 'cif', 'brandColor', 'logoUrl', 'timezone', 'businessType',
       'maxReservationPeople', 'maxPeoplePerSlot', 'reservationDuration', 'minBookingNoticeHours',
       'requireApprovalAbove', 'reminderHoursBefore',
       'plan', 'subscriptionStatus', 'trialEndsAt', 'currentPeriodEnd', 'cancelAtPeriodEnd', 'capabilities', 'modules',

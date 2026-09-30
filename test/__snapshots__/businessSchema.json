@@ -48,6 +48,15 @@
     "unique": true,
     "lowercase": true
   },
+  "logo": {
+    "instance": "String",
+    "default": null,
+    "select": false
+  },
+  "logoUpdatedAt": {
+    "instance": "Date",
+    "default": null
+  },
   "maxPeoplePerSlot": {
     "instance": "Number",
     "default": null

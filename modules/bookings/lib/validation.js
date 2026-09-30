@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const { BookingError } = require('./errors');
 const { isAligned } = require('./occupancy');
 const { toMinutes } = require('./schedule');
+const { checkImageDataUrl } = require('../../../core/lib/images');
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -61,6 +62,15 @@ function clean(obj) {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }
 
+const MAX_PHOTO_CHARS = 150 * 1024;
+
+/** A small image sent as a data URL ('' or null removes it). */
+function imageDataUrl(value, label, maxChars) {
+  const r = checkImageDataUrl(value, { label, maxChars });
+  if (r.error) bad(r.error);
+  return r.value;
+}
+
 function resourceInput(body, { partial = false } = {}) {
   const out = clean({
     kind: body.kind,
@@ -75,6 +85,12 @@ function resourceInput(body, { partial = false } = {}) {
   });
   if (!partial && !KINDS.includes(body.kind)) bad('El tipo de recurso no es válido');
   if (partial && has(body, 'kind')) bad('El tipo de recurso no se puede cambiar');
+  if (has(body, 'color')) {
+    if (body.color === null || body.color === '') out.color = null;
+    else if (typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color)) out.color = body.color.toLowerCase();
+    else bad('El color no es válido');
+  }
+  if (has(body, 'photo')) out.photo = imageDataUrl(body.photo, 'La foto', MAX_PHOTO_CHARS);
   if (has(body, 'attributes')) {
     if (typeof body.attributes !== 'object' || Array.isArray(body.attributes) || JSON.stringify(body.attributes).length > 4000) bad('attributes no es válido');
     out.attributes = body.attributes;
@@ -237,5 +253,5 @@ function bookingInput(body, { online }) {
 }
 
 module.exports = {
-  resourceInput, serviceInput, checkServiceConsistency, scheduleInput, bookingInput, dateRange, objectId, bad,
+  resourceInput, imageDataUrl, serviceInput, checkServiceConsistency, scheduleInput, bookingInput, dateRange, objectId, bad,
 };

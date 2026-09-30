@@ -19,7 +19,7 @@ exports.getMe = async (req, res) => {
     if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
 
     const memberships = await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
-      .populate('businessId', 'name')
+      .populate('businessId', 'name businessType')
       .sort({ createdAt: 1 })
       .lean();
 
@@ -34,6 +34,7 @@ exports.getMe = async (req, res) => {
         id: m._id.toString(),
         businessId: m.businessId?._id?.toString() || '',
         businessName: m.businessId?.name || '',
+        businessType: m.businessId?.businessType || 'restaurant',
         role: m.role || 'staff',
         notificationPreferences: (m.role || 'staff') === 'staff'
           ? STAFF_NOTIFICATION_PREFERENCES

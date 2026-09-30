@@ -14,6 +14,8 @@ const svc = require('../services/bookingsService');
 const v = require('../lib/validation');
 const { BookingError } = require('../lib/errors');
 const emails = require('../services/bookingEmails');
+const { getDashboardStats } = require('../services/statsService');
+const { businessLogoUrl } = require('../../../core/lib/images');
 
 // Emails never block or fail the request; errors are logged inside.
 const later = (fn) => { Promise.resolve().then(fn).catch(() => {}); };
@@ -67,12 +69,58 @@ exports.updateResource = handle(async (req, res) => {
   res.json(doc);
 });
 
+/**
+ * Which services a staff member does, edited from the staff member's side.
+ * A service's staff requirement with no resourceIds means "anyone"; we keep it
+ * that way while everybody can do it, and list names only when someone can't.
+ */
+exports.setResourceServices = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const wanted = new Set((Array.isArray(req.body?.serviceIds) ? req.body.serviceIds : []).map((id) => String(v.objectId(id, 'serviceIds'))));
+  const resource = await Resource.findOne({ _id: req.params.id, businessId: req.businessId, active: true, kind: 'staff' }).lean();
+  if (!resource) throw notFound('Profesional');
+  const [allStaff, services] = await Promise.all([
+    Resource.find({ businessId: req.businessId, active: true, kind: 'staff' }).select('_id').lean(),
+    Service.find({ businessId: req.businessId, active: true }),
+  ]);
+  const staffIds = allStaff.map((r) => String(r._id));
+  const me = String(resource._id);
+  const updates = [];
+  for (const service of services) {
+    const reqIdx = (service.requirements || []).findIndex((r) => r.kind === 'staff');
+    const shouldDo = wanted.has(String(service._id));
+    if (reqIdx === -1) {
+      if (!shouldDo) continue;
+      service.requirements.push({ kind: 'staff', resourceIds: [me], customerCanChoose: true });
+      updates.push(service);
+      continue;
+    }
+    const requirement = service.requirements[reqIdx];
+    const current = (requirement.resourceIds || []).map(String);
+    const allowed = current.length ? current.filter((id) => staffIds.includes(id)) : [...staffIds];
+    const does = allowed.includes(me);
+    if (does === shouldDo) continue;
+    let next = shouldDo ? [...allowed, me] : allowed.filter((id) => id !== me);
+    if (!next.length) throw new BookingError(400, `Nadie más hace "${service.name}". Asígnaselo antes a otra persona.`, 'BAD_REQUEST');
+    if (staffIds.every((id) => next.includes(id))) next = [];
+    requirement.resourceIds = next;
+    updates.push(service);
+  }
+  await Promise.all(updates.map((doc) => doc.save()));
+  res.json({ ok: true, updated: updates.length });
+});
+
 // Soft delete: past bookings keep pointing to it.
 exports.deleteResource = handle(async (req, res) => {
   v.objectId(req.params.id, 'id');
   const doc = await Resource.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, { active: false }, { new: true });
   if (!doc) throw notFound('Recurso');
   res.json({ ok: true });
+});
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+exports.getStats = handle(async (req, res) => {
+  res.json(await getDashboardStats(req.businessId));
 });
 
 // ── Services ────────────────────────────────────────────────────────────────
@@ -223,7 +271,7 @@ exports.updateBookingNotes = handle(async (req, res) => {
 async function publicBusiness(businessId) {
   v.objectId(businessId, 'businessId');
   const business = await Business.findById(businessId)
-    .select('name phone email address brandColor timezone plan subscriptionStatus moduleOverrides businessType').lean();
+    .select('name phone email address brandColor logoUpdatedAt timezone plan subscriptionStatus moduleOverrides businessType').lean();
   if (!business || !canUseModule(business, 'bookings')) throw notFound('Negocio');
   return business;
 }
@@ -238,9 +286,9 @@ exports.publicCatalog = handle(async (req, res) => {
   const staff = await Resource.find({
     businessId: business._id, active: true, bookableOnline: { $ne: false }, kind: 'staff',
     ...(anyStaffKinds ? {} : { _id: { $in: [...choosableIds] } }),
-  }).select('name kind').sort({ sortOrder: 1, name: 1 }).lean();
+  }).select('name kind color photo').sort({ sortOrder: 1, name: 1 }).lean();
   res.json({
-    business: { id: business._id, name: business.name, phone: business.phone, address: business.address, brandColor: business.brandColor, timezone: businessTimezone(business) },
+    business: { id: business._id, name: business.name, phone: business.phone, address: business.address, brandColor: business.brandColor, logoUrl: businessLogoUrl(business), timezone: businessTimezone(business) },
     services: services.map((s) => ({
       id: s._id, name: s.name, category: s.category, description: s.description, durationMin: s.durationMin,
       bookingMode: s.bookingMode, partySize: s.partySize, price: s.price,
@@ -248,7 +296,7 @@ exports.publicCatalog = handle(async (req, res) => {
         ? (s.requirements.find((r) => r.kind === 'staff' && r.customerCanChoose).resourceIds || []).map(String)
         : null,
     })),
-    staff: staff.map((r) => ({ id: r._id, name: r.name })),
+    staff: staff.map((r) => ({ id: r._id, name: r.name, color: r.color || null, photo: r.photo || null })),
   });
 });
 

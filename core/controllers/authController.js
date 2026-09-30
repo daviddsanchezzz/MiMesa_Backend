@@ -3,6 +3,9 @@ const BusinessMember = require('../models/BusinessMember');
 const { isDev } = require('../middleware/requireDev');
 const { getAllModuleAccess, serializeCapabilities } = require('../lib/planCapabilities');
 const { isValidTimezone } = require('../lib/timezone');
+const { checkImageDataUrl, decodeImageDataUrl, businessLogoUrl: logoUrl } = require('../lib/images');
+
+const MAX_LOGO_CHARS = 300 * 1024;
 const {
   serializeBusinessExtensions,
   applyBusinessExtensionUpdates,
@@ -12,6 +15,7 @@ const {
 const businessData = (b) => ({
   id: b._id, name: b.name, email: b.email,
   phone: b.phone, address: b.address, cif: b.cif, brandColor: b.brandColor,
+  logoUrl: logoUrl(b),
   timezone: b.timezone || 'Europe/Madrid',
   businessType: b.businessType || 'restaurant',
   ...serializeBusinessExtensions(b),
@@ -113,6 +117,20 @@ exports.getPublicBusiness = async (req, res) => {
   }
 };
 
+exports.getBusinessLogo = async (req, res) => {
+  try {
+    const business = await Business.findById(req.params.id).select('+logo').lean();
+    const image = decodeImageDataUrl(business?.logo);
+    if (!image) return res.status(404).json({ message: 'Sin logo' });
+    res.set('Content-Type', image.contentType);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable'); // the URL changes with each new logo
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(image.buffer);
+  } catch {
+    res.status(404).json({ message: 'Sin logo' });
+  }
+};
+
 exports.updateBusinessSettings = async (req, res) => {
   try {
     const { brandColor, name, phone, address, email, cif } = req.body;
@@ -122,6 +140,12 @@ exports.updateBusinessSettings = async (req, res) => {
     if (address !== undefined) updateData.address = String(address).trim();
     if (cif !== undefined) updateData.cif = String(cif).trim();
     if (brandColor !== undefined) updateData.brandColor = brandColor;
+    if (req.body.logo !== undefined) {
+      const logo = checkImageDataUrl(req.body.logo, { label: 'El logo', maxChars: MAX_LOGO_CHARS });
+      if (logo.error) return res.status(400).json({ message: logo.error });
+      updateData.logo = logo.value;
+      updateData.logoUpdatedAt = logo.value ? new Date() : null;
+    }
     applyBusinessExtensionUpdates(req.body, updateData);
     if (req.body.timezone !== undefined) {
       if (!isValidTimezone(req.body.timezone)) return res.status(400).json({ message: 'Zona horaria no valida' });
@@ -139,11 +163,8 @@ exports.updateBusinessSettings = async (req, res) => {
       updateData.email = normalizedEmail;
     }
 
-    const business = await Business.findByIdAndUpdate(
-      req.businessId,
-      updateData,
-      { new: true, runValidators: true }
-    ).select('-password');
+    await Business.updateOne({ _id: req.businessId }, updateData, { runValidators: true });
+    const business = await Business.findById(req.businessId).select('-password');
     if (!business) return res.status(404).json({ message: 'Business not found' });
     res.json(businessData(business));
   } catch (err) {

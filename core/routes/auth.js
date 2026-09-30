@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { me, getPublicBusiness, updateBusinessSettings } = require('../controllers/authController');
+const { me, getPublicBusiness, getBusinessLogo, updateBusinessSettings } = require('../controllers/authController');
 const requireAuth    = require('../middleware/requireAuth');
 const requireSession = require('../middleware/requireSession');
 const requireRole    = require('../middleware/requireRole');
@@ -10,5 +10,6 @@ router.put('/settings', requireAuth, requireRole('manager'), updateBusinessSetti
 
 // Public route
 router.get('/public/business/:id', getPublicBusiness);
+router.get('/public/business/:id/logo', getBusinessLogo);
 
 module.exports = router;
