@@ -183,6 +183,8 @@ exports.getPublicInvitation = async (req, res) => {
       business: invitation.businessId
         ? { name: invitation.businessId.name, brandColor: invitation.businessId.brandColor }
         : null,
+      // Which legal documents this person must accept (owners also the DPA)
+      legal: { version: require('../lib/legal').LEGAL_VERSION, documents: require('../lib/legal').DOCUMENTS[invitation.role === 'owner' ? 'owner' : 'member'] },
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -203,6 +205,9 @@ exports.acceptInvitation = async (req, res) => {
       expiresAt: { $gt: new Date() },
     });
     if (!invitation) return res.status(404).json({ message: 'Invitación inválida o expirada' });
+    if (req.body?.acceptLegal !== true) {
+      return res.status(400).json({ message: 'Debes aceptar las condiciones de uso y la política de privacidad', code: 'LEGAL_REQUIRED' });
+    }
 
     // Find the registered user that owns this email
     const authUser = await AuthUser.findOne({ email: invitation.email.toLowerCase() }).lean();
@@ -227,6 +232,17 @@ exports.acceptInvitation = async (req, res) => {
         { upsert: true, new: true },
       );
     }
+
+    // Owner invited by Vetra: the business becomes theirs
+    if (invitation.type !== 'platform' && invitation.role === 'owner' && invitation.businessId) {
+      await Business.updateOne({ _id: invitation.businessId, ownerId: null }, { $set: { ownerId: canonicalUserId } });
+    }
+    // The invitation link reached their inbox: the email is verified.
+    await AuthUser.collection.updateOne({ email: invitation.email.toLowerCase() }, { $set: { emailVerified: true } });
+    await require('../services/legalService').recordAcceptance(req, {
+      userId: canonicalUserId, email: invitation.email, businessId: invitation.businessId || null,
+      role: invitation.type === 'platform' ? 'owner' : invitation.role, context: 'invitation',
+    });
 
     invitation.status = 'accepted';
     await invitation.save();

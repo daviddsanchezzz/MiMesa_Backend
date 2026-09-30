@@ -172,6 +172,14 @@ const BusinessMember = require('../models/BusinessMember');
     databaseHooks: {
       user: {
         create: {
+          // Invite-only mode: only people with a pending invitation (or Vetra devs) can sign up.
+          before: async (user) => {
+            const { canSignUp } = require('../services/signupGate');
+            if (!(await canSignUp(user.email))) {
+              const { APIError } = require('better-auth/api');
+              throw new APIError('FORBIDDEN', { message: 'Por ahora Vetra funciona por invitación. Solicita acceso y te preparamos tu cuenta.', code: 'INVITE_ONLY' });
+            }
+          },
           after: async (user) => {
             try {
               const Invitation = require('../models/Invitation');

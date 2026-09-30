@@ -74,8 +74,10 @@ describe('generic agenda (bookings module)', { skip }, () => {
 
   test('a new appointments business has the agenda on from the start', async () => {
     addUser({ id: 'salonOwner', email: 'salon@example.test' });
+    process.env.SIGNUP_MODE = 'open'; // self-service sign-up (invite-only is tested in onboarding.db.test.js)
     const created = await request(app).post('/api/businesses').set(as('salonOwner'))
-      .send({ name: 'Salón Nuevo', email: 'salon-nuevo@example.test', businessType: 'appointments' });
+      .send({ name: 'Salón Nuevo', email: 'salon-nuevo@example.test', businessType: 'appointments', acceptLegal: true });
+    delete process.env.SIGNUP_MODE;
     assert.equal(created.status, 201, JSON.stringify(created.body));
     assert.equal(created.body.businessType, 'appointments');
     const me = await request(app).get('/api/auth/me').set(as('salonOwner'));

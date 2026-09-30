@@ -20,6 +20,19 @@ exports.createBusiness = async (req, res) => {
     if (!name) return res.status(400).json({ message: 'El nombre del negocio es obligatorio' });
     if (!email) return res.status(400).json({ message: 'El email del negocio es obligatorio' });
     if (!BUSINESS_TYPES.includes(businessType)) return res.status(400).json({ message: 'Tipo de negocio no valido' });
+    if (req.body?.acceptLegal !== true) {
+      return res.status(400).json({ message: 'Debes aceptar las condiciones de uso, la política de privacidad y el contrato de encargo del tratamiento', code: 'LEGAL_REQUIRED' });
+    }
+    // Invite-only: new businesses are created by Vetra, except for people it invited to create theirs.
+    const { signupMode } = require('../lib/legal');
+    if (signupMode() !== 'open') {
+      const { isDev } = require('../middleware/requireDev');
+      const Invitation = require('../models/Invitation');
+      const invited = await Invitation.exists({ email: String(req.user.email || '').toLowerCase(), type: 'platform', status: 'accepted' });
+      if (!isDev(req.user.email) && !invited) {
+        return res.status(403).json({ message: 'Por ahora Vetra funciona por invitación. Solicita acceso y te preparamos tu negocio.', code: 'INVITE_ONLY' });
+      }
+    }
 
     const business = await Business.create({
       name,
@@ -38,6 +51,10 @@ exports.createBusiness = async (req, res) => {
       status:    'active',
       userName:  req.user.name || '',
       userEmail: req.user.email,
+    });
+
+    await require('../services/legalService').recordAcceptance(req, {
+      userId: req.user.id, email: req.user.email, businessId: business._id, role: 'owner', context: 'onboarding',
     });
 
     await sendNewBusinessOwnerNotification({

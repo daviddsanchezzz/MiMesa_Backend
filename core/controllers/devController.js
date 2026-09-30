@@ -25,12 +25,23 @@ exports.listBusinesses = async (req, res) => {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const enriched = await Promise.all(businesses.map(async (b) => {
-      const [memberCount, reservationsLast30d, totalReservations] = await Promise.all([
+      const Invitation = require('../models/Invitation');
+      const [memberCount, reservationsLast30d, totalReservations, owner, ownerInvite] = await Promise.all([
         BusinessMember.countDocuments({ businessId: b._id }),
         Reservation.countDocuments({ businessId: b._id, createdAt: { $gt: thirtyDaysAgo } }),
         Reservation.countDocuments({ businessId: b._id }),
+        BusinessMember.findOne({ businessId: b._id, role: 'owner', status: { $ne: 'invited' } }).select('userName userEmail').lean(),
+        Invitation.findOne({ businessId: b._id, role: 'owner' }).sort({ createdAt: -1 }).select('name email status expiresAt token').lean(),
       ]);
+      const inviteBase = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:3005').split(',')[0].trim().replace(/\/$/, '');
+      const pending = ownerInvite && ownerInvite.status === 'pending' && new Date(ownerInvite.expiresAt) > new Date();
       return {
+        businessType:       b.businessType || 'restaurant',
+        ownerStatus:        owner ? 'active' : pending ? 'invited' : ownerInvite ? 'expired' : 'none',
+        ownerName:          owner?.userName || ownerInvite?.name || '',
+        ownerEmail:         owner?.userEmail || ownerInvite?.email || '',
+        inviteLink:         pending ? `${inviteBase}/invite?token=${ownerInvite.token}` : null,
+        inviteExpiresAt:    pending ? ownerInvite.expiresAt : null,
         id:                 b._id,
         name:               b.name,
         email:              b.email,
@@ -387,3 +398,101 @@ exports.migrateMemberships = async (req, res) => {
   }
 };
 
+
+// ── New client: create the business, apply a template and invite the owner ──
+const OWNER_INVITE_DAYS = 14;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function sendOwnerInvitation(req, business, { name, email }) {
+  const Invitation = require('../models/Invitation');
+  const { Resend } = require('resend');
+  const { buildOwnerWelcomeEmail } = require('../services/accountEmails');
+  await Invitation.updateMany({ businessId: business._id, role: 'owner', status: 'pending' }, { status: 'canceled' });
+  const invitation = await Invitation.create({
+    name, email: email.toLowerCase(), businessId: business._id, role: 'owner', type: 'business',
+    invitedBy: req.user?.id, expiresAt: new Date(Date.now() + OWNER_INVITE_DAYS * 86400000),
+  });
+  const base = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:3005').split(',')[0].trim().replace(/\/$/, '');
+  const inviteLink = `${base}/invite?token=${invitation.token}`;
+  let emailed = false;
+  if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 'your_resend_api_key_here') {
+    const result = await sendTrackedEmail({
+      resend: new Resend(process.env.RESEND_API_KEY),
+      source: 'dev.owner_invitation',
+      metadata: { businessId: String(business._id), invitationId: String(invitation._id) },
+      payload: {
+        from: process.env.RESEND_FROM_INVITE || 'Vetra <onboarding@resend.dev>',
+        to: email,
+        replyTo: (process.env.DEV_EMAILS || '').split(',')[0].trim() || undefined,
+        ...buildOwnerWelcomeEmail({ name, businessName: business.name, url: inviteLink, expiresDays: OWNER_INVITE_DAYS }),
+      },
+    }).catch((err) => ({ error: err }));
+    emailed = !result?.error;
+  }
+  return { invitation, inviteLink, emailed };
+}
+
+exports.listTemplates = async (req, res) => {
+  res.json(require('../lib/businessTemplates').listTemplates());
+};
+
+exports.createClient = async (req, res) => {
+  try {
+    const { getTemplate } = require('../lib/businessTemplates');
+    const b = req.body?.business || {};
+    const o = req.body?.owner || {};
+    const name = String(b.name || '').trim();
+    const ownerName = String(o.name || '').trim();
+    const ownerEmail = String(o.email || '').trim().toLowerCase();
+    const businessType = b.businessType === 'appointments' ? 'appointments' : 'restaurant';
+    const plan = ['free', 'basic', 'pro'].includes(b.plan) ? b.plan : 'basic';
+    if (!name) return res.status(400).json({ message: 'El nombre del negocio es obligatorio' });
+    if (!ownerName || !EMAIL_RE.test(ownerEmail)) return res.status(400).json({ message: 'Indica el nombre y un email válido del dueño' });
+    const template = b.template ? getTemplate(b.template) : null;
+    if (b.template && !template) return res.status(400).json({ message: 'Plantilla no encontrada' });
+    if (template && template.businessType !== businessType) return res.status(400).json({ message: 'Esa plantilla es para otro tipo de negocio' });
+
+    const business = await Business.create({
+      name,
+      email: String(b.email || ownerEmail).trim().toLowerCase(),
+      phone: String(b.phone || '').trim(),
+      address: String(b.address || '').trim(),
+      businessType,
+      plan,
+      subscriptionStatus: plan === 'free' ? null : 'active',
+      timezone: 'Europe/Madrid',
+    });
+    if (template) {
+      try {
+        await template.apply(business, { ownerName });
+      } catch (err) {
+        console.error('[dev] template failed:', err.message);
+      }
+    }
+    const { inviteLink, emailed, invitation } = await sendOwnerInvitation(req, business, { name: ownerName, email: ownerEmail });
+    res.status(201).json({
+      id: business._id, name: business.name, businessType, plan, template: template?.key || null,
+      inviteLink, emailed, inviteExpiresAt: invitation.expiresAt,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.resendOwnerInvitation = async (req, res) => {
+  try {
+    const Invitation = require('../models/Invitation');
+    const business = await Business.findById(req.params.id);
+    if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
+    const hasOwner = await BusinessMember.exists({ businessId: business._id, role: 'owner', status: { $ne: 'invited' } });
+    if (hasOwner) return res.status(400).json({ message: 'Este negocio ya tiene dueño activo' });
+    const last = await Invitation.findOne({ businessId: business._id, role: 'owner' }).sort({ createdAt: -1 }).lean();
+    const name = String(req.body?.name || last?.name || '').trim();
+    const email = String(req.body?.email || last?.email || '').trim().toLowerCase();
+    if (!name || !EMAIL_RE.test(email)) return res.status(400).json({ message: 'Indica el nombre y el email del dueño' });
+    const { inviteLink, emailed, invitation } = await sendOwnerInvitation(req, business, { name, email });
+    res.json({ inviteLink, emailed, inviteExpiresAt: invitation.expiresAt });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

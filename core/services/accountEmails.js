@@ -74,6 +74,24 @@ function buildInvitationEmail({ name, businessName = '', role = 'staff', url, pl
   };
 }
 
+/** Vetra created the business for its owner: activate the account and it is ready. */
+function buildOwnerWelcomeEmail({ name, businessName, url, expiresDays = 14 }) {
+  const who = esc(d.firstName(name));
+  const biz = esc(businessName);
+  return {
+    subject: `Tu cuenta de Vetra para ${businessName} está lista`,
+    html: vetraEmail({
+      title: `${businessName} ya está en Vetra`,
+      preheader: 'Elige tu contraseña y empieza a usarlo hoy.',
+      content: `${d.h1(`Todo listo para ${businessName}`)}
+        ${d.p(`${who ? `Hola ${who}, hemos` : 'Hemos'} preparado <strong>${biz}</strong> en Vetra para que empieces a trabajar desde el primer día.`)}
+        ${d.p('Solo falta que actives tu cuenta: eliges tu contraseña, aceptas las condiciones y entras directamente a tu negocio.')}
+        ${d.buttons([{ href: url, label: 'Activar mi cuenta' }])}
+        ${d.small(`El enlace caduca en ${expiresDays} días. ¿Alguna duda? Responde a este email y te ayudamos.`)}`,
+    }),
+  };
+}
+
 /** A business's marketing email to one customer (text written by the business). */
 function buildCampaignEmail({ business, logoUrl = null, customerName, subject, body, unsubUrl }) {
   const brand = d.brandOf(business, { logoUrl });
@@ -92,4 +110,4 @@ function buildCampaignEmail({ business, logoUrl = null, customerName, subject, b
   });
 }
 
-module.exports = { buildVerifyEmail, buildResetPasswordEmail, buildInvitationEmail, buildCampaignEmail };
+module.exports = { buildVerifyEmail, buildResetPasswordEmail, buildInvitationEmail, buildOwnerWelcomeEmail, buildCampaignEmail };

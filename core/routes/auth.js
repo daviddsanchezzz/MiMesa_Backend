@@ -11,5 +11,10 @@ router.put('/settings', requireAuth, requireRole('manager'), updateBusinessSetti
 // Public route
 router.get('/public/business/:id', getPublicBusiness);
 router.get('/public/business/:id/logo', getBusinessLogo);
+// How people can join (the login/register pages adapt to it)
+router.get('/public/signup', (req, res) => {
+  const { signupMode, LEGAL_VERSION } = require('../lib/legal');
+  res.json({ mode: signupMode(), legalVersion: LEGAL_VERSION });
+});
 
 module.exports = router;
