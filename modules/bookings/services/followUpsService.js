@@ -13,6 +13,14 @@ const FollowUpSettings = require('../models/FollowUpSettings');
 const { BookingError } = require('../lib/errors');
 const { rebookTarget, reviewDue, REVIEW_MAX_AGE_HOURS, REVIEW_COOLDOWN_DAYS } = require('../lib/followUps');
 const { sendFollowUp } = require('./bookingEmails');
+const { canUseFeature, PLAN_FIELDS } = require('../../../core/lib/planCapabilities');
+
+// Follow-ups are a Pro feature: settings of businesses without it are skipped.
+async function withPlan(settings) {
+  const businesses = await Business.find({ _id: { $in: settings.map((s) => s.businessId) } }).select(PLAN_FIELDS).lean();
+  const ok = new Set(businesses.filter((b) => canUseFeature(b, 'followUps')).map((b) => String(b._id)));
+  return settings.filter((s) => ok.has(String(s.businessId)));
+}
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -78,7 +86,7 @@ async function customerFor(booking) {
 
 async function runReviewRequests(now = new Date()) {
   let sent = 0;
-  const all = await FollowUpSettings.find({ 'review.enabled': true, 'review.url': { $ne: '' } }).lean();
+  const all = await withPlan(await FollowUpSettings.find({ 'review.enabled': true, 'review.url': { $ne: '' } }).lean());
   for (const s of all) {
     const delay = s.review.delayHours || 3;
     const candidates = await Booking.find({
@@ -113,7 +121,7 @@ async function runReviewRequests(now = new Date()) {
 // ── "Te toca volver" ────────────────────────────────────────────────────────
 async function runRebookReminders(now = new Date()) {
   let sent = 0;
-  const all = await FollowUpSettings.find({ 'rebook.enabled': true }).lean();
+  const all = await withPlan(await FollowUpSettings.find({ 'rebook.enabled': true }).lean());
   for (const s of all) {
     const business = await Business.findById(s.businessId).select('timezone').lean();
     if (!business) continue;

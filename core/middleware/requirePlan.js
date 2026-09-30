@@ -9,16 +9,16 @@
  */
 
 const Business           = require('../models/Business');
-const { getCapabilities, upgradeMessage } = require('../lib/planCapabilities');
+const { getCapabilities, upgradeMessage, PLAN_FIELDS } = require('../lib/planCapabilities');
 
 function requirePlan(feature) {
   return async (req, res, next) => {
     try {
-      const business = await Business.findById(req.businessId).select('plan subscriptionStatus').lean();
+      const business = await Business.findById(req.businessId).select(PLAN_FIELDS).lean();
       if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
 
       const caps = getCapabilities(business);
-      if (!caps[feature]) {
+      if (!caps[feature] || caps[feature] === 0) {
         return res.status(403).json({
           message:         upgradeMessage(feature),
           feature,

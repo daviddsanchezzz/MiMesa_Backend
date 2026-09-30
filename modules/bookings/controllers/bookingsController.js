@@ -25,6 +25,7 @@ const { businessLogoUrl } = require('../../../core/lib/images');
 const absences = require('../services/absencesService');
 const followUps = require('../services/followUpsService');
 const policy = require('../services/policyService');
+const limits = require('../lib/planLimits');
 
 // Emails never block or fail the request; errors are logged inside.
 const later = (fn) => { Promise.resolve().then(fn).catch(() => {}); };
@@ -37,6 +38,7 @@ function handle(fn) {
       if (err instanceof BookingError) {
         return res.status(err.status).json({
           message: err.message, code: err.code, ...(err.reason ? { reason: err.reason } : {}), ...(err.bookings ? { bookings: err.bookings } : {}),
+          ...(err.upgradeRequired ? { upgradeRequired: true, feature: err.feature } : {}),
         });
       }
       if (err?.name === 'ValidationError' || err?.name === 'CastError') {
@@ -67,6 +69,7 @@ exports.listResources = handle(async (req, res) => {
 exports.createResource = handle(async (req, res) => {
   const data = v.resourceInput(req.body || {});
   if (data.parentId) await assertResourcesBelong(req.businessId, [data.parentId]);
+  if (data.kind === 'staff' && data.active !== false) await limits.assertCanAddProfessional(req.businessId, Resource);
   res.status(201).json(await Resource.create({ ...data, businessId: req.businessId }));
 });
 
@@ -74,6 +77,10 @@ exports.updateResource = handle(async (req, res) => {
   v.objectId(req.params.id, 'id');
   const data = v.resourceInput(req.body || {}, { partial: true });
   if (data.parentId) await assertResourcesBelong(req.businessId, [data.parentId]);
+  if (data.active === true) {
+    const current = await Resource.findOne({ _id: req.params.id, businessId: req.businessId }).select('kind active').lean();
+    if (current?.kind === 'staff' && !current.active) await limits.assertCanAddProfessional(req.businessId, Resource, { excludeId: req.params.id });
+  }
   if (data.userId) {
     const member = await BusinessMember.exists({ businessId: req.businessId, userId: data.userId, status: { $ne: 'invited' } });
     if (!member) throw new BookingError(400, 'Ese usuario no es del equipo de este negocio', 'BAD_REQUEST');
@@ -278,6 +285,7 @@ exports.getBooking = handle(async (req, res) => {
 exports.createBooking = handle(async (req, res) => {
   const input = v.bookingInput(req.body || {}, { online: false });
   const source = ['phone', 'walk_in', 'staff'].includes(req.body?.source) ? req.body.source : 'staff';
+  await limits.assertBookingQuota(req.businessId, Booking, { online: false });
   const booking = await svc.createBooking({
     businessId: req.businessId, ...input, online: false, source, userId: req.user?.id || null,
   });
@@ -447,7 +455,12 @@ exports.publicCatalog = handle(async (req, res) => {
     businessId: business._id, active: true, bookableOnline: { $ne: false }, kind: 'staff',
     ...(anyStaffKinds ? {} : { _id: { $in: [...choosableIds] } }),
   }).select('name kind color photo').sort({ sortOrder: 1, name: 1 }).lean();
-  const rules = await policy.getPolicy(business._id);
+  const [rules, caps, activeStaff] = await Promise.all([
+    policy.getPolicy(business._id),
+    limits.capsFor(business._id),
+    Resource.find({ businessId: business._id, kind: 'staff', active: true }).select('kind active sortOrder createdAt').lean(),
+  ]);
+  const locked = limits.lockedStaff(activeStaff, caps);
   res.json({
     business: { id: business._id, name: business.name, phone: business.phone, address: business.address, brandColor: business.brandColor, logoUrl: businessLogoUrl(business), timezone: businessTimezone(business) },
     policy: { changeMinHours: rules.changeMinHours, allowReschedule: rules.allowReschedule, note: rules.note },
@@ -458,7 +471,7 @@ exports.publicCatalog = handle(async (req, res) => {
         ? (s.requirements.find((r) => r.kind === 'staff' && r.customerCanChoose).resourceIds || []).map(String)
         : null,
     })),
-    staff: staff.map((r) => ({ id: r._id, name: r.name, color: r.color || null, photo: r.photo || null })),
+    staff: staff.filter((r) => !locked.has(String(r._id))).map((r) => ({ id: r._id, name: r.name, color: r.color || null, photo: r.photo || null })),
   });
 });
 
@@ -490,6 +503,7 @@ exports.publicCreateBooking = handle(async (req, res) => {
   const business = await publicBusiness(req.params.businessId);
   if (req.body?.consent !== true) throw new BookingError(400, 'Debes aceptar la política de privacidad', 'BAD_REQUEST');
   const input = v.bookingInput(req.body || {}, { online: true });
+  await limits.assertBookingQuota(business._id, Booking, { online: true });
   const booking = await svc.createBooking({ businessId: business._id, ...input, online: true, source: 'online' });
   later(() => emails.sendBookingConfirmation(booking));
   later(() => emails.notifyStaffNewBooking(booking));
@@ -644,9 +658,13 @@ exports.savePolicy = handle(async (req, res) => {
 
 // ── Follow-up emails (te toca volver, pedir opinión) ────────────────────────
 exports.getFollowUps = handle(async (req, res) => {
-  res.json(await followUps.getSettings(req.businessId));
+  const caps = await limits.capsFor(req.businessId);
+  res.json({ ...(await followUps.getSettings(req.businessId)), available: !!caps.followUps });
 });
 
 exports.saveFollowUps = handle(async (req, res) => {
-  res.json(await followUps.saveSettings(req.businessId, req.body || {}));
+  const turningOn = req.body?.rebook?.enabled === true || req.body?.review?.enabled === true;
+  if (turningOn) await limits.assertFeature(req.businessId, 'followUps', '«Te toca volver» y las reseñas automáticas están en el plan Pro.');
+  const caps = await limits.capsFor(req.businessId);
+  res.json({ ...(await followUps.saveSettings(req.businessId, req.body || {})), available: !!caps.followUps });
 });

@@ -10,6 +10,8 @@
 const Booking = require('../models/Booking');
 const { registerJob } = require('../../../core/services/scheduler');
 const { sendBookingReminder } = require('../services/bookingEmails');
+const Business = require('../../../core/models/Business');
+const { canUseFeature, PLAN_FIELDS } = require('../../../core/lib/planCapabilities');
 
 const HOUR = 60 * 60 * 1000;
 const REMINDER_WINDOW = 24 * HOUR;      // remind when the appointment is at most 24h away
@@ -22,10 +24,20 @@ async function runBookingReminders(now = new Date()) {
     reminderSentAt: null,
     guestEmail: { $nin: [null, ''] },
     start: { $gt: now, $lte: new Date(now.getTime() + REMINDER_WINDOW) },
-  }).select('_id start createdAt').limit(BATCH).lean();
+  }).select('_id start createdAt businessId').limit(BATCH).lean();
+
+  // Reminders come with the paid plans (and for businesses from before the limits).
+  const bizIds = [...new Set(candidates.map((c) => String(c.businessId)))];
+  const businesses = await Business.find({ _id: { $in: bizIds } }).select(PLAN_FIELDS).lean();
+  const allowed = new Set(businesses.filter((b) => canUseFeature(b, 'bookingReminders')).map((b) => String(b._id)));
 
   let sent = 0;
   for (const c of candidates) {
+    if (!allowed.has(String(c.businessId))) {
+      // Not in the plan: mark as handled so it isn't looked at every run.
+      await Booking.updateOne({ _id: c._id, reminderSentAt: null }, { $set: { reminderSentAt: new Date(0) } });
+      continue;
+    }
     if (c.start.getTime() - new Date(c.createdAt).getTime() < REMINDER_MIN_LEAD) {
       // Booked at the last minute: mark as handled so we don't look at it again.
       await Booking.updateOne({ _id: c._id, reminderSentAt: null }, { $set: { reminderSentAt: new Date(0) } });

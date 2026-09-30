@@ -34,6 +34,9 @@ const businessSchema = new mongoose.Schema({
   // Mirrors Stripe subscription status: active | trialing | past_due | canceled | incomplete | null
   subscriptionStatus:   { type: String, default: null },
   trialEndsAt:          { type: Date,    default: null },
+  // Created before the appointment plan limits: keeps team, reminders and
+  // follow-ups whatever the plan (see planCapabilities.LEGACY_APPOINTMENT_ACCESS).
+  legacyAccess:         { type: Boolean, default: false },
   currentPeriodStart:   { type: Date,    default: null },
   currentPeriodEnd:     { type: Date,    default: null },
   cancelAtPeriodEnd:    { type: Boolean, default: false },

@@ -25,6 +25,9 @@ process.on('uncaughtException', (err) => {
 async function start() {
   await connectDB();
   require('./core/services/businessSlugs').ensureBusinessSlugs().catch((err) => console.error('[slugs] backfill failed:', err.message));
+  // Must finish before traffic: existing businesses keep what they use today.
+  await require('./core/services/planLimitsMigration').ensurePlanLimitsMigration()
+    .catch((err) => console.error('[plans] legacy access migration failed:', err.message));
   const mongoClient = await getMongoClient();
   const { toNodeHandler } = require('better-auth/node');
   const auth = initAuth(mongoClient);

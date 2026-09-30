@@ -18,6 +18,8 @@ const { createContext, evaluateStart, findSlots } = require('../lib/availability
 const { cellsFor, isAligned } = require('../lib/occupancy');
 const { toMinutes, addDaysToDate } = require('../lib/schedule');
 const { BookingError } = require('../lib/errors');
+const { getCapabilities, PLAN_FIELDS } = require('../../../core/lib/planCapabilities');
+const { lockedStaff } = require('../lib/planLimits');
 
 // Statuses whose segments keep their resources busy.
 const ACTIVE_STATUSES = ['pending', 'confirmed', 'checked_in', 'completed'];
@@ -37,14 +39,17 @@ const REASON_MESSAGES = {
 };
 
 async function loadEngineData(businessId, services, fromDate, toDate, { excludeBookingId = null } = {}) {
-  const business = await Business.findById(businessId).select('timezone').lean();
+  const business = await Business.findById(businessId).select(`timezone ${PLAN_FIELDS}`).lean();
   if (!business) throw new BookingError(404, 'Negocio no encontrado', 'NOT_FOUND');
   const timezone = businessTimezone(business);
 
-  const [resources, schedules] = await Promise.all([
+  const [allResources, schedules] = await Promise.all([
     Resource.find({ businessId, active: true }).lean(),
     Schedule.find({ businessId }).lean(),
   ]);
+  // Professionals over the plan limit (after a downgrade) take no new appointments.
+  const locked = lockedStaff(allResources, getCapabilities(business));
+  const resources = locked.size ? allResources.filter((r) => !locked.has(String(r._id))) : allResources;
   const businessSchedule = schedules.find((s) => s.ownerType === 'business') || null;
   const resourceSchedules = {};
   for (const s of schedules) if (s.ownerType === 'resource') resourceSchedules[String(s.ownerId)] = s;

@@ -26,6 +26,11 @@ const PLANS = {
     noShowTracking: false,
     dataExport: false,
     reservationPayments: false,
+    // Appointments (bookings module)
+    maxProfessionals: 1,
+    maxBookingsPerMonth: 30,
+    bookingReminders: false,
+    followUps: false,
     modulesAllowed: {
       staff: false,
       expenses: false,
@@ -56,6 +61,11 @@ const PLANS = {
     noShowTracking: true,
     dataExport: true,
     reservationPayments: false,
+    // Appointments: everything one person needs to run the business
+    maxProfessionals: 1,
+    maxBookingsPerMonth: Infinity,
+    bookingReminders: true,
+    followUps: false,
     modulesAllowed: {
       staff: false,
       expenses: false,
@@ -86,6 +96,11 @@ const PLANS = {
     noShowTracking: true,
     dataExport: true,
     reservationPayments: true,
+    // Appointments: a team, and Vetra working for you
+    maxProfessionals: Infinity,
+    maxBookingsPerMonth: Infinity,
+    bookingReminders: true,
+    followUps: true,
     modulesAllowed: {
       staff: true,
       expenses: true,
@@ -109,9 +124,22 @@ function getEffectivePlan(business) {
   return 'free';
 }
 
+// Appointment features that businesses created before the plan limits keep
+// (Business.legacyAccess), so nobody loses what they already use.
+const LEGACY_APPOINTMENT_ACCESS = {
+  maxProfessionals: Infinity,
+  maxBookingsPerMonth: Infinity,
+  bookingReminders: true,
+  followUps: true,
+};
+
+// Business fields getCapabilities needs (for .select()).
+const PLAN_FIELDS = 'plan subscriptionStatus legacyAccess';
+
 function getCapabilities(business) {
   const effectivePlan = getEffectivePlan(business);
-  return PLANS[effectivePlan] ?? PLANS.free;
+  const caps = PLANS[effectivePlan] ?? PLANS.free;
+  return business?.legacyAccess ? { ...caps, ...LEGACY_APPOINTMENT_ACCESS } : caps;
 }
 
 // JSON-safe view of the plan capabilities for the client: Infinity becomes null (= unlimited).
@@ -195,6 +223,7 @@ function markLockedEntities(docs, maxCount) {
 
 module.exports = {
   PLANS,
+  PLAN_FIELDS,
   getEffectivePlan,
   getCapabilities,
   serializeCapabilities,

@@ -53,7 +53,7 @@ describe('generic agenda (bookings module)', { skip }, () => {
     await Occupancy.init(); // make sure the unique index exists before racing
 
     biz = await Business.create({
-      name: 'Peluquería Test', email: 'pelu@example.test', plan: 'basic', subscriptionStatus: 'active',
+      name: 'Peluquería Test', email: 'pelu@example.test', plan: 'pro', subscriptionStatus: 'active',
       timezone: 'Europe/Madrid', moduleOverrides: { bookings: { enabled: true } },
     });
     other = await Business.create({ name: 'Sin agenda', email: 'other@example.test', plan: 'pro', subscriptionStatus: 'active' });
@@ -509,7 +509,7 @@ describe('generic agenda (bookings module)', { skip }, () => {
     res = await request(app).get(`/api/revenue/dashboard?from=${today}&to=${today}`).set(as('owner'));
     assert.equal(res.body.days.find((d) => d.date === today).actualRevenue, 99);
     res = await request(app).get('/api/categories').set(as('owner'));
-    await Business.updateOne({ _id: biz._id }, { businessType: 'restaurant', plan: 'basic' });
+    await Business.updateOne({ _id: biz._id }, { businessType: 'restaurant', plan: 'pro' });
   });
 
   test('team: pay per professional, payments and finance salaries', async () => {
@@ -534,7 +534,7 @@ describe('generic agenda (bookings module)', { skip }, () => {
     assert.equal((await request(app).get(`/api/bookings/team?from=${monthStart}&to=${today}`).set(as('staff'))).status, 403);
     res = await request(app).get(`/api/revenue/dashboard?from=${monthStart}&to=${today}`).set(as('owner'));
     assert.ok(res.body.expensesByCategory.find((c) => c.category === 'staff').amount > 0, 'salaries count as expense');
-    await Business.updateOne({ _id: biz._id }, { businessType: 'restaurant', plan: 'basic' });
+    await Business.updateOne({ _id: biz._id }, { businessType: 'restaurant', plan: 'pro' });
   });
 
   test('link an app user to a professional (Mi agenda)', async () => {

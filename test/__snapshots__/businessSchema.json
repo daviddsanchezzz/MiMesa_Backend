@@ -48,6 +48,10 @@
     "unique": true,
     "lowercase": true
   },
+  "legacyAccess": {
+    "instance": "Boolean",
+    "default": false
+  },
   "logo": {
     "instance": "String",
     "default": null,
