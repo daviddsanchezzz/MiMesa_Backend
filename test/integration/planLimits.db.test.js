@@ -217,6 +217,12 @@ describe('appointment plan limits', { skip }, () => {
     const calls = [];
     const original = stripe.setQuantity;
     stripe.setQuantity = async (sub, q) => { calls.push([sub, q]); return {}; };
+    const { syncSeats: syncOff, quantityFor: qOff } = require(path.join(ROOT, 'core/services/billingSeats'));
+    delete process.env.STRIPE_PRO_PER_PROFESSIONAL;
+    const pro = await Business.findOne({ email: 'pro1@example.test' }).lean();
+    assert.equal(await qOff({ ...pro, businessType: 'appointments' }, 'pro'), 1, 'flat Pro price: always 1 until the graduated price is set');
+    assert.equal(await syncOff(pro._id), null);
+    process.env.STRIPE_PRO_PER_PROFESSIONAL = 'true';
     try {
       const b = await Business.findOne({ email: 'pro1@example.test' });
       await Business.updateOne({ _id: b._id }, { stripeSubscriptionId: 'sub_pro1', subscriptionStatus: 'active', plan: 'pro' });
@@ -237,6 +243,7 @@ describe('appointment plan limits', { skip }, () => {
       assert.equal(calls.length, 0);
     } finally {
       stripe.setQuantity = original;
+      delete process.env.STRIPE_PRO_PER_PROFESSIONAL;
     }
   });
 });

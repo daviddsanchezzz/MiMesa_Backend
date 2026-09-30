@@ -17,9 +17,15 @@ async function seatsFor(business) {
   return Math.max(1, await counter(business._id));
 }
 
+// Only once STRIPE_PRICE_PRO is the graduated price (39,99 € up to 3, then 5 €
+// per unit). With a flat price a quantity > 1 would multiply the whole fee.
+function perProfessionalBilling() {
+  return process.env.STRIPE_PRO_PER_PROFESSIONAL === 'true';
+}
+
 /** Subscription quantity for a plan. */
 async function quantityFor(business, plan) {
-  return plan === 'pro' ? seatsFor(business) : 1;
+  return plan === 'pro' && perProfessionalBilling() ? seatsFor(business) : 1;
 }
 
 /**
@@ -28,6 +34,7 @@ async function quantityFor(business, plan) {
  */
 async function syncSeats(businessId) {
   try {
+    if (!perProfessionalBilling()) return null;
     const business = await Business.findById(businessId)
       .select('businessType plan subscriptionStatus stripeSubscriptionId').lean();
     if (!business?.stripeSubscriptionId || business.plan !== 'pro') return null;
@@ -43,5 +50,5 @@ async function syncSeats(businessId) {
 
 module.exports = {
   PRO_INCLUDED_PROFESSIONALS, PRO_EXTRA_PROFESSIONAL_CENTS,
-  registerSeatCounter, seatsFor, quantityFor, syncSeats,
+  registerSeatCounter, seatsFor, quantityFor, syncSeats, perProfessionalBilling,
 };
