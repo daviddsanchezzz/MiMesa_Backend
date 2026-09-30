@@ -10,7 +10,7 @@ describe('planCapabilities', () => {
   test('paid plan only counts while active or trialing', () => {
     assert.equal(plans.getEffectivePlan(biz('pro', 'active')), 'pro');
     assert.equal(plans.getEffectivePlan(biz('basic', 'trialing')), 'basic');
-    assert.equal(plans.getEffectivePlan(biz('pro', 'past_due')), 'free');
+    assert.equal(plans.getEffectivePlan(biz('pro', 'past_due')), 'free', 'past_due without a recorded failure date: no grace');
     assert.equal(plans.getEffectivePlan(biz('pro', 'canceled')), 'free');
     assert.equal(plans.getEffectivePlan(biz('pro', null)), 'free');
     assert.equal(plans.getEffectivePlan(biz('enterprise', 'active')), 'free');
@@ -83,4 +83,28 @@ describe('planCapabilities', () => {
     const doc = { toObject: () => ({ n: 9 }) };
     assert.deepEqual(plans.markLockedEntities([doc], 5), [{ n: 9, isLocked: false }]);
   });
+});
+
+// ── Failed payment: plan kept while Stripe retries ──────────────────────────
+const { test: t2 } = require('node:test');
+const assert2 = require('node:assert/strict');
+const caps2 = require('../helpers/load').load('core/lib/planCapabilities');
+
+t2('past_due keeps the plan for the grace period, then drops to free', () => {
+  const day = 24 * 60 * 60 * 1000;
+  const recent = { plan: 'pro', subscriptionStatus: 'past_due', paymentFailedAt: new Date(Date.now() - 3 * day) };
+  const old = { plan: 'pro', subscriptionStatus: 'past_due', paymentFailedAt: new Date(Date.now() - (caps2.PAYMENT_GRACE_DAYS + 1) * day) };
+  assert2.equal(caps2.getEffectivePlan(recent), 'pro');
+  assert2.equal(caps2.getEffectivePlan(old), 'free');
+  assert2.equal(caps2.getEffectivePlan({ plan: 'basic', subscriptionStatus: 'canceled', paymentFailedAt: null }), 'free');
+});
+
+t2('payment failed email: grace date and link to update the card', () => {
+  const { buildPaymentFailedEmail } = require('../helpers/load').load('core/services/billingEmails');
+  const { subject, html } = buildPaymentFailedEmail({ name: 'Salón <b>Luz</b>' }, { amount: 3900, now: new Date('2026-10-01T10:00:00Z') });
+  assert2.match(subject, /No hemos podido cobrar/);
+  assert2.match(html, /15 de octubre/);
+  assert2.match(html, /39,00 €/);
+  assert2.match(html, /configuracion\?tab=suscripcion/);
+  assert2.ok(!html.includes('<b>Luz</b>'), 'business name escaped');
 });

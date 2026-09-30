@@ -115,10 +115,20 @@ const PLANS = {
 // 'bookings' is the new generic agenda, enabled only for pilot businesses.
 const OPT_IN_MODULES = new Set(['thefork', 'bookings']);
 
+// Days a business keeps its plan after a failed charge, while Stripe retries.
+const PAYMENT_GRACE_DAYS = 14;
+
+function inPaymentGrace(business, now = new Date()) {
+  if (business?.subscriptionStatus !== 'past_due') return false;
+  const since = business.paymentFailedAt ? new Date(business.paymentFailedAt) : null;
+  if (!since) return false; // failed before we recorded when: as before, no grace
+  return now.getTime() - since.getTime() < PAYMENT_GRACE_DAYS * 24 * 60 * 60 * 1000;
+}
+
 function getEffectivePlan(business) {
   const { plan, subscriptionStatus } = business;
   const activeStatuses = ['active', 'trialing'];
-  if ((plan === 'basic' || plan === 'pro') && activeStatuses.includes(subscriptionStatus)) {
+  if ((plan === 'basic' || plan === 'pro') && (activeStatuses.includes(subscriptionStatus) || inPaymentGrace(business))) {
     return plan;
   }
   return 'free';
@@ -134,7 +144,7 @@ const LEGACY_APPOINTMENT_ACCESS = {
 };
 
 // Business fields getCapabilities needs (for .select()).
-const PLAN_FIELDS = 'plan subscriptionStatus legacyAccess';
+const PLAN_FIELDS = 'plan subscriptionStatus legacyAccess paymentFailedAt';
 
 function getCapabilities(business) {
   const effectivePlan = getEffectivePlan(business);
@@ -224,6 +234,8 @@ function markLockedEntities(docs, maxCount) {
 module.exports = {
   PLANS,
   PLAN_FIELDS,
+  PAYMENT_GRACE_DAYS,
+  inPaymentGrace,
   getEffectivePlan,
   getCapabilities,
   serializeCapabilities,

@@ -93,6 +93,10 @@
     "required": false,
     "default": null
   },
+  "paymentFailedAt": {
+    "instance": "Date",
+    "default": null
+  },
   "phone": {
     "instance": "String",
     "default": ""

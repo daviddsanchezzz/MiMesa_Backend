@@ -96,7 +96,7 @@ describe('business settings endpoints', () => {
       'id', 'name', 'email', 'slug', 'publicUrl', 'phone', 'address', 'cif', 'brandColor', 'logoUrl', 'timezone', 'businessType',
       'maxReservationPeople', 'maxPeoplePerSlot', 'reservationDuration', 'minBookingNoticeHours',
       'requireApprovalAbove', 'reminderHoursBefore',
-      'plan', 'subscriptionStatus', 'trialEndsAt', 'currentPeriodEnd', 'cancelAtPeriodEnd', 'capabilities', 'modules',
+      'plan', 'subscriptionStatus', 'trialEndsAt', 'currentPeriodEnd', 'cancelAtPeriodEnd', 'paymentFailedAt', 'capabilities', 'modules',
     ]);
     assert.equal(b.maxReservationPeople, 12);
     assert.equal(b.maxPeoplePerSlot, null);

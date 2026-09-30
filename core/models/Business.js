@@ -42,6 +42,9 @@ const businessSchema = new mongoose.Schema({
   cancelAtPeriodEnd:    { type: Boolean, default: false },
   // Timestamp (Stripe event.created) of the last billing event applied; guards against out-of-order webhooks
   stripeEventAt:        { type: Date,    default: null },
+  // First failed charge of the current unpaid episode (null when paid): the plan
+  // is kept for PAYMENT_GRACE_DAYS while Stripe retries.
+  paymentFailedAt:      { type: Date,    default: null },
 
   // ── Stripe Connect (pagos de clientes al restaurante) ────────────────────
   stripeConnectId:      { type: String, default: null },

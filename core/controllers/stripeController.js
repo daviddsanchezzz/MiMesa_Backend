@@ -269,6 +269,7 @@ async function handleEvent(event) {
       }
       if (['active', 'trialing'].includes(subscription.status)) {
         update.plan = plan;
+        update.paymentFailedAt = null;
       }
 
       await applyBillingUpdate(businessId, update, event);
@@ -286,7 +287,7 @@ async function handleEvent(event) {
       const priceId = subscriptionLine?.price?.id ?? invoice.lines?.data?.[0]?.price?.id;
       const plan = stripeService.planFromPriceId(priceId);
 
-      const update = { subscriptionStatus: 'active', plan };
+      const update = { subscriptionStatus: 'active', plan, paymentFailedAt: null };
       if (subscriptionLine?.period?.end) {
         update.currentPeriodEnd = new Date(subscriptionLine.period.end * 1000);
         update.currentPeriodStart = new Date((subscriptionLine.period.start ?? invoice.period_start) * 1000);
@@ -304,6 +305,14 @@ async function handleEvent(event) {
       if (!businessId) break;
 
       await applyBillingUpdate(businessId, { subscriptionStatus: 'past_due' }, event);
+      // Start of an unpaid episode: remember when, and tell the owner once.
+      const first = await Business.findOneAndUpdate(
+        { _id: businessId, paymentFailedAt: null }, { $set: { paymentFailedAt: new Date() } }, { new: true },
+      ).lean();
+      if (first) {
+        require('../services/billingEmails').sendPaymentFailed(first, invoice)
+          .catch((err) => console.error('[stripe] payment failed email:', err.message));
+      }
       break;
     }
 
@@ -319,6 +328,7 @@ async function handleEvent(event) {
         cancelAtPeriodEnd: false,
         trialEndsAt: null,
         currentPeriodEnd: null,
+        paymentFailedAt: null,
       }, event);
       break;
     }

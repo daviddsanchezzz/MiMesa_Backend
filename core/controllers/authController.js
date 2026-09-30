@@ -29,6 +29,7 @@ const businessData = (b) => ({
   trialEndsAt:        b.trialEndsAt        ?? null,
   currentPeriodEnd:   b.currentPeriodEnd   ?? null,
   cancelAtPeriodEnd:  b.cancelAtPeriodEnd  ?? false,
+  paymentFailedAt:    b.paymentFailedAt ?? null,
   capabilities:       serializeCapabilities(b),
   modules:            getAllModuleAccess(b),
 });
