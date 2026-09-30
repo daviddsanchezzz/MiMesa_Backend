@@ -9,13 +9,11 @@
  */
 const { windowsForDate, intersect, addDaysToDate } = require('./schedule');
 const { localToUtc } = require('./availability');
+const { rhythm } = require('./customers');
 
 const DAY = 24 * 60 * 60 * 1000;
 const MIN = 60 * 1000;
 const CANCELLED = new Set(['cancelled', 'no_show']);
-const OVERDUE_MIN_DAYS = 21;
-const OVERDUE_SINGLE_VISIT_DAYS = 42;
-const OVERDUE_MAX_DAYS = 240; // older than this: probably lost, not "due"
 const MIN_GAP_MIN = 30;
 
 const idOf = (x) => String(x?._id ?? x);
@@ -219,13 +217,9 @@ function computeStats({ now, timezone: tz, staff = [], businessSchedule = null, 
   const overdue = [];
   for (const c of visits.values()) {
     if (c.future || !c.starts.length) continue;
-    const starts = c.starts.sort((a, b) => a - b);
-    const last = starts[starts.length - 1];
-    const since = (now - last) / DAY;
-    let expected = OVERDUE_SINGLE_VISIT_DAYS;
-    if (starts.length > 1) expected = Math.max(OVERDUE_MIN_DAYS, ((last - starts[0]) / DAY / (starts.length - 1)) * 1.2);
-    if (since >= expected && since <= OVERDUE_MAX_DAYS) {
-      overdue.push({ name: c.name, phone: c.phone, email: c.email, customerId: c.customerId, lastVisit: last, daysSince: Math.round(since), visits: starts.length });
+    const r = rhythm(c.starts, now);
+    if (r.dueBack) {
+      overdue.push({ name: c.name, phone: c.phone, email: c.email, customerId: c.customerId, lastVisit: r.lastVisit, daysSince: r.daysSince, visits: r.visits });
     }
   }
   overdue.sort((a, b) => b.visits - a.visits || a.daysSince - b.daysSince);

@@ -417,4 +417,20 @@ describe('generic agenda (bookings module)', { skip }, () => {
     const theirs = await request(app).get('/api/bookings/stats').set(as('otherOwner'));
     assert.deepEqual(theirs.body.team, [], 'another business only sees its own numbers');
   });
+
+  test('customer history: summary per customer and one customer file', async () => {
+    const Customer = require(path.join(ROOT, 'core/models/Customer'));
+    const c = await Customer.findOne({ businessId: biz._id, email: { $ne: '' } }).lean();
+    assert.ok(c, 'online bookings created customers');
+    let res = await request(app).get('/api/bookings/customers/summary').set(as('owner'));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(res.body[String(c._id)], 'summary keyed by customer id');
+    res = await request(app).get(`/api/bookings/customers/${c._id}`).set(as('owner'));
+    assert.equal(res.status, 200);
+    assert.ok(res.body.bookings.length >= 1);
+    assert.ok('dueBack' in res.body.summary);
+    assert.equal((await request(app).get('/api/bookings/customers/summary').set(as('staff'))).status, 403);
+    const other = await request(app).get(`/api/bookings/customers/${c._id}`).set(as('otherOwner'));
+    assert.deepEqual(other.body.bookings, [], 'another business sees nothing');
+  });
 });

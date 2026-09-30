@@ -15,6 +15,7 @@ const v = require('../lib/validation');
 const { BookingError } = require('../lib/errors');
 const emails = require('../services/bookingEmails');
 const { getDashboardStats } = require('../services/statsService');
+const { summarizeCustomer } = require('../lib/customers');
 const { businessLogoUrl } = require('../../../core/lib/images');
 
 // Emails never block or fail the request; errors are logged inside.
@@ -121,6 +122,34 @@ exports.deleteResource = handle(async (req, res) => {
 // ── Dashboard ───────────────────────────────────────────────────────────────
 exports.getStats = handle(async (req, res) => {
   res.json(await getDashboardStats(req.businessId));
+});
+
+// ── Customers (appointment history) ─────────────────────────────────────────
+const CUSTOMER_FIELDS = 'customerId status start end segments totalPrice source notes internalNotes guestName';
+
+// Visits, last/next appointment, spend and "due back" for every customer.
+exports.customersSummary = handle(async (req, res) => {
+  const since = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000);
+  const bookings = await Booking.find({ businessId: req.businessId, customerId: { $ne: null }, start: { $gte: since } })
+    .select(CUSTOMER_FIELDS).lean();
+  const byCustomer = new Map();
+  for (const b of bookings) {
+    const k = String(b.customerId);
+    if (!byCustomer.has(k)) byCustomer.set(k, []);
+    byCustomer.get(k).push(b);
+  }
+  const now = new Date();
+  const out = {};
+  for (const [id, list] of byCustomer) out[id] = summarizeCustomer(list, now);
+  res.json(out);
+});
+
+// One customer's appointments (newest first) and summary.
+exports.customerBookings = handle(async (req, res) => {
+  const customerId = v.objectId(req.params.customerId, 'customerId');
+  const bookings = await Booking.find({ businessId: req.businessId, customerId })
+    .select(CUSTOMER_FIELDS).sort({ start: -1 }).limit(500).lean();
+  res.json({ summary: summarizeCustomer(bookings), bookings });
 });
 
 // ── Services ────────────────────────────────────────────────────────────────

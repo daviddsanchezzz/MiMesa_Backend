@@ -34,6 +34,10 @@ router.delete('/schedule', requireRole('manager'), c.deleteSchedule);
 // Dashboard numbers (any member)
 router.get('/stats', c.getStats);
 
+// Customer history (manager+, like the customer list)
+router.get('/customers/summary', requireRole('manager'), c.customersSummary);
+router.get('/customers/:customerId', requireRole('manager'), c.customerBookings);
+
 // Day-to-day: any member can see the agenda and book
 router.get('/availability', c.getAvailability);
 router.get('/', c.listBookings);
