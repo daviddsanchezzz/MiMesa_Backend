@@ -496,3 +496,108 @@ exports.resendOwnerInvitation = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// ── GET /api/dev/overview ─────────────────────────────────────────────────
+// One call for the Vetra panel: every business with its team, owner/invitation
+// status and activity, plus accounts that belong to no business.
+exports.overview = async (req, res) => {
+  try {
+    const Invitation = require('../models/Invitation');
+    const db = mongoose.connection.db;
+    const DAY = 86400000;
+    const since30 = new Date(Date.now() - 30 * DAY);
+    const [businesses, members, users, invitations, sessions, resByBiz, res30ByBiz, bookByBiz, book30ByBiz] = await Promise.all([
+      Business.find().sort({ createdAt: -1 }).lean(),
+      BusinessMember.find().lean(),
+      AuthUser.find().lean(),
+      Invitation.find({ status: 'pending', expiresAt: { $gt: new Date() } }).sort({ createdAt: -1 }).lean(),
+      db.collection('session').find({}, { projection: { userId: 1, updatedAt: 1 } }).toArray(),
+      db.collection('reservations').aggregate([{ $group: { _id: '$businessId', n: { $sum: 1 } } }]).toArray(),
+      db.collection('reservations').aggregate([{ $match: { createdAt: { $gte: since30 } } }, { $group: { _id: '$businessId', n: { $sum: 1 } } }]).toArray(),
+      db.collection('bookings').aggregate([{ $group: { _id: '$businessId', n: { $sum: 1 } } }]).toArray(),
+      db.collection('bookings').aggregate([{ $match: { createdAt: { $gte: since30 } } }, { $group: { _id: '$businessId', n: { $sum: 1 } } }]).toArray(),
+    ]);
+    const count = (rows) => Object.fromEntries(rows.map((r) => [String(r._id), r.n]));
+    const [resTotal, res30, bookTotal, book30] = [count(resByBiz), count(res30ByBiz), count(bookByBiz), count(book30ByBiz)];
+    const lastSeen = {};
+    for (const s of sessions) {
+      const k = String(s.userId);
+      if (!lastSeen[k] || new Date(s.updatedAt) > new Date(lastSeen[k])) lastSeen[k] = s.updatedAt;
+    }
+    const userById = new Map();
+    for (const u of users) {
+      if (u.id) userById.set(String(u.id), u);
+      if (u._id) userById.set(String(u._id), u);
+    }
+    const devEmails = (process.env.DEV_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+    const inviteBase = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:3005').split(',')[0].trim().replace(/\/$/, '');
+
+    const out = businesses.map((b) => {
+      const id = String(b._id);
+      const team = members.filter((m) => String(m.businessId) === id && m.status !== 'invited').map((m) => {
+        const u = userById.get(String(m.userId));
+        return {
+          userId: String(m.userId), name: m.userName || u?.name || '', email: m.userEmail || u?.email || '',
+          role: m.role || 'staff', emailVerified: !!u?.emailVerified, lastSeenAt: lastSeen[String(m.userId)] || null, exists: !!u,
+        };
+      }).sort((x, y) => ({ owner: 0, manager: 1, staff: 2 }[x.role] ?? 3) - ({ owner: 0, manager: 1, staff: 2 }[y.role] ?? 3));
+      const ownerInvite = invitations.find((i) => String(i.businessId) === id && i.role === 'owner');
+      const owner = team.find((m) => m.role === 'owner');
+      const appointments = b.businessType === 'appointments';
+      const lastSeenAt = team.map((m) => m.lastSeenAt).filter(Boolean).sort().pop() || null;
+      return {
+        id,
+        name: b.name,
+        email: b.email || '',
+        phone: b.phone || '',
+        address: b.address || '',
+        businessType: b.businessType || 'restaurant',
+        plan: b.plan || 'free',
+        subscriptionStatus: b.subscriptionStatus || null,
+        createdAt: b.createdAt,
+        modules: MODULE_CATALOG.reduce((acc, m) => { acc[m.key] = getModuleAccess(b, m.key); return acc; }, {}),
+        owner: owner
+          ? { status: 'active', name: owner.name, email: owner.email }
+          : ownerInvite
+            ? { status: 'invited', name: ownerInvite.name, email: ownerInvite.email, inviteLink: `${inviteBase}/invite?token=${ownerInvite.token}`, expiresAt: ownerInvite.expiresAt }
+            : { status: 'none' },
+        team,
+        pendingInvites: invitations.filter((i) => String(i.businessId) === id && i.role !== 'owner').map((i) => ({ name: i.name, email: i.email, role: i.role })),
+        activity: {
+          unit: appointments ? 'citas' : 'reservas',
+          last30d: (appointments ? book30[id] : res30[id]) || 0,
+          total: (appointments ? bookTotal[id] : resTotal[id]) || 0,
+        },
+        lastSeenAt,
+      };
+    });
+
+    const withBusiness = new Set(members.map((m) => String(m.userId)));
+    const orphans = users
+      .filter((u) => !withBusiness.has(String(u.id || '')) && !withBusiness.has(String(u._id || '')))
+      .map((u) => ({
+        id: u.id || String(u._id), name: u.name || '', email: u.email || '', emailVerified: !!u.emailVerified,
+        isDev: devEmails.includes(String(u.email || '').toLowerCase()), createdAt: u.createdAt || null,
+        lastSeenAt: lastSeen[String(u.id || u._id)] || null,
+      }))
+      .sort((a, b) => Number(a.isDev) - Number(b.isDev));
+
+    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+    res.json({
+      stats: {
+        businesses: out.length,
+        active: out.filter((b) => b.owner.status === 'active').length,
+        pending: out.filter((b) => b.owner.status === 'invited').length,
+        paid: out.filter((b) => b.plan !== 'free').length,
+        activity30d: out.reduce((s, b) => s + b.activity.last30d, 0),
+        newThisMonth: out.filter((b) => new Date(b.createdAt) >= monthStart).length,
+        activeLast7d: out.filter((b) => b.lastSeenAt && new Date(b.lastSeenAt) > new Date(Date.now() - 7 * DAY)).length,
+      },
+      businesses: out,
+      orphans,
+      modules: MODULE_CATALOG,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

@@ -6,6 +6,7 @@ const c              = require('../controllers/devController');
 // All dev routes require a valid session AND dev email
 router.use(requireSession, requireDev);
 
+router.get('/overview',              c.overview);
 router.get('/businesses',            c.listBusinesses);
 router.get('/modules/catalog',       c.getModuleCatalog);
 router.get('/users',                 c.listUsers);
