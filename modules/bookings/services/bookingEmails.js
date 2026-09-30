@@ -2,6 +2,8 @@
  * Emails for appointments (bookings module):
  *  - to the customer: confirmation (or "request received" when the business
  *    must approve), 24h reminder, cancellation — all with the cancel link
+ *  - follow-ups (commercial, opt-out in every email): "te toca volver" and
+ *    "¿qué tal tu visita?" with the business's Google review link
  *  - to the business team: new online booking and online cancellation
  *
  * Every function is safe to call fire-and-forget: it never throws.
@@ -12,6 +14,8 @@ const { escapeHtml } = require('../../../core/lib/escapeHtml');
 const { businessTimezone } = require('../../../core/lib/timezone');
 const { fromBusiness, sendEmail, baseLayout, detailRow } = require('../../../core/services/emailKit');
 const { businessLogoUrl } = require('../../../core/lib/images');
+const Customer = require('../../../core/models/Customer');
+const crypto = require('crypto');
 
 const DEFAULT_ACCENT = '#7c3aed';
 
@@ -70,6 +74,32 @@ function contactBlock(business) {
   return `<p style="margin:16px 0 0;font-size:13px;color:#6b7280;">¿Dudas? Contacta con ${escapeHtml(business.name)}: ${parts.join(' · ')}</p>`;
 }
 
+// Legal notice + one-click opt-out (LSSI art. 21.2) for customer emails.
+function optOutBlock(business, optOutUrl, { followUp }) {
+  if (!optOutUrl) return '';
+  const biz = escapeHtml(business.name || '');
+  const text = followUp
+    ? `Te escribimos porque eres cliente de ${biz}. Si no quieres recibir más avisos como este,`
+    : `Como cliente de ${biz}, podemos avisarte de cuándo te toca volver o pedirte tu opinión después de la visita. Si no quieres recibir esos avisos,`;
+  return `<p style="margin:20px 0 0;padding-top:14px;border-top:1px solid #f3f4f6;font-size:11px;line-height:1.5;color:#9ca3af;">
+    ${text} <a href="${escapeHtml(optOutUrl)}" style="color:#6b7280;text-decoration:underline;">date de baja aquí</a>.
+  </p>`;
+}
+
+/** Opt-out link for a customer, creating their token the first time. */
+async function optOutUrlFor(customerId) {
+  if (!customerId) return null;
+  const c = await Customer.findById(customerId).select('unsubscribeToken marketingUnsubscribed').lean();
+  if (!c || c.marketingUnsubscribed) return null;
+  let token = c.unsubscribeToken;
+  if (!token) {
+    token = crypto.randomBytes(32).toString('hex');
+    await Customer.updateOne({ _id: customerId, unsubscribeToken: null }, { $set: { unsubscribeToken: token } });
+    token = (await Customer.findById(customerId).select('unsubscribeToken').lean())?.unsubscribeToken || token;
+  }
+  return `${appUrl()}/public/unsubscribe?token=${encodeURIComponent(token)}`;
+}
+
 async function loadBusiness(businessId) {
   return Business.findById(businessId).select('name email phone address brandColor logoUpdatedAt timezone').lean();
 }
@@ -78,7 +108,7 @@ async function loadBusiness(businessId) {
  * Builds a customer email. `kind`: confirmed | pending | reminder | cancelled.
  * Pure given its inputs (tested with fixed data).
  */
-function buildCustomerEmail(kind, { booking, business, staff }) {
+function buildCustomerEmail(kind, { booking, business, staff, optOutUrl = null }) {
   const tz = businessTimezone(business);
   const color = business.brandColor || DEFAULT_ACCENT;
   const { day, time } = whenText(booking.start, tz);
@@ -130,9 +160,57 @@ function buildCustomerEmail(kind, { booking, business, staff }) {
     ${detailsTable(rows)}
     ${action}
     ${contactBlock(business)}
+    ${['confirmed', 'pending'].includes(kind) ? optOutBlock(business, optOutUrl, { followUp: false }) : ''}
   `, copy.title);
 
   return { subject: copy.subject, html };
+}
+
+/**
+ * Follow-up emails. `kind`: rebook ("te toca volver") | review ("¿qué tal?").
+ * Pure given its inputs (tested with fixed data). Always carries the opt-out.
+ */
+function buildFollowUpEmail(kind, { business, name, service, staff, reviewUrl, bookUrl, optOutUrl }) {
+  const color = business.brandColor || DEFAULT_ACCENT;
+  const who = escapeHtml(name || '');
+  const biz = escapeHtml(business.name || '');
+  const logo = businessLogoUrl(business);
+  const head = logo ? `<img src="${escapeHtml(logo)}" alt="${biz}" style="display:block;max-height:56px;max-width:180px;margin:0 0 18px;border:0;" />` : '';
+  let subject; let title; let body;
+  if (kind === 'rebook') {
+    subject = `¿Te reservamos tu próxima cita? - ${business.name}`;
+    title = '¿Repetimos?';
+    body = `<p style="margin:0;font-size:15px;color:#111827;line-height:1.6;">Hola ${who}, ya ha pasado un tiempo desde tu última visita a <strong>${biz}</strong>${service ? ` (${escapeHtml(service)}${staff ? ` con ${escapeHtml(staff)}` : ''})` : ''}.</p>
+      <p style="margin:12px 0 0;font-size:15px;color:#111827;line-height:1.6;">Si te apetece repetir, puedes elegir día y hora en un momento:</p>
+      ${button(bookUrl, 'Reservar cita', color)}`;
+  } else {
+    subject = `¿Qué tal tu visita a ${business.name}?`;
+    title = '¿Qué tal fue?';
+    body = `<p style="margin:0;font-size:15px;color:#111827;line-height:1.6;">Hola ${who}, gracias por venir a <strong>${biz}</strong>.</p>
+      <p style="margin:12px 0 0;font-size:15px;color:#111827;line-height:1.6;">Tu opinión nos ayuda muchísimo. ¿Nos cuentas qué tal en Google? Solo es un minuto.</p>
+      ${button(reviewUrl, 'Dejar mi opinión', color)}`;
+  }
+  const html = baseLayout(color, `${head}${body}${contactBlock(business)}${optOutBlock(business, optOutUrl, { followUp: true })}`, title);
+  return { subject, html };
+}
+
+async function sendFollowUp(kind, { booking, customer, reviewUrl }) {
+  try {
+    const to = customer?.email || booking.guestEmail;
+    if (!emailEnabled() || !to) return false;
+    const [business, optOutUrl, staff] = await Promise.all([loadBusiness(booking.businessId), optOutUrlFor(customer?._id), staffNames(booking)]);
+    if (!business || !optOutUrl) return false; // no opt-out link, no commercial email
+    const { subject, html } = buildFollowUpEmail(kind, {
+      business, name: customer?.name || booking.guestName, service: booking.segments.map((s) => s.serviceName).join(' + '),
+      staff, reviewUrl, bookUrl: bookAgainUrl(booking), optOutUrl,
+    });
+    const result = await sendEmail({ from: fromBusiness(business.name), to, replyTo: business.email || undefined, subject, html },
+      `booking.followup_${kind}`, { businessId: String(booking.businessId), bookingId: String(booking._id) });
+    return !result?.error;
+  } catch (err) {
+    console.error(`[bookings] ${kind} follow-up email failed:`, err.message);
+    return false;
+  }
 }
 
 /** Email for the business team. `kind`: created | cancelled. */
@@ -182,7 +260,14 @@ async function sendToCustomer(kind, booking) {
     const business = await loadBusiness(booking.businessId);
     if (!business) return false;
     const staff = await staffNames(booking);
-    const { subject, html } = buildCustomerEmail(kind, { booking, business, staff });
+    // Tell customers about the follow-ups (and how to refuse them) when the business uses them
+    let optOutUrl = null;
+    if (['confirmed', 'pending'].includes(kind) && booking.customerId) {
+      const FollowUpSettings = require('../models/FollowUpSettings');
+      const fs = await FollowUpSettings.findOne({ businessId: booking.businessId }).lean();
+      if (fs?.rebook?.enabled || fs?.review?.enabled) optOutUrl = await optOutUrlFor(booking.customerId);
+    }
+    const { subject, html } = buildCustomerEmail(kind, { booking, business, staff, optOutUrl });
     const result = await sendEmail({ from: fromBusiness(business.name), to: booking.guestEmail, replyTo: business.email || undefined, subject, html },
       `booking.${kind}`, { businessId: String(booking.businessId), bookingId: String(booking._id) });
     return !result?.error;
@@ -211,6 +296,8 @@ async function sendToStaff(kind, booking) {
 module.exports = {
   buildCustomerEmail,
   buildStaffEmail,
+  buildFollowUpEmail,
+  sendFollowUp,
   // Customer
   sendBookingConfirmation: (b) => sendToCustomer(b.status === 'pending' ? 'pending' : 'confirmed', b),
   sendBookingReminder: (b) => sendToCustomer('reminder', b),

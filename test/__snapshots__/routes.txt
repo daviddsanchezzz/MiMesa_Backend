@@ -247,6 +247,8 @@ POST /api/bookings/team/:resourceId/payments  [requireRole("manager") > requireM
 GET /api/bookings/cash  [bookingsController.cashDay]
 POST /api/bookings/cash/close  [bookingsController.closeCash]
 DELETE /api/bookings/cash/close  [requireRole("manager") > bookingsController.reopenCash]
+GET /api/bookings/follow-ups  [requireRole("manager") > bookingsController.getFollowUps]
+PUT /api/bookings/follow-ups  [requireRole("manager") > bookingsController.saveFollowUps]
 GET /api/bookings/absences  [bookingsController.listAbsences]
 POST /api/bookings/absences  [bookingsController.createAbsence]
 DELETE /api/bookings/absences/:id  [bookingsController.deleteAbsence]

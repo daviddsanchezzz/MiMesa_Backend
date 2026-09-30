@@ -167,13 +167,12 @@ exports.unsubscribe = async (req, res) => {
     const { token } = req.query;
     if (!token) return res.status(400).json({ message: 'Token requerido' });
 
-    const customer = await Customer.findOneAndUpdate(
-      { unsubscribeToken: token },
-      { $set: { marketingUnsubscribed: true, marketingUnsubscribedAt: new Date() } },
-      { new: true }
-    ).select('name');
-
+    if (typeof token !== 'string') return res.status(400).json({ message: 'Token requerido' });
+    const customer = await Customer.findOne({ unsubscribeToken: token }).select('name marketingUnsubscribed').lean();
     if (!customer) return res.status(404).json({ message: 'Token inválido o ya procesado' });
+    if (!customer.marketingUnsubscribed) {
+      await Customer.updateOne({ _id: customer._id }, { $set: { marketingUnsubscribed: true, marketingUnsubscribedAt: new Date() } });
+    }
 
     res.json({ message: 'Baja procesada correctamente', name: customer.name });
   } catch (err) {

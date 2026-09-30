@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { load } = require('../helpers/load');
 
 process.env.FRONTEND_URL = 'https://dev.vetrareserve.com';
-const { buildCustomerEmail, buildStaffEmail } = load('modules/bookings/services/bookingEmails');
+const { buildCustomerEmail, buildStaffEmail, buildFollowUpEmail } = load('modules/bookings/services/bookingEmails');
 
 const business = {
   _id: 'biz1', name: 'Peluquería <Laura>', email: 'hola@laura.test', phone: '+34 600 111 222',
@@ -60,5 +60,28 @@ describe('appointment emails', () => {
     assert.ok(html.includes('https://dev.vetrareserve.com/agenda'));
     assert.match(buildStaffEmail('created', { booking: { ...booking, status: 'pending' }, business }).subject, /^Nueva solicitud de cita/);
     assert.match(buildStaffEmail('cancelled', { booking, business }).html, /El hueco vuelve a estar libre/);
+  });
+
+  test('confirmation mentions follow-ups and the opt-out only when the business uses them', () => {
+    const optOutUrl = 'https://dev.vetrareserve.com/public/unsubscribe?token=t1';
+    assert.ok(!buildCustomerEmail('confirmed', { booking, business }).html.includes('date de baja'));
+    const { html } = buildCustomerEmail('confirmed', { booking, business, optOutUrl });
+    assert.match(html, /cuándo te toca volver o pedirte tu opinión/);
+    assert.ok(html.includes(optOutUrl));
+    assert.ok(!buildCustomerEmail('reminder', { booking, business, optOutUrl }).html.includes('date de baja'), 'reminders are service emails');
+  });
+
+  test('follow-ups: rebook and review, always with the opt-out, no incentive', () => {
+    const common = { business, name: 'Marta <b>', service: 'Corte mujer', staff: 'Ana', bookUrl: 'https://dev.vetrareserve.com/public/biz1/cita', optOutUrl: 'https://x.test/u?token=1' };
+    const rebook = buildFollowUpEmail('rebook', common);
+    assert.match(rebook.subject, /próxima cita/);
+    assert.match(rebook.html, /Corte mujer con Ana/);
+    assert.ok(rebook.html.includes('https://dev.vetrareserve.com/public/biz1/cita'));
+    assert.ok(rebook.html.includes('Marta &lt;b&gt;') && !rebook.html.includes('<b>Marta'), 'escaped');
+    assert.match(rebook.html, /date de baja aquí/);
+    const review = buildFollowUpEmail('review', { ...common, reviewUrl: 'https://g.page/r/abc/review' });
+    assert.ok(review.html.includes('https://g.page/r/abc/review'));
+    assert.match(review.html, /date de baja aquí/);
+    assert.doesNotMatch(review.html, /descuento|regalo|gratis|sorteo/i, 'Google forbids incentives');
   });
 });

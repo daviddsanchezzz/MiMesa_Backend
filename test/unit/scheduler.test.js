@@ -6,10 +6,12 @@ test('background jobs register with their schedules', () => {
   load('verticals/restaurant/jobs/reservationReminders');
   load('modules/finance/jobs/recurringExpenses');
   load('modules/bookings/jobs/bookingReminders');
+  load('modules/bookings/jobs/followUps');
   const { registeredJobs } = load('core/services/scheduler');
   assert.deepEqual(registeredJobs(), [
     { schedule: '*/15 * * * *', name: 'reservation reminders' },
     { schedule: '0 5 * * *', name: 'recurring expenses' },
     { schedule: '*/15 * * * *', name: 'booking reminders' },
+    { schedule: '*/30 * * * *', name: 'follow-up emails' },
   ]);
 });

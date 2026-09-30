@@ -51,6 +51,10 @@ router.post('/team/:resourceId/payments', requireRole('manager'), requireModule(
 router.get('/cash', c.cashDay);
 router.post('/cash/close', c.closeCash);
 router.delete('/cash/close', requireRole('manager'), c.reopenCash);
+// Follow-up emails to customers (managers)
+router.get('/follow-ups', requireRole('manager'), c.getFollowUps);
+router.put('/follow-ups', requireRole('manager'), c.saveFollowUps);
+
 // Absences: anyone blocks their own agenda; managers anybody's (checked inside)
 router.get('/absences', c.listAbsences);
 router.post('/absences', c.createAbsence);

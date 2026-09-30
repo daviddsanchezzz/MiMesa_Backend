@@ -23,6 +23,7 @@ const CashClose = require('../models/CashClose');
 const { dateInTimezone } = require('../../../core/lib/timezone');
 const { businessLogoUrl } = require('../../../core/lib/images');
 const absences = require('../services/absencesService');
+const followUps = require('../services/followUpsService');
 
 // Emails never block or fail the request; errors are logged inside.
 const later = (fn) => { Promise.resolve().then(fn).catch(() => {}); };
@@ -550,4 +551,13 @@ exports.reassignBooking = handle(async (req, res) => {
   const doc = updated.toObject();
   delete doc.publicToken;
   res.json(doc);
+});
+
+// ── Follow-up emails (te toca volver, pedir opinión) ────────────────────────
+exports.getFollowUps = handle(async (req, res) => {
+  res.json(await followUps.getSettings(req.businessId));
+});
+
+exports.saveFollowUps = handle(async (req, res) => {
+  res.json(await followUps.saveSettings(req.businessId, req.body || {}));
 });

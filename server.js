@@ -10,6 +10,7 @@ const { app, mountAuthAndErrorHandlers } = require('./app');
 require('./verticals/restaurant/jobs/reservationReminders');
 require('./modules/finance/jobs/recurringExpenses');
 require('./modules/bookings/jobs/bookingReminders');
+require('./modules/bookings/jobs/followUps');
 
 process.on('unhandledRejection', (reason) => {
   console.error('[process] unhandledRejection:', reason);

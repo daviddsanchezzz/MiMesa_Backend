@@ -55,6 +55,9 @@ const bookingSchema = new mongoose.Schema({
   totalPrice:    { type: Number, default: 0 },          // cents
   cancelledAt:   { type: Date, default: null },
   reminderSentAt:{ type: Date, default: null },   // 24h reminder email already sent
+  // Follow-up emails, at most one of each per visit (see followUpsService)
+  reviewRequestedAt:    { type: Date, default: null },
+  rebookReminderSentAt: { type: Date, default: null },
   payment:       { type: paymentSchema, default: null },
   createdBy:     { type: String, default: null },       // user id, null for online
   // Secret for the guest's cancel link

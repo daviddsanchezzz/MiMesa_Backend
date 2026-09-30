@@ -611,4 +611,88 @@ describe('generic agenda (bookings module)', { skip }, () => {
     assert.ok(res.body.length > 0);
     await request(app).put(`/api/bookings/resources/${ids.luis}`).set(as('owner')).send({ userId: null });
   });
+  test('follow-ups: settings, review request after the visit, "te toca volver", opt-out', async () => {
+    const Booking = require(path.join(ROOT, 'modules/bookings/models/Booking'));
+    const { runReviewRequests, runRebookReminders } = require(path.join(ROOT, 'modules/bookings/services/followUpsService'));
+
+    // Settings: managers only, review needs a Google link
+    let res = await request(app).get('/api/bookings/follow-ups').set(as('staff'));
+    assert.equal(res.status, 403);
+    res = await request(app).get('/api/bookings/follow-ups').set(as('owner'));
+    assert.deepEqual([res.body.rebook.enabled, res.body.review.enabled], [false, false]);
+    res = await request(app).put('/api/bookings/follow-ups').set(as('owner')).send({ review: { enabled: true } });
+    assert.equal(res.status, 400);
+    res = await request(app).put('/api/bookings/follow-ups').set(as('owner')).send({ review: { enabled: true, url: 'javascript:alert(1)' } });
+    assert.equal(res.status, 400);
+    res = await request(app).put('/api/bookings/follow-ups').set(as('owner'))
+      .send({ rebook: { enabled: true }, review: { enabled: true, url: 'https://g.page/r/test/review', delayHours: 2 } });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    const now = new Date();
+    const at = (hours) => new Date(now.getTime() + hours * 3600000);
+    const seg = (start) => [{ serviceId: ids.corte, serviceName: 'Corte', start, end: new Date(start.getTime() + 1800000),
+      busyStart: start, busyEnd: new Date(start.getTime() + 1800000), resourceIds: [ids.ana] }];
+    const mk = async (customer, startH, extra = {}) => Booking.create({
+      businessId: biz._id, customerId: customer._id, guestName: customer.name, guestEmail: customer.email, partySize: 1, source: 'phone',
+      status: 'completed', start: at(startH), end: at(startH + 0.5), segments: seg(at(startH)), ...extra,
+    });
+    const rosa = await Customer.create({ businessId: biz._id, name: 'Rosa', email: 'rosa@example.test' });
+    const nora = await Customer.create({ businessId: biz._id, name: 'Nora', email: 'nora@example.test', marketingUnsubscribed: true });
+    const leo = await Customer.create({ businessId: biz._id, name: 'Leo', email: 'leo@example.test' });
+    const visited = await mk(rosa, -4);                        // 3.5h ago → review
+    await mk(nora, -4);                                        // opted out → nothing
+    const tooSoon = await mk(leo, -1.5);                       // 1h ago → not yet
+    const old = await mk(leo, -24 * 50);                       // 50 days ago, once → due back
+    const unpaid = await mk(leo, -5, { status: 'confirmed' }); // never marked as attended → no review
+
+    sent.length = 0;
+    await runReviewRequests(now);
+    await waitForEmails();
+    const reviews = sent.filter((e) => e.source === 'booking.followup_review');
+    assert.deepEqual(reviews.map((e) => e.to[0]), ['rosa@example.test']);
+    assert.match(reviews[0].html, /g\.page\/r\/test\/review/);
+    assert.match(reviews[0].html, /public\/unsubscribe\?token=/, 'every follow-up carries the opt-out');
+    assert.ok((await Booking.findById(visited._id)).reviewRequestedAt);
+    assert.equal((await Booking.findById(tooSoon._id)).reviewRequestedAt, null);
+    assert.equal((await Booking.findById(unpaid._id)).reviewRequestedAt, null);
+    sent.length = 0;
+    await Promise.all([runReviewRequests(now), runReviewRequests(now)]);
+    assert.equal(sent.filter((e) => e.source === 'booking.followup_review').length, 0, 'never twice');
+
+    // "Te toca volver": Leo's last attended visit... he came 1.5h ago, so not due. Drop that one.
+    await Booking.deleteMany({ _id: { $in: [tooSoon._id, unpaid._id] } });
+    const tenAm = new Date(now); // make sure it is after 10:00 in Madrid for the daily run
+    const madridHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', hourCycle: 'h23' }).format(now));
+    if (madridHour < 10) tenAm.setUTCHours(tenAm.getUTCHours() + (10 - madridHour));
+    sent.length = 0;
+    await runRebookReminders(tenAm);
+    await waitForEmails();
+    const rebooks = sent.filter((e) => e.source === 'booking.followup_rebook');
+    assert.deepEqual(rebooks.map((e) => e.to[0]), ['leo@example.test']);
+    assert.match(rebooks[0].html, /Reservar cita/);
+    assert.ok((await Booking.findById(old._id)).rebookReminderSentAt);
+    sent.length = 0;
+    await runRebookReminders(tenAm);
+    assert.equal(sent.length, 0, 'once a day and once per visit');
+
+    // Opt-out link works and stops everything
+    const token = (await Customer.findById(leo._id)).unsubscribeToken;
+    assert.ok(token);
+    res = await request(app).get(`/api/marketing/public/unsubscribe?token=${token}`);
+    assert.equal(res.status, 200);
+    assert.equal((await Customer.findById(leo._id)).marketingUnsubscribed, true);
+
+    // Confirmation emails now mention the follow-ups and how to refuse them
+    sent.length = 0;
+    res = await request(app).post('/api/bookings').set(as('owner')).send({
+      date: nextTuesday(42), time: '10:00', items: [{ serviceId: ids.corte }], guestName: 'Nueva', guestEmail: 'nueva@example.test', guestPhone: '611000222', source: 'phone',
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    await waitForEmails();
+    const confirmation = sent.find((e) => e.source === 'booking.confirmed');
+    assert.ok(confirmation, 'confirmation sent');
+    assert.match(confirmation.html, /date de baja aquí/);
+
+    await request(app).put('/api/bookings/follow-ups').set(as('owner')).send({ rebook: { enabled: false }, review: { enabled: false } });
+  });
 });
