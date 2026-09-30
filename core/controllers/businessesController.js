@@ -3,6 +3,13 @@ const BusinessMember = require('../models/BusinessMember');
 const { sendNewBusinessOwnerNotification } = require('../services/systemEmails');
 const { purgeBusiness } = require('../services/purgeBusiness');
 
+const { TRIAL_DAYS } = require('../lib/planCapabilities');
+
+function trialFields(now = new Date()) {
+  return { plan: 'pro', subscriptionStatus: 'trialing', trialEndsAt: new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000) };
+}
+exports.trialFields = trialFields;
+
 // POST /api/businesses
 const BUSINESS_TYPES = ['restaurant', 'appointments'];
 
@@ -44,6 +51,8 @@ exports.createBusiness = async (req, res) => {
       cif,
       businessType,
       ownerId: req.user.id,
+      // No free plan: every new business starts with 14 days of Pro, no card
+      ...trialFields(),
     });
 
     await BusinessMember.create({

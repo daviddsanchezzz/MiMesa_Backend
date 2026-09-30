@@ -9,7 +9,7 @@ function requireAnyModule(moduleKeys = []) {
       if (!keys.length) return res.status(500).json({ message: 'No hay modulos configurados' });
 
       const business = await Business.findById(req.businessId)
-        .select('plan subscriptionStatus moduleOverrides businessType')
+        .select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId moduleOverrides businessType')
         .lean();
 
       if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });

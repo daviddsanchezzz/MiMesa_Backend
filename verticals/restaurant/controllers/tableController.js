@@ -12,7 +12,7 @@ function normalizeAngle(angle) {
 }
 
 async function getBusinessCaps(businessId) {
-  const business = await Business.findById(businessId).select('plan subscriptionStatus').lean();
+  const business = await Business.findById(businessId).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId').lean();
   return getCapabilities(business ?? {});
 }
 

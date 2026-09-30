@@ -83,6 +83,11 @@ describe('generic agenda (bookings module)', { skip }, () => {
     const me = await request(app).get('/api/auth/me').set(as('salonOwner'));
     assert.equal(me.body.businessType, 'appointments');
     assert.equal(me.body.modules.bookings.enabled, true);
+    // No free plan: 14 days of Pro without a card
+    assert.equal(me.body.effectivePlan, 'pro');
+    assert.equal(me.body.subscriptionStatus, 'trialing');
+    const days = (new Date(me.body.trialEndsAt) - Date.now()) / 86400000;
+    assert.ok(days > 13.9 && days <= 14, `trial ends in 14 days (${days})`);
     const res = await request(app).get('/api/bookings/services').set(as('salonOwner'));
     assert.equal(res.status, 200);
     // Without a sector: the owner as professional and opening hours, no services

@@ -25,9 +25,13 @@ describe('appointment plan limits', { skip }, () => {
   const as = (user) => ({ 'x-test-user': user });
   const sent = [];
 
+  // plan 'trial' = new business: 14 days of Pro without a card
   async function salon(key, plan, extra = {}) {
+    const fields = plan === 'trial'
+      ? { plan: 'pro', subscriptionStatus: 'trialing', trialEndsAt: new Date(Date.now() + 14 * 86400000) }
+      : { plan, subscriptionStatus: 'active' };
     const b = await Business.create({
-      name: `Salón ${key}`, email: `${key}@example.test`, plan, subscriptionStatus: plan === 'free' ? null : 'active',
+      name: `Salón ${key}`, email: `${key}@example.test`, ...fields,
       businessType: 'appointments', timezone: 'Europe/Madrid', ...extra,
     });
     addUser({ id: key });
@@ -81,11 +85,13 @@ describe('appointment plan limits', { skip }, () => {
     assert.equal((await Business.findById(later._id)).legacyAccess, false, 'new businesses follow their plan');
   });
 
-  test('Free and Basic: one professional; Pro: the whole team', async () => {
-    await salon('free1', 'free');
+  test('Basic: one professional; Pro and the trial: the whole team', async () => {
+    await salon('free1', 'trial');
     await salon('basic1', 'basic');
     await salon('pro1', 'pro');
-    for (const key of ['free1', 'basic1']) {
+    assert.equal((await addPro('free1', 'Ana')).status, 201);
+    assert.equal((await addPro('free1', 'Luis')).status, 201, 'the trial is Pro');
+    for (const key of ['basic1']) {
       assert.equal((await addPro(key, 'Ana')).status, 201);
       const second = await addPro(key, 'Luis');
       assert.equal(second.status, 403, key);
@@ -128,24 +134,32 @@ describe('appointment plan limits', { skip }, () => {
     assert.ok(again.body.length > 0, 'back on Pro: available again');
   });
 
-  test('Free: 30 appointments a month, then a clear message (online and at the desk)', async () => {
+  test('trial over: read-only; the public page takes no bookings; data can still be erased', async () => {
     const b = await Business.findOne({ email: 'free1@example.test' });
     const serviceId = await addService('free1');
-    const now = new Date();
-    await Booking.insertMany(Array.from({ length: 30 }, (_, i) => ({
-      businessId: b._id, guestName: `C${i}`, status: 'confirmed', start: new Date(now.getTime() - 86400000), end: new Date(now.getTime() - 86400000 + 1800000),
-      segments: [{ serviceId, start: now, end: now, busyStart: now, busyEnd: now }],
-    })));
     const day = nextTuesday();
-    const desk = await request(app).post('/api/bookings').set(as('free1')).send({ date: day, time: '10:00', items: [{ serviceId }], guestName: 'Uno más', source: 'phone' });
-    assert.equal(desk.status, 403);
-    assert.equal(desk.body.code, 'PLAN_LIMIT');
-    assert.match(desk.body.message, /30 citas/);
+    let desk = await request(app).post('/api/bookings').set(as('free1')).send({ date: day, time: '10:00', items: [{ serviceId }], guestName: 'En prueba', source: 'phone' });
+    assert.equal(desk.status, 201, 'works during the trial');
+
+    await Business.updateOne({ _id: b._id }, { trialEndsAt: new Date(Date.now() - 1000) });
+    desk = await request(app).post('/api/bookings').set(as('free1')).send({ date: day, time: '11:00', items: [{ serviceId }], guestName: 'Tarde', source: 'phone' });
+    assert.equal(desk.status, 402);
+    assert.equal(desk.body.code, 'SUBSCRIPTION_REQUIRED');
+    assert.match(desk.body.message, /prueba ha terminado/);
+    const list = await request(app).get(`/api/bookings?from=${day}`).set(as('free1'));
+    assert.equal(list.status, 200, 'still reads');
+    assert.equal(list.body.length, 1);
     const online = await request(app).post(`/api/bookings/public/${b._id}/bookings`).send({
-      date: day, time: '11:00', items: [{ serviceId }], guestName: 'Online', guestPhone: '600000001', guestEmail: 'o@example.test', consent: true,
+      date: day, time: '12:00', items: [{ serviceId }], guestName: 'Online', guestPhone: '600000001', guestEmail: 'o@example.test', consent: true,
     });
     assert.equal(online.status, 403);
     assert.match(online.body.message, /Llama/);
+    const me = await request(app).get('/api/auth/me').set(as('free1'));
+    assert.equal(me.body.effectivePlan, 'expired');
+    // Right to erasure doesn't depend on paying
+    const Customer = require(path.join(ROOT, 'core/models/Customer'));
+    const c = await Customer.create({ businessId: b._id, name: 'Borrar', phone: '699' });
+    assert.equal((await request(app).delete(`/api/customers/${c._id}`).set(as('free1'))).status, 200);
     // Basic has no monthly limit
     const basic = await Business.findOne({ email: 'basic1@example.test' });
     const s2 = await addService('basic1');
@@ -174,7 +188,7 @@ describe('appointment plan limits', { skip }, () => {
     assert.equal((await addPro('legacy1', 'Luis')).status, 201, 'legacy business keeps its team');
   });
 
-  test('reminders: Basic and Pro send them, Free does not', async () => {
+  test('reminders: Basic and Pro send them, a business without a plan does not', async () => {
     const { runBookingReminders } = require(path.join(ROOT, 'modules/bookings/jobs/bookingReminders'));
     const soon = new Date(Date.now() + 20 * 3600000);
     const make = async (email) => {

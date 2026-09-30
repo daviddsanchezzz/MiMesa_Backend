@@ -144,7 +144,7 @@ describe('client onboarding by invitation', { skip }, () => {
   test('inviting a team member as an existing professional links them when they accept', async () => {
     const db = mongoose.connection.db;
     const Resource = require(path.join(ROOT, 'modules/bookings/models/Resource'));
-    const biz = await Business.create({ name: 'Estudio Link', email: 'estudio@link.test', businessType: 'appointments', ownerId: 'linkOwner' });
+    const biz = await Business.create({ name: 'Estudio Link', email: 'estudio@link.test', businessType: 'appointments', ownerId: 'linkOwner', plan: 'pro', subscriptionStatus: 'active' });
     await BusinessMember.create({ userId: 'linkOwner', businessId: biz._id, role: 'owner', userEmail: 'owner@link.test' });
     addUser({ id: 'linkOwner', email: 'owner@link.test', name: 'Owner' });
     const laura = await Resource.create({ businessId: biz._id, kind: 'staff', name: 'Laura' });

@@ -57,7 +57,7 @@ function activeShifts(shifts, caps) {
 }
 
 async function getBusinessCaps(businessId) {
-  const business = await Business.findById(businessId).select('plan subscriptionStatus').lean();
+  const business = await Business.findById(businessId).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId').lean();
   return getCapabilities(business ?? {});
 }
 
@@ -206,7 +206,7 @@ exports.getPublicSlots = async (req, res) => {
 
     const [allShiftDocs, business] = await Promise.all([
       Shift.find({ businessId, days: dayOfWeek }).sort({ createdAt: 1, startTime: 1 }),
-      Business.findById(businessId).select('plan subscriptionStatus maxPeoplePerSlot reservationDuration minBookingNoticeHours timezone'),
+      Business.findById(businessId).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId maxPeoplePerSlot reservationDuration minBookingNoticeHours timezone'),
     ]);
 
     const caps      = getCapabilities(business ?? {});
@@ -288,7 +288,7 @@ exports.getPublicMonthAvailability = async (req, res) => {
     const [vacations, allShiftDocs, business] = await Promise.all([
       Vacation.find({ businessId, startDate: { $lte: endOfMonth }, endDate: { $gte: startOfMonth } }).select('startDate endDate'),
       Shift.find({ businessId }).sort({ createdAt: 1 }).select('days startDate endDate'),
-      Business.findById(businessId).select('plan subscriptionStatus').lean(),
+      Business.findById(businessId).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId').lean(),
     ]);
 
     const caps   = getCapabilities(business ?? {});

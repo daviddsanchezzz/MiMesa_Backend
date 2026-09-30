@@ -5,7 +5,7 @@ function requireModule(moduleKey) {
   return async (req, res, next) => {
     try {
       const business = await Business.findById(req.businessId)
-        .select('plan subscriptionStatus moduleOverrides businessType')
+        .select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId moduleOverrides businessType')
         .lean();
 
       if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });

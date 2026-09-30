@@ -4,7 +4,7 @@ const { escapeHtml } = require('../lib/escapeHtml');
 const BusinessMember = require('../models/BusinessMember');
 const Reservation    = require('../../verticals/restaurant/models/Reservation');
 const AuthUser       = require('../models/AuthUser');
-const { getModuleAccess } = require('../lib/planCapabilities');
+const { getModuleAccess, getEffectivePlan } = require('../lib/planCapabilities');
 const { sendTrackedEmail } = require('../services/emailDelivery');
 const { fromNodeHeaders } = require('better-auth/node');
 const mongoose = require('mongoose');
@@ -50,6 +50,9 @@ exports.listBusinesses = async (req, res) => {
         address:            b.address || '',
         plan:               b.plan || 'free',
         subscriptionStatus: b.subscriptionStatus || null,
+        effectivePlan:      getEffectivePlan(b),
+        trialEndsAt:        b.trialEndsAt || null,
+        legacyAccess:       !!b.legacyAccess,
         modules: MODULE_CATALOG.reduce((acc, m) => {
           acc[m.key] = getModuleAccess(b, m.key);
           return acc;
@@ -206,14 +209,23 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
+// Plans Vetra can set from the dev panel:
+//   trial → 14 days of Pro, then read-only unless they pay (the normal start)
+//   basic / pro → given by Vetra, no Stripe (active)
+//   free → free access by courtesy, as businesses had before trials (legacyAccess)
+const DEV_PLANS = ['trial', 'basic', 'pro', 'free'];
+function devPlanFields(plan) {
+  if (plan === 'trial') return { ...require('./businessesController').trialFields(), legacyAccess: false };
+  if (plan === 'free') return { plan: 'free', subscriptionStatus: null, trialEndsAt: null, legacyAccess: true };
+  return { plan, subscriptionStatus: 'active' };
+}
+
 // ── POST /api/dev/businesses ──────────────────────────────────────────────
 exports.createBusiness = async (req, res) => {
   try {
-    const { name, email, phone = '', address = '', plan = 'free' } = req.body;
+    const { name, email, phone = '', address = '', plan = 'trial' } = req.body;
     if (!name || !email) return res.status(400).json({ message: 'Nombre y email son obligatorios' });
-
-    const VALID_PLANS = ['free', 'basic', 'pro'];
-    if (!VALID_PLANS.includes(plan)) return res.status(400).json({ message: 'Plan inválido' });
+    if (!DEV_PLANS.includes(plan)) return res.status(400).json({ message: 'Plan inválido' });
 
     const exists = await Business.findOne({ email: email.toLowerCase() });
     if (exists) return res.status(409).json({ message: 'Ya existe un negocio con ese email' });
@@ -223,8 +235,7 @@ exports.createBusiness = async (req, res) => {
       email: email.toLowerCase(),
       phone,
       address,
-      plan,
-      subscriptionStatus: plan === 'free' ? null : 'active',
+      ...devPlanFields(plan),
     });
 
     res.status(201).json({
@@ -239,17 +250,12 @@ exports.createBusiness = async (req, res) => {
 exports.updatePlan = async (req, res) => {
   try {
     const { plan } = req.body;
-    const VALID_PLANS = ['free', 'basic', 'pro'];
-    if (!VALID_PLANS.includes(plan)) return res.status(400).json({ message: 'Plan inválido' });
+    if (!DEV_PLANS.includes(plan)) return res.status(400).json({ message: 'Plan inválido' });
 
-    const business = await Business.findByIdAndUpdate(
-      req.params.id,
-      { plan, subscriptionStatus: plan === 'free' ? null : 'active' },
-      { new: true },
-    );
+    const business = await Business.findByIdAndUpdate(req.params.id, devPlanFields(plan), { new: true });
     if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
 
-    res.json({ id: business._id, plan: business.plan, subscriptionStatus: business.subscriptionStatus });
+    res.json({ id: business._id, plan: business.plan, subscriptionStatus: business.subscriptionStatus, trialEndsAt: business.trialEndsAt, legacyAccess: business.legacyAccess });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -447,7 +453,7 @@ exports.createClient = async (req, res) => {
     const ownerName = String(o.name || '').trim();
     const ownerEmail = String(o.email || '').trim().toLowerCase();
     const businessType = b.businessType === 'appointments' ? 'appointments' : 'restaurant';
-    const plan = ['free', 'basic', 'pro'].includes(b.plan) ? b.plan : 'basic';
+    const plan = DEV_PLANS.includes(b.plan) ? b.plan : 'trial';
     if (!name) return res.status(400).json({ message: 'El nombre del negocio es obligatorio' });
     if (!ownerName || !EMAIL_RE.test(ownerEmail)) return res.status(400).json({ message: 'Indica el nombre y un email válido del dueño' });
     const template = b.template ? getTemplate(b.template) : null;
@@ -460,8 +466,7 @@ exports.createClient = async (req, res) => {
       phone: String(b.phone || '').trim(),
       address: String(b.address || '').trim(),
       businessType,
-      plan,
-      subscriptionStatus: plan === 'free' ? null : 'active',
+      ...devPlanFields(plan),
       timezone: 'Europe/Madrid',
     });
     if (template) {
@@ -557,6 +562,9 @@ exports.overview = async (req, res) => {
         slug: b.slug || null,
         publicUrl: publicBookingUrl(b),
         plan: b.plan || 'free',
+        effectivePlan: getEffectivePlan(b),
+        trialEndsAt: b.trialEndsAt || null,
+        legacyAccess: !!b.legacyAccess,
         subscriptionStatus: b.subscriptionStatus || null,
         createdAt: b.createdAt,
         modules: MODULE_CATALOG.reduce((acc, m) => { acc[m.key] = getModuleAccess(b, m.key); return acc; }, {}),
@@ -592,7 +600,9 @@ exports.overview = async (req, res) => {
         businesses: out.length,
         active: out.filter((b) => b.owner.status === 'active').length,
         pending: out.filter((b) => b.owner.status === 'invited').length,
-        paid: out.filter((b) => b.plan !== 'free').length,
+        paid: out.filter((b) => ['basic', 'pro'].includes(b.effectivePlan) && b.subscriptionStatus === 'active').length,
+        trialing: out.filter((b) => b.subscriptionStatus === 'trialing' && b.effectivePlan !== 'expired').length,
+        expired: out.filter((b) => b.effectivePlan === 'expired').length,
         activity30d: out.reduce((s, b) => s + b.activity.last30d, 0),
         newThisMonth: out.filter((b) => new Date(b.createdAt) >= monthStart).length,
         activeLast7d: out.filter((b) => b.lastSeenAt && new Date(b.lastSeenAt) > new Date(Date.now() - 7 * DAY)).length,

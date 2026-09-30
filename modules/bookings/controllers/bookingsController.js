@@ -441,7 +441,7 @@ exports.reopenCash = handle(async (req, res) => {
 async function publicBusiness(businessId) {
   v.objectId(businessId, 'businessId');
   const business = await Business.findById(businessId)
-    .select('name phone email address brandColor logoUpdatedAt timezone plan subscriptionStatus moduleOverrides businessType').lean();
+    .select('name phone email address brandColor logoUpdatedAt timezone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId moduleOverrides businessType').lean();
   if (!business || !canUseModule(business, 'bookings')) throw notFound('Negocio');
   return business;
 }

@@ -22,7 +22,7 @@ async function generateRecurringExpenses() {
   // Only businesses with an active/trialing subscription
   const businesses = await Business.find({
     subscriptionStatus: { $in: ['active', 'trialing'] },
-  }).select('plan subscriptionStatus moduleOverrides businessType').lean();
+  }).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId moduleOverrides businessType').lean();
 
   let created = 0;
   let skipped = 0;

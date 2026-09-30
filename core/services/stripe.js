@@ -38,7 +38,7 @@ async function getOrCreateCustomer(business) {
   return customer.id;
 }
 
-async function createCheckoutSession({ customerId, priceId, businessId, successUrl, cancelUrl }) {
+async function createCheckoutSession({ customerId, priceId, businessId, successUrl, cancelUrl, trialEnd = null }) {
   return getStripe().checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
@@ -48,7 +48,10 @@ async function createCheckoutSession({ customerId, priceId, businessId, successU
     payment_method_collection: 'always',
     metadata: { businessId: businessId.toString() },
     subscription_data: {
-      trial_period_days: 14,
+      // The trial happens in Vetra without a card; paying during it keeps the
+      // remaining days (Stripe needs trial_end at least 48 h ahead).
+      ...(trialEnd && trialEnd.getTime() - Date.now() > 48 * 60 * 60 * 1000
+        ? { trial_end: Math.floor(trialEnd.getTime() / 1000) } : {}),
       metadata: { businessId: businessId.toString() },
     },
   });

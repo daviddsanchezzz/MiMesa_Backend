@@ -9,7 +9,7 @@ const { sendReservationReminderEmail } = require('../services/reservationEmails'
 async function runReservationReminders() {
   const businesses = await Business.find({
     subscriptionStatus: { $in: ['active', 'trialing'] },
-  }).select('name brandColor email phone plan subscriptionStatus reminderHoursBefore timezone');
+  }).select('name brandColor email phone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId reminderHoursBefore timezone');
 
   for (const business of businesses) {
     if (!canUseFeature(business, 'autoReminders')) continue;

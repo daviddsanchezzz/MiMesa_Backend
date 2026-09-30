@@ -1,3 +1,4 @@
+const { inTrial, TRIAL_DAYS } = require('../lib/planCapabilities');
 const Business = require('../models/Business');
 const Reservation = require('../../verticals/restaurant/models/Reservation');
 const StripeEvent = require('../models/StripeEvent');
@@ -26,10 +27,17 @@ exports.createCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: 'Ya tienes una suscripcion activa' });
     }
 
+    // Trial: the rest of Vetra's own trial; businesses from before the trial model
+    // that never paid get the 14 days they always had; everyone else pays now.
+    let trialEnd = null;
+    if (!business.stripeSubscriptionId && inTrial(business)) trialEnd = business.trialEndsAt;
+    else if (business.legacyAccess && !business.currentPeriodEnd) trialEnd = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+
     const customerId = await stripeService.getOrCreateCustomer(business);
     const session = await stripeService.createCheckoutSession({
       customerId,
       priceId,
+      trialEnd,
       businessId: business._id,
       successUrl: `${process.env.FRONTEND_URL}/configuracion?tab=suscripcion&subscription=success`,
       cancelUrl: `${process.env.FRONTEND_URL}/configuracion?tab=suscripcion&subscription=canceled`,
@@ -146,7 +154,7 @@ exports.changePlan = async (req, res) => {
 exports.getBillingStatus = async (req, res) => {
   try {
     const business = await Business.findById(req.businessId)
-      .select('plan subscriptionStatus trialEndsAt currentPeriodStart currentPeriodEnd cancelAtPeriodEnd stripeCustomerId stripeSubscriptionId');
+      .select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt currentPeriodStart currentPeriodEnd cancelAtPeriodEnd stripeCustomerId stripeSubscriptionId');
     if (!business) return res.status(404).json({ message: 'Business not found' });
 
     const effectivePlan = getEffectivePlan(business);

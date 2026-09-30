@@ -9,15 +9,34 @@ const biz = (plan, subscriptionStatus, extra = {}) => ({ plan, subscriptionStatu
 describe('planCapabilities', () => {
   test('paid plan only counts while active or trialing', () => {
     assert.equal(plans.getEffectivePlan(biz('pro', 'active')), 'pro');
-    assert.equal(plans.getEffectivePlan(biz('basic', 'trialing')), 'basic');
-    assert.equal(plans.getEffectivePlan(biz('pro', 'past_due')), 'free', 'past_due without a recorded failure date: no grace');
-    assert.equal(plans.getEffectivePlan(biz('pro', 'canceled')), 'free');
-    assert.equal(plans.getEffectivePlan(biz('pro', null)), 'free');
-    assert.equal(plans.getEffectivePlan(biz('enterprise', 'active')), 'free');
+    assert.equal(plans.getEffectivePlan(biz('basic', 'trialing', { stripeSubscriptionId: 'sub_1' })), 'basic');
+    assert.equal(plans.getEffectivePlan(biz('pro', 'past_due')), 'expired', 'past_due without a recorded failure date: no grace');
+    assert.equal(plans.getEffectivePlan(biz('pro', 'canceled')), 'expired');
+    assert.equal(plans.getEffectivePlan(biz('pro', null)), 'expired');
+    assert.equal(plans.getEffectivePlan(biz('enterprise', 'active')), 'expired');
+    // Businesses from before trials keep the old free access
+    assert.equal(plans.getEffectivePlan(biz('free', null, { legacyAccess: true })), 'free');
+    assert.equal(plans.getEffectivePlan(biz('pro', 'canceled', { legacyAccess: true })), 'free');
   });
 
-  test('free plan limits', () => {
+  test('our own trial (no card) lasts until trialEndsAt; a Stripe trial until Stripe says', () => {
+    const day = 86400000;
+    assert.equal(plans.getEffectivePlan(biz('pro', 'trialing', { trialEndsAt: new Date(Date.now() + day) })), 'pro');
+    assert.equal(plans.getEffectivePlan(biz('pro', 'trialing', { trialEndsAt: new Date(Date.now() - day) })), 'expired');
+    assert.equal(plans.getEffectivePlan(biz('pro', 'trialing', { trialEndsAt: null })), 'expired');
+    assert.equal(plans.getEffectivePlan(biz('basic', 'trialing', { stripeSubscriptionId: 'sub_1', trialEndsAt: new Date(Date.now() - day) })), 'basic');
+  });
+
+  test('without a plan: read-only, no bookings', () => {
     const caps = plans.getCapabilities(biz('free', null));
+    assert.equal(caps.id, 'expired');
+    assert.equal(caps.readOnly, true);
+    assert.equal(caps.maxBookingsPerMonth, 0);
+    assert.equal(caps.maxReservationsPerMonth, 0);
+  });
+
+  test('free plan limits (only businesses from before trials)', () => {
+    const caps = plans.getCapabilities(biz('free', null, { legacyAccess: true }));
     assert.equal(caps.maxReservationsPerMonth, 30);
     assert.equal(caps.maxTables, 15);
     assert.equal(caps.maxMembers, 1);
@@ -90,13 +109,13 @@ const { test: t2 } = require('node:test');
 const assert2 = require('node:assert/strict');
 const caps2 = require('../helpers/load').load('core/lib/planCapabilities');
 
-t2('past_due keeps the plan for the grace period, then drops to free', () => {
+t2('past_due keeps the plan for the grace period, then goes read-only', () => {
   const day = 24 * 60 * 60 * 1000;
   const recent = { plan: 'pro', subscriptionStatus: 'past_due', paymentFailedAt: new Date(Date.now() - 3 * day) };
   const old = { plan: 'pro', subscriptionStatus: 'past_due', paymentFailedAt: new Date(Date.now() - (caps2.PAYMENT_GRACE_DAYS + 1) * day) };
   assert2.equal(caps2.getEffectivePlan(recent), 'pro');
-  assert2.equal(caps2.getEffectivePlan(old), 'free');
-  assert2.equal(caps2.getEffectivePlan({ plan: 'basic', subscriptionStatus: 'canceled', paymentFailedAt: null }), 'free');
+  assert2.equal(caps2.getEffectivePlan(old), 'expired');
+  assert2.equal(caps2.getEffectivePlan({ plan: 'basic', subscriptionStatus: 'canceled', paymentFailedAt: null }), 'expired');
 });
 
 t2('payment failed email: grace date and link to update the card', () => {

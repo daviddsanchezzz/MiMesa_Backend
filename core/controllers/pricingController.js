@@ -2,27 +2,6 @@ const PricingConfig = require('../models/PricingConfig');
 
 const DEFAULT_PLANS = [
   {
-    id: 'free',
-    name: 'Gratis',
-    price: 0,
-    period: 'mes',
-    description: 'Para empezar y probar sin compromiso.',
-    featured: false,
-    featuredLabel: '',
-    cta: 'Empezar gratis',
-    ctaStyle: 'outline',
-    visible: true,
-    order: 0,
-    features: [
-      { text: 'Hasta 30 reservas al mes',   included: true },
-      { text: '1 sala, hasta 10 mesas',      included: true },
-      { text: 'Página de reservas pública',  included: true },
-      { text: 'Confirmaciones por email',    included: true },
-      { text: 'Varios miembros de equipo',   included: false },
-      { text: 'Varias salas',                included: false },
-    ],
-  },
-  {
     id: 'basic',
     name: 'Basic',
     price: 19,
@@ -72,7 +51,7 @@ exports.getPublicPricing = async (req, res) => {
     const config = await PricingConfig.findOne().lean();
     const plans  = config ? config.plans : DEFAULT_PLANS;
     const visible = plans
-      .filter(p => p.visible !== false)
+      .filter(p => p.visible !== false && p.id !== 'free') // no free plan any more: 14-day trial instead
       .sort((a, b) => a.order - b.order);
     res.json(visible);
   } catch (err) {

@@ -36,8 +36,8 @@ describe('business public address (slug)', { skip }, () => {
   });
 
   test('new businesses get a unique slug from their name', async () => {
-    const a = await Business.create({ name: 'Estética Són', email: 'a@son.test', businessType: 'appointments' });
-    const b = await Business.create({ name: 'Estetica Son', email: 'b@son.test', businessType: 'appointments' });
+    const a = await Business.create({ name: 'Estética Són', email: 'a@son.test', businessType: 'appointments', plan: 'pro', subscriptionStatus: 'active' });
+    const b = await Business.create({ name: 'Estetica Son', email: 'b@son.test', businessType: 'appointments', plan: 'pro', subscriptionStatus: 'active' });
     const c = await Business.create({ name: 'Contact', email: 'c@son.test' });
     assert.equal(a.slug, 'estetica-son');
     assert.equal(b.slug, 'estetica-son-2');

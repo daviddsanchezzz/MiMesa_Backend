@@ -3,7 +3,7 @@ const { publicBookingUrl } = require('../lib/publicUrls');
 const Business = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
 const { isDev } = require('../middleware/requireDev');
-const { getAllModuleAccess, serializeCapabilities } = require('../lib/planCapabilities');
+const { getAllModuleAccess, serializeCapabilities, getEffectivePlan } = require('../lib/planCapabilities');
 const { isValidTimezone } = require('../lib/timezone');
 const { checkImageDataUrl, decodeImageDataUrl, businessLogoUrl: logoUrl } = require('../lib/images');
 
@@ -30,6 +30,9 @@ const businessData = (b) => ({
   currentPeriodEnd:   b.currentPeriodEnd   ?? null,
   cancelAtPeriodEnd:  b.cancelAtPeriodEnd  ?? false,
   paymentFailedAt:    b.paymentFailedAt ?? null,
+  // What the business can do now: basic | pro | free (only businesses from before trials) | expired (read-only)
+  effectivePlan:      getEffectivePlan(b),
+  legacyAccess:       !!b.legacyAccess,
   capabilities:       serializeCapabilities(b),
   modules:            getAllModuleAccess(b),
 });
@@ -55,7 +58,7 @@ exports.me = async (req, res) => {
     // All active memberships for multi-business support
     let membershipDocs = req.user
       ? await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
-          .populate('businessId', 'name brandColor plan subscriptionStatus businessType')
+          .populate('businessId', 'name brandColor plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId businessType')
           .sort({ createdAt: 1 })
           .lean()
       : [];
@@ -70,7 +73,7 @@ exports.me = async (req, res) => {
           { $set: { userId: req.user.id } }
         );
         membershipDocs = await BusinessMember.find({ userId: req.user.id, status: { $ne: 'invited' } })
-          .populate('businessId', 'name brandColor plan subscriptionStatus businessType')
+          .populate('businessId', 'name brandColor plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId businessType')
           .sort({ createdAt: 1 })
           .lean();
       }

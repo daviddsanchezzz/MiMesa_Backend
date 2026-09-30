@@ -111,6 +111,25 @@ const PLANS = {
   },
 };
 
+// No paid plan and no trial (trial ended, subscription cancelled): the business
+// can look at its data and pay, but not take new bookings or change things
+// (see middleware/readOnlyGuard). Businesses from before the trial model keep
+// the old free access instead (legacyAccess).
+PLANS.expired = {
+  ...PLANS.free,
+  id: 'expired',
+  name: 'Sin plan',
+  readOnly: true,
+  maxReservationsPerMonth: 0,
+  maxBookingsPerMonth: 0,
+  autoEmails: false,
+  bookingReminders: false,
+  followUps: false,
+};
+
+// New businesses: 14 days of Pro, no card.
+const TRIAL_DAYS = 14;
+
 // Modules that stay off until enabled per business (moduleOverrides.<key>.enabled = true).
 // 'bookings' is the new generic agenda, enabled only for pilot businesses.
 const OPT_IN_MODULES = new Set(['thefork', 'bookings']);
@@ -125,13 +144,23 @@ function inPaymentGrace(business, now = new Date()) {
   return now.getTime() - since.getTime() < PAYMENT_GRACE_DAYS * 24 * 60 * 60 * 1000;
 }
 
-function getEffectivePlan(business) {
-  const { plan, subscriptionStatus } = business;
-  const activeStatuses = ['active', 'trialing'];
-  if ((plan === 'basic' || plan === 'pro') && (activeStatuses.includes(subscriptionStatus) || inPaymentGrace(business))) {
+function inTrial(business, now = new Date()) {
+  if (business?.subscriptionStatus !== 'trialing') return false;
+  // A Stripe trial is managed by Stripe (its webhooks change the status when it ends)
+  if (business.stripeSubscriptionId) return true;
+  // Our own trial (no card): until trialEndsAt
+  return Boolean(business.trialEndsAt) && new Date(business.trialEndsAt).getTime() > now.getTime();
+}
+
+function getEffectivePlan(business, now = new Date()) {
+  const { plan, subscriptionStatus } = business || {};
+  if ((plan === 'basic' || plan === 'pro')
+    && (subscriptionStatus === 'active' || inTrial(business, now) || inPaymentGrace(business, now))) {
     return plan;
   }
-  return 'free';
+  // Businesses from before the trial model keep the old free access
+  if (business?.legacyAccess) return 'free';
+  return 'expired';
 }
 
 // Appointment features that businesses created before the plan limits keep
@@ -144,7 +173,7 @@ const LEGACY_APPOINTMENT_ACCESS = {
 };
 
 // Business fields getCapabilities needs (for .select()).
-const PLAN_FIELDS = 'plan subscriptionStatus legacyAccess paymentFailedAt';
+const PLAN_FIELDS = 'plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId';
 
 function getCapabilities(business) {
   const effectivePlan = getEffectivePlan(business);
@@ -234,6 +263,8 @@ function markLockedEntities(docs, maxCount) {
 module.exports = {
   PLANS,
   PLAN_FIELDS,
+  TRIAL_DAYS,
+  inTrial,
   PAYMENT_GRACE_DAYS,
   inPaymentGrace,
   getEffectivePlan,

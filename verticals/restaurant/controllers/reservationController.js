@@ -416,7 +416,7 @@ exports.getReservations = async (req, res) => {
 
 exports.getPendingReservations = async (req, res) => {
   try {
-    const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
+    const business = await Business.findById(req.businessId).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId');
     if (!canUseFeature(business, 'pendingApprovalControl')) {
       return res.status(403).json({ message: upgradeMessage('pendingApprovalControl'), feature: 'pendingApprovalControl', upgradeRequired: true });
     }
@@ -439,7 +439,7 @@ const createReservationUnlocked = async (req, res) => {
     const tableIds = Array.isArray(rawTableIds) && rawTableIds.length > 0 ? rawTableIds : (tableId ? [tableId] : []);
     const primaryTableId = tableIds[0] || tableId || null;
     const business = await Business.findById(req.businessId).select(
-      'name brandColor email phone plan subscriptionStatus maxPeoplePerSlot reservationDuration requireApprovalAbove'
+      'name brandColor email phone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId maxPeoplePerSlot reservationDuration requireApprovalAbove'
     );
     // Dedup: reject if an identical reservation was created in the last 2 minutes
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
@@ -549,7 +549,7 @@ const createPublicReservationUnlocked = async (req, res) => {
     }
 
     const business = await Business.findById(businessId).select(
-      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus reservationPayment timezone'
+      'name brandColor maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours requireApprovalAbove reminderHoursBefore email phone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId reservationPayment timezone'
     );
     if (!business) return res.status(404).json({ message: 'Restaurante no encontrado' });
 
@@ -783,7 +783,7 @@ exports.cancelPublicReservation = async (req, res) => {
     if (reservation.status === 'cancelled') return res.json({ message: 'Esta reserva ya ha sido cancelada anteriormente.' });
 
     const business = await Business.findById(reservation.businessId)
-      .select('name brandColor email phone reservationPayment plan subscriptionStatus timezone');
+      .select('name brandColor email phone reservationPayment plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId timezone');
 
     // ── Reembolso automático si el modo es depósito y está dentro de la ventana ──
     const rp = business?.reservationPayment || {};
@@ -837,7 +837,7 @@ exports.cancelPublicReservation = async (req, res) => {
 
 exports.acceptPendingReservation = async (req, res) => {
   try {
-    const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus');
+    const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId');
     if (!canUseFeature(business, 'pendingApprovalControl')) {
       return res.status(403).json({ message: upgradeMessage('pendingApprovalControl'), feature: 'pendingApprovalControl', upgradeRequired: true });
     }
@@ -861,7 +861,7 @@ exports.acceptPendingReservation = async (req, res) => {
 
 exports.rejectPendingReservation = async (req, res) => {
   try {
-    const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus');
+    const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId');
     if (!canUseFeature(business, 'pendingApprovalControl')) {
       return res.status(403).json({ message: upgradeMessage('pendingApprovalControl'), feature: 'pendingApprovalControl', upgradeRequired: true });
     }
@@ -892,7 +892,7 @@ exports.proposeAlternativeTime = async (req, res) => {
     if (reservation.status !== 'pending') return res.status(400).json({ message: 'Solo se puede proponer alternativa a reservas pendientes' });
 
     const business = await Business.findById(req.businessId).select(
-      'name brandColor email phone maxPeoplePerSlot reservationDuration requireApprovalAbove plan subscriptionStatus'
+      'name brandColor email phone maxPeoplePerSlot reservationDuration requireApprovalAbove plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId'
     );
     if (!canUseFeature(business, 'pendingApprovalControl')) {
       return res.status(403).json({ message: upgradeMessage('pendingApprovalControl'), feature: 'pendingApprovalControl', upgradeRequired: true });
@@ -925,7 +925,7 @@ exports.proposeAlternativeTime = async (req, res) => {
 
 exports.markNoShow = async (req, res) => {
   try {
-    const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
+    const business = await Business.findById(req.businessId).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId');
     if (!canUseFeature(business, 'noShowTracking')) {
       return res.status(403).json({ message: upgradeMessage('noShowTracking'), feature: 'noShowTracking', upgradeRequired: true });
     }
@@ -961,7 +961,7 @@ exports.updateReservation = async (req, res) => {
     if (!old) return res.status(404).json({ message: 'Reservation not found' });
 
     if (req.body?.status === 'no_show') {
-      const business = await Business.findById(req.businessId).select('plan subscriptionStatus');
+      const business = await Business.findById(req.businessId).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId');
       if (!canUseFeature(business, 'noShowTracking')) {
         return res.status(403).json({ message: upgradeMessage('noShowTracking'), feature: 'noShowTracking', upgradeRequired: true });
       }
@@ -1006,7 +1006,7 @@ exports.updateReservation = async (req, res) => {
 
     const statusChanged = reservation.status !== old.status;
     if (statusChanged && reservation.guestEmail && ['confirmed', 'cancelled'].includes(reservation.status)) {
-      const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus');
+      const business = await Business.findById(req.businessId).select('name brandColor email phone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId');
       if (canUseFeature(business, 'autoEmails')) {
         await sendStatusUpdate(reservation, business, reservation.status);
       }

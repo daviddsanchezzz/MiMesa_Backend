@@ -14,6 +14,7 @@ const { fromNodeHeaders } = require('better-auth/node');
 const { getAuth }    = require('../lib/auth');
 const BusinessMember = require('../models/BusinessMember');
 const { isDev }      = require('./requireDev');
+const { readOnlyBlocked, READ_ONLY_RESPONSE } = require('./readOnlyGuard');
 
 module.exports = async function requireAuth(req, res, next) {
   try {
@@ -54,6 +55,8 @@ module.exports = async function requireAuth(req, res, next) {
       if (membership) {
         req.businessId = membership.businessId.toString();
         req.memberRole = membership.role;
+        // No plan (trial over): read-only
+        if (await readOnlyBlocked(req)) return res.status(402).json(READ_ONLY_RESPONSE);
         return next();
       }
 
