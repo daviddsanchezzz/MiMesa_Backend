@@ -1,3 +1,4 @@
+const { quantityFor } = require('../services/billingSeats');
 const { inTrial, TRIAL_DAYS } = require('../lib/planCapabilities');
 const Business = require('../models/Business');
 const Reservation = require('../../verticals/restaurant/models/Reservation');
@@ -38,6 +39,7 @@ exports.createCheckoutSession = async (req, res) => {
       customerId,
       priceId,
       trialEnd,
+      quantity: await quantityFor(business, requestedPlan),
       businessId: business._id,
       successUrl: `${process.env.FRONTEND_URL}/configuracion?tab=suscripcion&subscription=success`,
       cancelUrl: `${process.env.FRONTEND_URL}/configuracion?tab=suscripcion&subscription=canceled`,
@@ -141,7 +143,9 @@ exports.changePlan = async (req, res) => {
     const isUpgrade = plan === 'pro';
     const prorationBehavior = isTrialing ? 'none' : (isUpgrade ? 'always_invoice' : 'none');
 
-    await stripeService.changePlan(business.stripeSubscriptionId, newPriceId, { prorationBehavior });
+    // Pro counts professionals (3 included, then per extra one); Basic is 1.
+    // Going down to Basic with a team: the extra professionals rest ("en pausa").
+    await stripeService.changePlan(business.stripeSubscriptionId, newPriceId, { prorationBehavior, quantity: await quantityFor(business, plan) });
     await Business.findByIdAndUpdate(req.businessId, { plan });
 
     return res.json({ message: 'Plan actualizado' });

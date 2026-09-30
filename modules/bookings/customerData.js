@@ -73,3 +73,8 @@ registerBusinessData({
     BookingPolicy: require('./models/BookingPolicy'),
   }),
 });
+
+// Pro is billed per professional (core/services/billingSeats)
+require('../../core/services/billingSeats').registerSeatCounter(
+  (businessId) => Resource.countDocuments({ businessId, kind: 'staff', active: true }),
+);

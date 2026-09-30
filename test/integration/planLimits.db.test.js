@@ -211,4 +211,32 @@ describe('appointment plan limits', { skip }, () => {
     assert.equal((await Booking.findById(f._id)).reminderSentAt.getTime(), 0, 'free: marked as handled');
     assert.ok((await Booking.findById(bsc._id)).reminderSentAt.getTime() > 0);
   });
+
+  test('Pro is billed per professional: the Stripe quantity follows the team', async () => {
+    const stripe = require(path.join(ROOT, 'core/services/stripe'));
+    const calls = [];
+    const original = stripe.setQuantity;
+    stripe.setQuantity = async (sub, q) => { calls.push([sub, q]); return {}; };
+    try {
+      const b = await Business.findOne({ email: 'pro1@example.test' });
+      await Business.updateOne({ _id: b._id }, { stripeSubscriptionId: 'sub_pro1', subscriptionStatus: 'active', plan: 'pro' });
+      const { syncSeats, quantityFor } = require(path.join(ROOT, 'core/services/billingSeats'));
+      const r = await addPro('pro1', 'Nuevo');
+      assert.equal(r.status, 201);
+      await new Promise((res) => setTimeout(res, 100));
+      assert.deepEqual(calls.at(-1), ['sub_pro1', 4], 'Ana, Luis, Marta + Nuevo');
+      assert.equal(await quantityFor(await Business.findById(b._id).lean(), 'pro'), 4);
+      assert.equal(await quantityFor(await Business.findById(b._id).lean(), 'basic'), 1);
+      await request(app).delete(`/api/bookings/resources/${r.body._id}`).set(as('pro1'));
+      await new Promise((res) => setTimeout(res, 100));
+      assert.deepEqual(calls.at(-1), ['sub_pro1', 3]);
+      // Basic subscriptions and businesses without Stripe are left alone
+      calls.length = 0;
+      await Business.updateOne({ _id: b._id }, { plan: 'basic' });
+      await syncSeats(b._id);
+      assert.equal(calls.length, 0);
+    } finally {
+      stripe.setQuantity = original;
+    }
+  });
 });

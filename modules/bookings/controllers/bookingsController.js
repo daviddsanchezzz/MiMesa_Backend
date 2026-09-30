@@ -27,6 +27,7 @@ const absences = require('../services/absencesService');
 const followUps = require('../services/followUpsService');
 const policy = require('../services/policyService');
 const limits = require('../lib/planLimits');
+const { syncSeats } = require('../../../core/services/billingSeats');
 
 // Emails never block or fail the request; errors are logged inside.
 const later = (fn) => { Promise.resolve().then(fn).catch(() => {}); };
@@ -71,7 +72,9 @@ exports.createResource = handle(async (req, res) => {
   const data = v.resourceInput(req.body || {});
   if (data.parentId) await assertResourcesBelong(req.businessId, [data.parentId]);
   if (data.kind === 'staff' && data.active !== false) await limits.assertCanAddProfessional(req.businessId, Resource);
-  res.status(201).json(await Resource.create({ ...data, businessId: req.businessId }));
+  const created = await Resource.create({ ...data, businessId: req.businessId });
+  if (created.kind === 'staff') later(() => syncSeats(req.businessId));
+  res.status(201).json(created);
 });
 
 exports.updateResource = handle(async (req, res) => {
@@ -91,6 +94,7 @@ exports.updateResource = handle(async (req, res) => {
   const doc = await Resource.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, data, { new: true, runValidators: true });
   if (!doc) throw notFound('Recurso');
   if (doc.minCapacity > doc.capacity) throw new BookingError(400, 'La capacidad mínima supera la capacidad', 'BAD_REQUEST');
+  if (doc.kind === 'staff' && data.active !== undefined) later(() => syncSeats(req.businessId));
   res.json(doc);
 });
 
@@ -140,6 +144,7 @@ exports.deleteResource = handle(async (req, res) => {
   v.objectId(req.params.id, 'id');
   const doc = await Resource.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, { active: false }, { new: true });
   if (!doc) throw notFound('Recurso');
+  if (doc.kind === 'staff') later(() => syncSeats(req.businessId));
   res.json({ ok: true });
 });
 

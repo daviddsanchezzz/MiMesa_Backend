@@ -38,11 +38,15 @@ async function getOrCreateCustomer(business) {
   return customer.id;
 }
 
-async function createCheckoutSession({ customerId, priceId, businessId, successUrl, cancelUrl, trialEnd = null }) {
+async function createCheckoutSession({ customerId, priceId, businessId, successUrl, cancelUrl, trialEnd = null, quantity = 1 }) {
   return getStripe().checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [{ price: priceId, quantity }],
+    // Founder prices and other offers are Stripe promotion codes
+    allow_promotion_codes: true,
+    // Spanish businesses need their NIF on the invoice
+    tax_id_collection: { enabled: true },
     success_url: successUrl,
     cancel_url: cancelUrl,
     payment_method_collection: 'always',
@@ -83,12 +87,23 @@ async function reactivateSubscription(subscriptionId) {
   return getStripe().subscriptions.update(subscriptionId, { cancel_at_period_end: false });
 }
 
-async function changePlan(subscriptionId, newPriceId, { prorationBehavior = 'always_invoice' } = {}) {
+async function changePlan(subscriptionId, newPriceId, { prorationBehavior = 'always_invoice', quantity = 1 } = {}) {
   const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
   const itemId = subscription.items.data[0].id;
   return getStripe().subscriptions.update(subscriptionId, {
-    items: [{ id: itemId, price: newPriceId }],
+    items: [{ id: itemId, price: newPriceId, quantity }],
     proration_behavior: prorationBehavior,
+  });
+}
+
+/** Professionals on Pro: changes the quantity (prorated on the next invoice). */
+async function setQuantity(subscriptionId, quantity) {
+  const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+  const item = subscription.items.data[0];
+  if (!item || item.quantity === quantity) return subscription;
+  return getStripe().subscriptions.update(subscriptionId, {
+    items: [{ id: item.id, quantity }],
+    proration_behavior: 'create_prorations',
   });
 }
 
@@ -138,6 +153,7 @@ function planFromPriceId(priceId) {
 module.exports = {
   cancelSubscriptionAtPeriodEnd,
   changePlan,
+  setQuantity,
   constructWebhookEvent,
   createCheckoutSession,
   createCustomer,
