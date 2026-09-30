@@ -93,6 +93,11 @@ const BusinessMember = require('../models/BusinessMember');
       sendOnSignUp: true,
       sendVerificationEmail: async ({ user, url }) => {
         try {
+          // Invited people verify their email by accepting the invitation (it reached their inbox).
+          const Invitation = require('../models/Invitation');
+          const invited = await Invitation.exists({ email: String(user.email || '').toLowerCase(), status: 'pending', expiresAt: { $gt: new Date() } });
+          if (invited) return;
+
           let verificationLink = url;
           try {
             const parsed = new URL(url);
