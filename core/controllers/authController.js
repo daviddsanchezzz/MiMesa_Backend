@@ -33,6 +33,7 @@ const businessData = (b) => ({
   // What the business can do now: basic | pro | free (only businesses from before trials) | expired (read-only)
   effectivePlan:      getEffectivePlan(b),
   legacyAccess:       !!b.legacyAccess,
+  hasSubscription:    !!b.stripeSubscriptionId,
   capabilities:       serializeCapabilities(b),
   modules:            getAllModuleAccess(b),
 });

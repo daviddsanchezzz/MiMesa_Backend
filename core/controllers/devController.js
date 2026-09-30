@@ -566,6 +566,7 @@ exports.overview = async (req, res) => {
         trialEndsAt: b.trialEndsAt || null,
         legacyAccess: !!b.legacyAccess,
         subscriptionStatus: b.subscriptionStatus || null,
+        hasSubscription: !!b.stripeSubscriptionId,
         createdAt: b.createdAt,
         modules: MODULE_CATALOG.reduce((acc, m) => { acc[m.key] = getModuleAccess(b, m.key); return acc; }, {}),
         owner: owner
