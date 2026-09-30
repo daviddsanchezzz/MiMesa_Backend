@@ -22,6 +22,7 @@ const team = require('../services/teamService');
 const CashClose = require('../models/CashClose');
 const { dateInTimezone } = require('../../../core/lib/timezone');
 const { businessLogoUrl } = require('../../../core/lib/images');
+const absences = require('../services/absencesService');
 
 // Emails never block or fail the request; errors are logged inside.
 const later = (fn) => { Promise.resolve().then(fn).catch(() => {}); };
@@ -32,7 +33,9 @@ function handle(fn) {
       await fn(req, res);
     } catch (err) {
       if (err instanceof BookingError) {
-        return res.status(err.status).json({ message: err.message, code: err.code, ...(err.reason ? { reason: err.reason } : {}) });
+        return res.status(err.status).json({
+          message: err.message, code: err.code, ...(err.reason ? { reason: err.reason } : {}), ...(err.bookings ? { bookings: err.bookings } : {}),
+        });
       }
       if (err?.name === 'ValidationError' || err?.name === 'CastError') {
         return res.status(400).json({ message: 'Datos no válidos', code: 'BAD_REQUEST' });
@@ -510,4 +513,41 @@ exports.publicCancelBooking = handle(async (req, res) => {
   await svc.cancelBooking(booking);
   later(() => emails.notifyStaffCancelled(booking));
   res.json(publicBookingView(booking));
+});
+
+// ── Absences (time off) ─────────────────────────────────────────────────────
+exports.listAbsences = handle(async (req, res) => {
+  const { from, to } = v.dateRange(req.query, { maxDays: 120 });
+  res.json(await absences.listAbsences(req, { from, to }));
+});
+
+exports.createAbsence = handle(async (req, res) => {
+  res.status(201).json(await absences.createAbsence(req, v.absenceInput(req.body || {})));
+});
+
+exports.deleteAbsence = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  await absences.deleteAbsence(req, req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Move an appointment to another professional ─────────────────────────────
+async function loadBookingDoc(req) {
+  v.objectId(req.params.id, 'id');
+  const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId });
+  if (!booking) throw notFound('Cita');
+  return booking;
+}
+
+exports.reassignOptions = handle(async (req, res) => {
+  const booking = await loadBookingDoc(req);
+  res.json(await svc.reassignOptions(booking, v.objectId(req.query.from, 'from')));
+});
+
+exports.reassignBooking = handle(async (req, res) => {
+  const booking = await loadBookingDoc(req);
+  const updated = await svc.reassignBooking(booking, v.objectId(req.body?.from, 'from'), v.objectId(req.body?.to, 'to'));
+  const doc = updated.toObject();
+  delete doc.publicToken;
+  res.json(doc);
 });

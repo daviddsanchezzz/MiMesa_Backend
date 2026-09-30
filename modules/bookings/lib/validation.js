@@ -257,6 +257,30 @@ function bookingInput(body, { online }) {
   };
 }
 
+// Absence of a professional: whole days (from..to) or some hours of one day.
+function absenceInput(body = {}) {
+  const resourceId = objectId(body.resourceId, 'Profesional');
+  const fromDate = date(body.fromDate, 'Desde');
+  const allDay = body.allDay === undefined ? true : bool(body.allDay, 'Todo el día');
+  const toDate = allDay ? date(body.toDate ?? body.fromDate, 'Hasta') : fromDate;
+  if (toDate < fromDate) bad('La fecha final es anterior a la inicial');
+  const days = (Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / 86400000 + 1;
+  if (days > 92) bad('Una ausencia puede durar como mucho 3 meses');
+  let startTime = null;
+  let endTime = null;
+  if (!allDay) {
+    if (typeof body.startTime !== 'string' || !TIME.test(body.startTime)) bad('Hora de inicio no válida');
+    if (typeof body.endTime !== 'string' || !TIME_OR_24.test(body.endTime)) bad('Hora de fin no válida');
+    startTime = body.startTime;
+    endTime = body.endTime;
+    if (toMinutes(endTime) <= toMinutes(startTime)) bad('La hora de fin debe ser posterior a la de inicio');
+    if (!isAligned(toMinutes(startTime)) || !isAligned(toMinutes(endTime))) bad('Las horas deben ser múltiplo de 5 minutos');
+  }
+  const reason = str(body.reason, 'Motivo', { max: 200 }) || '';
+  return { resourceId, fromDate, toDate, allDay, startTime, endTime, reason };
+}
+
 module.exports = {
+  absenceInput,
   resourceInput, imageDataUrl, serviceInput, checkServiceConsistency, scheduleInput, bookingInput, dateRange, objectId, bad,
 };

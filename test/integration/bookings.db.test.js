@@ -548,4 +548,67 @@ describe('generic agenda (bookings module)', { skip }, () => {
     res = await request(app).put(`/api/bookings/resources/${ids.luis}`).set(as('owner')).send({ userId: null });
     assert.equal(res.body.userId, null);
   });
+  test('absences: own agenda, blocked by appointments until moved, then no slots', async () => {
+    const d2 = nextTuesday(28);
+    let res = await request(app).put(`/api/bookings/resources/${ids.luis}`).set(as('owner')).send({ userId: 'staff' });
+    assert.equal(res.status, 200);
+    res = await request(app).post('/api/bookings').set(as('owner')).send({
+      date: d2, time: '17:00', items: [{ serviceId: ids.corte, resourceId: ids.luis }], guestName: 'Queda con Luis', source: 'phone',
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const bookingId = res.body._id;
+
+    // Staff can only block their own professional
+    res = await request(app).post('/api/bookings/absences').set(as('staff')).send({ resourceId: ids.ana, fromDate: d2, reason: 'x' });
+    assert.equal(res.status, 403);
+
+    // Own agenda, but there is an appointment → refused with the list
+    res = await request(app).post('/api/bookings/absences').set(as('staff')).send({ resourceId: ids.luis, fromDate: d2, reason: 'Médico' });
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal(res.body.code, 'HAS_BOOKINGS');
+    assert.deepEqual(res.body.bookings.map((b) => b.guestName), ['Queda con Luis']);
+
+    // Who could take it instead, then move it
+    res = await request(app).get(`/api/bookings/${bookingId}/reassign-options?from=${ids.luis}`).set(as('staff'));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(res.body.some((r) => r._id === ids.ana), 'Ana is free then');
+    res = await request(app).patch(`/api/bookings/${bookingId}/reassign`).set(as('staff')).send({ from: ids.luis, to: ids.ana });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(res.body.segments[0].resourceIds, [ids.ana]);
+    assert.equal(await Occupancy.countDocuments({ bookingId, resourceId: ids.luis }), 0);
+    assert.ok(await Occupancy.countDocuments({ bookingId, resourceId: ids.ana }) > 0);
+
+    // Now the whole day can be blocked
+    res = await request(app).post('/api/bookings/absences').set(as('staff')).send({ resourceId: ids.luis, fromDate: d2, reason: 'Médico' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const absenceId = res.body._id;
+    res = await request(app).get(`/api/bookings/availability?serviceId=${ids.corte}&from=${d2}&resourceId=${ids.luis}`).set(as('owner'));
+    assert.deepEqual(res.body, [], 'no slots with Luis that day');
+    res = await request(app).post('/api/bookings').set(as('owner')).send({
+      date: d2, time: '18:00', items: [{ serviceId: ids.corte, resourceId: ids.luis }], guestName: 'No cabe',
+    });
+    assert.equal(res.status, 409);
+    // Moving an appointment to someone absent is refused too
+    res = await request(app).patch(`/api/bookings/${bookingId}/reassign`).set(as('owner')).send({ from: ids.ana, to: ids.luis });
+    assert.equal(res.status, 409);
+
+    // Some hours only: Ana 10:00–12:00
+    res = await request(app).post('/api/bookings/absences').set(as('owner'))
+      .send({ resourceId: ids.ana, fromDate: d2, allDay: false, startTime: '10:00', endTime: '12:00' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const t = (await request(app).get(`/api/bookings/availability?serviceId=${ids.corte}&from=${d2}&resourceId=${ids.ana}`).set(as('owner'))).body.map((x) => x.time);
+    assert.ok(t.includes('09:30') && !t.includes('10:00') && !t.includes('11:30') && t.includes('12:00'), t.join(','));
+
+    // The reason is private: the owner and Luis see it
+    const list = (await request(app).get(`/api/bookings/absences?from=${d2}`).set(as('staff'))).body;
+    assert.equal(list.find((a) => a._id === absenceId).reason, 'Médico');
+    assert.equal(list.length, 2);
+
+    // Remove it: Luis is bookable again
+    res = await request(app).delete(`/api/bookings/absences/${absenceId}`).set(as('staff'));
+    assert.equal(res.status, 200);
+    res = await request(app).get(`/api/bookings/availability?serviceId=${ids.corte}&from=${d2}&resourceId=${ids.luis}`).set(as('owner'));
+    assert.ok(res.body.length > 0);
+    await request(app).put(`/api/bookings/resources/${ids.luis}`).set(as('owner')).send({ userId: null });
+  });
 });

@@ -13,6 +13,7 @@ const Schedule = require('../models/Schedule');
 const Service = require('../models/Service');
 const Booking = require('../models/Booking');
 const Occupancy = require('../models/Occupancy');
+const Absence = require('../models/Absence');
 const { createContext, evaluateStart, findSlots } = require('../lib/availability');
 const { cellsFor, isAligned } = require('../lib/occupancy');
 const { toMinutes, addDaysToDate } = require('../lib/schedule');
@@ -35,7 +36,7 @@ const REASON_MESSAGES = {
   past: 'Esa hora ya ha pasado',
 };
 
-async function loadEngineData(businessId, services, fromDate, toDate) {
+async function loadEngineData(businessId, services, fromDate, toDate, { excludeBookingId = null } = {}) {
   const business = await Business.findById(businessId).select('timezone').lean();
   if (!business) throw new BookingError(404, 'Negocio no encontrado', 'NOT_FOUND');
   const timezone = businessTimezone(business);
@@ -51,12 +52,16 @@ async function loadEngineData(businessId, services, fromDate, toDate) {
   // Bookings that may overlap the range (one day of margin for timezones/buffers).
   const rangeStart = new Date(Date.parse(`${fromDate}T00:00:00Z`) - DAY_MS);
   const rangeEnd = new Date(Date.parse(`${toDate}T00:00:00Z`) + 2 * DAY_MS);
-  const bookings = await Booking.find({
-    businessId,
-    status: { $in: ACTIVE_STATUSES },
-    start: { $lt: rangeEnd },
-    end: { $gt: rangeStart },
-  }).select('segments partySize').lean();
+  const [bookings, absences] = await Promise.all([
+    Booking.find({
+      businessId,
+      status: { $in: ACTIVE_STATUSES },
+      start: { $lt: rangeEnd },
+      end: { $gt: rangeStart },
+      ...(excludeBookingId ? { _id: { $ne: excludeBookingId } } : {}),
+    }).select('segments partySize').lean(),
+    Absence.find({ businessId, start: { $lt: rangeEnd }, end: { $gt: rangeStart } }).select('resourceId start end').lean(),
+  ]);
 
   const busy = [];
   const poolUsageByService = {};
@@ -67,6 +72,8 @@ async function loadEngineData(businessId, services, fromDate, toDate) {
       (poolUsageByService[sid] ||= []).push({ start: seg.start, end: seg.end, partySize: b.partySize || 1 });
     }
   }
+  // Absences block the professional like an appointment would.
+  for (const a of absences) busy.push({ resourceId: String(a.resourceId), start: a.start, end: a.end });
   const contextFor = (service, { online, now = new Date() }) => createContext({
     service, timezone, businessSchedule, resources, resourceSchedules, busy,
     poolUsage: poolUsageByService[String(service._id)] || [], now, online,
@@ -259,11 +266,95 @@ async function changeStatus(booking, status) {
   return booking;
 }
 
+// ── Move an appointment to another professional ─────────────────────────────
+const REASSIGNABLE = ['pending', 'confirmed', 'checked_in'];
+
+function localMinutes(date, tz) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  const get = (t) => Number(parts.find((p) => p.type === t).value);
+  return get('hour') * 60 + get('minute');
+}
+
+/**
+ * Checks whether `toId` can take over the parts of `booking` done by `fromId`
+ * (does that service, works then, is free and not absent). Returns the new
+ * resourceIds per segment, or null.
+ */
+async function planReassign(booking, fromId, toId, engine) {
+  const from = String(fromId);
+  const newSegments = [];
+  let touched = 0;
+  for (const seg of booking.segments) {
+    const ids = (seg.resourceIds || []).map(String);
+    if (!ids.includes(from)) { newSegments.push(ids); continue; }
+    touched++;
+    if (ids.includes(String(toId))) return null;
+    const service = engine.services.find((x) => String(x._id) === String(seg.serviceId));
+    const idx = (service?.requirements || []).findIndex((r) => r.kind === 'staff');
+    if (!service || idx === -1) return null;
+    const ctx = engine.contextFor(service, { online: false });
+    const r = evaluateStart(ctx, engine.date, localMinutes(new Date(seg.start), engine.timezone), {
+      partySize: booking.partySize || 1, preferred: { [idx]: String(toId) },
+    });
+    if (!r.ok) return null;
+    newSegments.push(ids.map((id) => (id === from ? String(toId) : id)));
+  }
+  return touched ? newSegments : null;
+}
+
+async function reassignEngine(booking) {
+  const business = await Business.findById(booking.businessId).select('timezone').lean();
+  const timezone = businessTimezone(business);
+  const date = dateInTimezone(new Date(booking.start), timezone);
+  const services = await Service.find({ _id: { $in: booking.segments.map((s) => s.serviceId) }, businessId: booking.businessId }).lean();
+  const engine = await loadEngineData(booking.businessId, services, date, date, { excludeBookingId: booking._id });
+  return { ...engine, services, date, timezone };
+}
+
+function assertReassignable(booking, fromId) {
+  if (!REASSIGNABLE.includes(booking.status)) throw new BookingError(400, 'Esta cita ya no se puede cambiar de profesional', 'BAD_REQUEST');
+  if (!booking.segments.some((s) => (s.resourceIds || []).map(String).includes(String(fromId)))) {
+    throw new BookingError(400, 'Ese profesional no está en esta cita', 'BAD_REQUEST');
+  }
+}
+
+/** Professionals who could take the appointment instead of `fromId`. */
+async function reassignOptions(booking, fromId) {
+  assertReassignable(booking, fromId);
+  const engine = await reassignEngine(booking);
+  const staff = await Resource.find({ businessId: booking.businessId, kind: 'staff', active: true, _id: { $ne: fromId } })
+    .sort({ sortOrder: 1, name: 1 }).lean();
+  const out = [];
+  for (const r of staff) if (await planReassign(booking, fromId, r._id, engine)) out.push({ _id: r._id, name: r.name });
+  return out;
+}
+
+async function reassignBooking(booking, fromId, toId) {
+  assertReassignable(booking, fromId);
+  const engine = await reassignEngine(booking);
+  return withLock(`bookings:${booking.businessId}:${engine.date}`, async () => {
+    const plan = await planReassign(booking, fromId, toId, engine);
+    if (!plan) throw new BookingError(409, 'Esa persona no está libre o no hace este servicio a esa hora', 'NOT_AVAILABLE');
+    const before = booking.segments.map((s) => s.resourceIds);
+    booking.segments.forEach((s, i) => { s.resourceIds = plan[i]; s.anyStaff = false; });
+    await Occupancy.deleteMany({ bookingId: booking._id });
+    try {
+      await occupy(booking.businessId, booking._id, booking.segments);
+    } catch (err) {
+      booking.segments.forEach((s, i) => { s.resourceIds = before[i]; });
+      await occupy(booking.businessId, booking._id, booking.segments).catch(() => {});
+      throw err;
+    }
+    await booking.save();
+    return booking;
+  });
+}
+
 function todayFor(timezone) {
   return dateInTimezone(new Date(), timezone);
 }
 
 module.exports = {
-  BookingError, getAvailability, createBooking, cancelBooking, changeStatus, todayFor,
+  BookingError, getAvailability, createBooking, cancelBooking, changeStatus, todayFor, reassignOptions, reassignBooking,
   isValidObjectId: (id) => mongoose.isValidObjectId(id),
 };

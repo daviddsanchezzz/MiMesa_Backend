@@ -51,7 +51,13 @@ router.post('/team/:resourceId/payments', requireRole('manager'), requireModule(
 router.get('/cash', c.cashDay);
 router.post('/cash/close', c.closeCash);
 router.delete('/cash/close', requireRole('manager'), c.reopenCash);
+// Absences: anyone blocks their own agenda; managers anybody's (checked inside)
+router.get('/absences', c.listAbsences);
+router.post('/absences', c.createAbsence);
+router.delete('/absences/:id', c.deleteAbsence);
 router.get('/:id', c.getBooking);
+router.get('/:id/reassign-options', c.reassignOptions);
+router.patch('/:id/reassign', c.reassignBooking);
 router.post('/:id/checkout', c.checkout);
 router.delete('/:id/checkout', requireRole('manager'), c.undoCheckout);
 router.patch('/:id/status', c.setBookingStatus);
