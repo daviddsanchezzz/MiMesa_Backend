@@ -1,6 +1,7 @@
 const Customer = require('../models/Customer');
 const { pickFields } = require('../lib/pickFields');
 const Reservation = require('../../verticals/restaurant/models/Reservation');
+const { upcomingFor, exportFor, eraseFor } = require('../lib/customerData');
 const { getPhoneMatchCandidates, toStoredNormalizedPhone } = require('../lib/phoneMatching');
 
 async function findCustomerByEmailOrPhone({ businessId, email, phone, excludeId = null }) {
@@ -30,10 +31,15 @@ async function findCustomerByEmailOrPhone({ businessId, email, phone, excludeId 
   return null;
 }
 
+// Staff (not owner/manager) get what they need to book someone, not the notes or history.
+const STAFF_CUSTOMER_FIELDS = '_id name phone email vip';
+
 exports.getCustomers = async (req, res) => {
   try {
-    const customers = await Customer.find({ businessId: req.businessId }).sort('-createdAt');
-    res.json(customers);
+    const manager = ['owner', 'manager'].includes(req.memberRole) || req.isDev;
+    const q = Customer.find({ businessId: req.businessId }).sort('-createdAt');
+    if (!manager) q.select(STAFF_CUSTOMER_FIELDS);
+    res.json(await q);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -161,18 +167,69 @@ exports.getCustomerDetail = async (req, res) => {
   }
 };
 
+/**
+ * Deletes a customer and anonymizes their appointments/reservations (RGPD
+ * right to erasure). Refused while they still have something booked ahead:
+ * cancel it first, so nobody turns up to an appointment nobody knows about.
+ */
 exports.deleteCustomer = async (req, res) => {
   try {
     const customer = await Customer.findOne({ _id: req.params.id, businessId: req.businessId });
-    if (!customer) return res.status(404).json({ message: 'Customer not found' });
+    if (!customer) return res.status(404).json({ message: 'Cliente no encontrado' });
 
-    await Reservation.updateMany(
-      { businessId: req.businessId, customerId: customer._id },
-      { $set: { customerId: null } }
-    );
-
+    const upcoming = await upcomingFor(req.businessId, customer);
+    if (upcoming.length) {
+      const what = upcoming.map((u) => `${u.count} ${u.label}`).join(' y ');
+      return res.status(409).json({ code: 'HAS_UPCOMING', upcoming, message: `Tiene ${what} por delante. Cancélalas antes de borrar sus datos.` });
+    }
+    const erased = await eraseFor(req.businessId, customer);
     await customer.deleteOne();
-    res.json({ message: 'Cliente eliminado' });
+    res.json({ message: 'Cliente eliminado', erased });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/** Everything the business keeps about one customer, as JSON (RGPD right of access). */
+exports.exportCustomer = async (req, res) => {
+  try {
+    const customer = await Customer.findOne({ _id: req.params.id, businessId: req.businessId }).lean();
+    if (!customer) return res.status(404).json({ message: 'Cliente no encontrado' });
+    const data = {
+      exportado: new Date().toISOString(),
+      cliente: {
+        nombre: customer.name, telefono: customer.phone || '', email: customer.email || '', notas: customer.notes || '',
+        vip: !!customer.vip, baja_de_avisos: !!customer.marketingUnsubscribed, creado: customer.createdAt,
+      },
+      ...(await exportFor(req.businessId, customer)),
+    };
+    const slug = String(customer.name || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cliente';
+    res.setHeader('Content-Disposition', `attachment; filename="datos-${slug}.json"`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+function csvCell(v) {
+  const s = v === null || v === undefined ? '' : String(v);
+  // Formulas are not executed when opened in a spreadsheet
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return /[";\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
+/** All customers as CSV (for the owner: backups, moving to another tool). */
+exports.exportCustomersCsv = async (req, res) => {
+  try {
+    const rows = await Customer.find({ businessId: req.businessId }).sort({ name: 1 }).lean();
+    const head = ['nombre', 'telefono', 'email', 'notas', 'vip', 'baja_avisos', 'creado'];
+    const lines = [head.join(';')].concat(rows.map((c) => [
+      c.name, c.phone || '', c.email || '', c.notes || '', c.vip ? 'si' : '', c.marketingUnsubscribed ? 'si' : '',
+      c.createdAt ? new Date(c.createdAt).toISOString().slice(0, 10) : '',
+    ].map(csvCell).join(';')));
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="clientes.csv"');
+    res.send(`\uFEFF${lines.join('\r\n')}\r\n`);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

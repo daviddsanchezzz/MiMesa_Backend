@@ -13,12 +13,6 @@ const path = require('node:path');
 const { ROOT } = require('../helpers/load');
 
 const KNOWN_DEBT = [
-  // Deleting a business cascades into restaurant data.
-  'core/controllers/businessesController.js -> verticals/restaurant/models/Reservation',
-  'core/controllers/businessesController.js -> verticals/restaurant/models/Room',
-  'core/controllers/businessesController.js -> verticals/restaurant/models/Shift',
-  'core/controllers/businessesController.js -> verticals/restaurant/models/Table',
-  'core/controllers/businessesController.js -> verticals/restaurant/models/Vacation',
   // Customer history and merge read/update reservations.
   'core/controllers/customerController.js -> verticals/restaurant/models/Reservation',
   // Dev console counts reservations per business.

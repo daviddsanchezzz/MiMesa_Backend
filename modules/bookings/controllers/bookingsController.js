@@ -17,6 +17,7 @@ const { BookingError } = require('../lib/errors');
 const emails = require('../services/bookingEmails');
 const { getDashboardStats } = require('../services/statsService');
 const { summarizeCustomer } = require('../lib/customers');
+const { staffView } = require('../lib/stats');
 const { buildPayment, tillTotals } = require('../lib/checkout');
 const team = require('../services/teamService');
 const CashClose = require('../models/CashClose');
@@ -144,7 +145,8 @@ exports.deleteResource = handle(async (req, res) => {
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
 exports.getStats = handle(async (req, res) => {
-  res.json(await getDashboardStats(req.businessId));
+  const stats = await getDashboardStats(req.businessId);
+  res.json(['owner', 'manager'].includes(req.memberRole) || req.isDev ? stats : staffView(stats));
 });
 
 // ── Customers (appointment history) ─────────────────────────────────────────

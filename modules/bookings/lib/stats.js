@@ -276,4 +276,27 @@ function computeStats({ now, timezone: tz, staff = [], businessSchedule = null, 
   };
 }
 
-module.exports = { computeStats, customerKey, freeGapsToday, occupancy };
+/**
+ * What a staff member (not owner/manager) sees on the dashboard: the day's work
+ * and the agenda's gaps, without the business's money or each colleague's figures.
+ */
+function staffView(stats) {
+  const noMoney = (o) => { const { expectedRevenue, ...rest } = o || {}; return rest; };
+  return {
+    restricted: true,
+    today: noMoney(stats.today),
+    tomorrow: noMoney(stats.tomorrow),
+    week: noMoney(stats.week),
+    actions: {
+      pendingRequests: stats.actions.pendingRequests,
+      freeGapsToday: stats.actions.freeGapsToday,
+      overdueCustomers: { count: 0, top: [] },
+    },
+    money: null,
+    team: stats.team.map(({ revenue, ...t }) => t),
+    topServices: [],
+    customers: null,
+  };
+}
+
+module.exports = { computeStats, customerKey, freeGapsToday, occupancy, staffView };

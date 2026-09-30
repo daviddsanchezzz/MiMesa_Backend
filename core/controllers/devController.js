@@ -296,10 +296,11 @@ exports.updateBusinessModule = async (req, res) => {
 // ── DELETE /api/dev/businesses/:id ───────────────────────────────────────
 exports.deleteBusiness = async (req, res) => {
   try {
-    const business = await Business.findByIdAndDelete(req.params.id);
+    const business = await Business.findById(req.params.id).select('_id').lean();
     if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
 
-    await BusinessMember.deleteMany({ businessId: req.params.id });
+    // Everything goes: customers, team, agenda or restaurant data (RGPD)
+    await require('../services/purgeBusiness').purgeBusiness(business._id);
 
     res.json({ message: 'Negocio eliminado' });
   } catch (err) {

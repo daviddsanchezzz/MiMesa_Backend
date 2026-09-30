@@ -1,13 +1,7 @@
 const Business       = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
-const Room           = require('../../verticals/restaurant/models/Room');
-const Table          = require('../../verticals/restaurant/models/Table');
-const Shift          = require('../../verticals/restaurant/models/Shift');
-const Vacation       = require('../../verticals/restaurant/models/Vacation');
-const Reservation    = require('../../verticals/restaurant/models/Reservation');
-const Customer       = require('../models/Customer');
-const Invitation     = require('../models/Invitation');
 const { sendNewBusinessOwnerNotification } = require('../services/systemEmails');
+const { purgeBusiness } = require('../services/purgeBusiness');
 
 // POST /api/businesses
 const BUSINESS_TYPES = ['restaurant', 'appointments'];
@@ -98,17 +92,7 @@ exports.deleteBusiness = async (req, res) => {
       return res.status(404).json({ message: 'Negocio no encontrado' });
     }
 
-    await Promise.all([
-      Room.deleteMany({ businessId }),
-      Table.deleteMany({ businessId }),
-      Shift.deleteMany({ businessId }),
-      Vacation.deleteMany({ businessId }),
-      Reservation.deleteMany({ businessId }),
-      Customer.deleteMany({ businessId }),
-      Invitation.deleteMany({ businessId }),
-      BusinessMember.deleteMany({ businessId }),
-      Business.deleteOne({ _id: businessId }),
-    ]);
+    await purgeBusiness(businessId);
 
     res.json({ message: 'Negocio eliminado correctamente' });
   } catch (err) {
