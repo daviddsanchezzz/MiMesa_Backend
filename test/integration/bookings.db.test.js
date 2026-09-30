@@ -204,6 +204,16 @@ describe('generic agenda (bookings module)', { skip }, () => {
     assert.ok(t.includes('13:00'));
   });
 
+  test('two services with "any professional" stay with the same person', async () => {
+    const res = await request(app).post('/api/bookings').set(as('staff')).send({
+      date: day, time: '19:00', items: [{ serviceId: ids.corte }, { serviceId: ids.corte }],
+      guestName: 'Jaume', guestPhone: '622000999', source: 'phone',
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const [a, b] = res.body.segments;
+    assert.deepEqual(b.resourceIds, a.resourceIds);
+  });
+
   test('choosing a professional who does not do that service is refused', async () => {
     const res = await request(app).post('/api/bookings').set(as('staff')).send({
       date: day, time: '17:00', items: [{ serviceId: ids.tinte, resourceId: ids.luis }], guestName: 'Pepe',

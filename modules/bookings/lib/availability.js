@@ -65,7 +65,27 @@ function resourceWindows(ctx, resource, dateStr) {
   return ctx.windowCache.get(key);
 }
 
-function candidatesFor(ctx, requirement, partySize, preferredId) {
+// Minutes a resource is already busy on a local date (bookings, blocks, buffers).
+// Not cached: busy intervals change while a multi-service booking is evaluated.
+function dayLoad(ctx, resource, dateStr) {
+  const dayStart = localToUtc(dateStr, 0, ctx.timezone).getTime();
+  const dayEnd = localToUtc(dateStr, 1440, ctx.timezone).getTime();
+  let total = 0;
+  for (const b of ctx.busyByResource.get(idOf(resource)) || []) {
+    const s = Math.max(new Date(b.start).getTime(), dayStart);
+    const e = Math.min(new Date(b.end).getTime(), dayEnd);
+    if (e > s) total += (e - s) / MIN;
+  }
+  return total;
+}
+
+/**
+ * Resources that can fill a requirement, in the order they are tried.
+ * Tables/rooms: smallest that fits first. People ("any professional"): the one
+ * with the least booked time that day first, so work is shared out instead of
+ * always going to the first of the list; ties keep the list order.
+ */
+function candidatesFor(ctx, requirement, partySize, preferredId, dateStr = null) {
   const allowed = (requirement.resourceIds || []).map(idOf);
   let list = ctx.resources.filter((r) =>
     r.kind === requirement.kind
@@ -74,7 +94,10 @@ function candidatesFor(ctx, requirement, partySize, preferredId) {
     && (allowed.length === 0 || allowed.includes(idOf(r)))
     && (!requirement.matchPartySize || ((r.capacity || 1) >= partySize && (r.minCapacity || 1) <= partySize)));
   if (preferredId) list = list.filter((r) => idOf(r) === String(preferredId));
+  const balance = !preferredId && !requirement.matchPartySize && requirement.kind === 'staff' && dateStr;
+  const load = balance ? new Map(list.map((r) => [idOf(r), dayLoad(ctx, r, dateStr)])) : null;
   return list.sort((a, b) => (requirement.matchPartySize ? (a.capacity || 1) - (b.capacity || 1) : 0)
+    || (load ? load.get(idOf(a)) - load.get(idOf(b)) : 0)
     || (a.sortOrder || 0) - (b.sortOrder || 0)
     || idOf(a).localeCompare(idOf(b)));
 }
@@ -136,7 +159,7 @@ function evaluateStart(ctx, dateStr, startMin, { partySize = 1, preferred = {}, 
     for (let i = 0; i < reqs.length; i++) {
       const req = reqs[i];
       const chosen = [];
-      for (const r of candidatesFor(ctx, req, partySize, preferred[i])) {
+      for (const r of candidatesFor(ctx, req, partySize, preferred[i], dateStr)) {
         if (chosen.length >= (req.count || 1)) break;
         if (used.has(idOf(r))) continue;
         if (resourceIsFree(ctx, r, dateStr, startMin, endMin, busyStart, busyEnd)) {

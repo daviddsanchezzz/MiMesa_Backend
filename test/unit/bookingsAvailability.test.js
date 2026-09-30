@@ -89,6 +89,21 @@ describe('salon: one professional per appointment', () => {
     assert.deepEqual(r.assignments, [['luis']]);
   });
 
+  test('"any professional" shares out the day: the one with less booked time goes first', () => {
+    // Ana already has an hour booked in the morning; Luis has nothing → Luis gets 16:00.
+    const busy = [{ resourceId: 'ana', start: utc('2026-10-13T07:00:00Z'), end: utc('2026-10-13T08:00:00Z') }];
+    const c = ctx({ busy });
+    assert.deepEqual(evaluateStart(c, TUE, 960).assignments, [['luis']]);
+    // Luis now has more booked time than Ana → back to Ana.
+    const c2 = ctx({ busy: [...busy, { resourceId: 'luis', start: utc('2026-10-13T08:00:00Z'), end: utc('2026-10-13T10:00:00Z') }] });
+    assert.deepEqual(evaluateStart(c2, TUE, 960).assignments, [['ana']]);
+    // Bookings on another day do not count.
+    const c3 = ctx({ busy: [{ resourceId: 'ana', start: utc('2026-10-14T07:00:00Z'), end: utc('2026-10-14T10:00:00Z') }] });
+    assert.deepEqual(evaluateStart(c3, TUE, 960).assignments, [['ana']]);
+    // A chosen professional is always respected, even if busier.
+    assert.deepEqual(evaluateStart(c, TUE, 960, { preferred: { 0: 'ana' } }).assignments, [['ana']]);
+  });
+
   test('chosen professional who is busy → no slot', () => {
     const c = ctx({ busy: [{ resourceId: 'ana', start: utc('2026-10-13T07:00:00Z'), end: utc('2026-10-13T07:30:00Z') }] });
     const r = evaluateStart(c, TUE, 540, { preferred: { 0: 'ana' } });

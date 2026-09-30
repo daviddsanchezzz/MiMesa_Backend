@@ -163,7 +163,16 @@ async function createBooking({
         if (idx === -1) throw new BookingError(400, 'Este servicio no permite elegir profesional', 'BAD_REQUEST');
         preferred[idx] = String(items[i].resourceId);
       }
-      const r = evaluateStart(ctx, date, cursor, { partySize, preferred, extraBusy });
+      // "Any professional" on a later service: keep the same person as the
+      // previous one when they can do it, otherwise anyone free.
+      const staffIdx = (service.requirements || []).findIndex((q) => q.kind === 'staff');
+      const previousStaff = segments.length ? segments[segments.length - 1].staffId : null;
+      let r = null;
+      if (!items[i].resourceId && staffIdx !== -1 && previousStaff) {
+        r = evaluateStart(ctx, date, cursor, { partySize, preferred: { ...preferred, [staffIdx]: previousStaff }, extraBusy });
+        if (!r.ok) r = null;
+      }
+      if (!r) r = evaluateStart(ctx, date, cursor, { partySize, preferred, extraBusy });
       if (!r.ok) {
         throw new BookingError(409, REASON_MESSAGES[r.reason] || 'No hay disponibilidad', 'NOT_AVAILABLE', { reason: r.reason, segment: i });
       }
@@ -174,6 +183,7 @@ async function createBooking({
         start: r.start, end: r.end, busyStart: r.busyStart, busyEnd: r.busyEnd,
         resourceIds,
         anyStaff: !items[i].resourceId,
+        staffId: staffIdx !== -1 ? (r.assignments[staffIdx] || [])[0] || null : null,
         price: (service.price?.amount || 0) * (service.price?.perPerson ? partySize : 1),
       });
       for (const rid of resourceIds) extraBusy.push({ resourceId: rid, start: r.busyStart, end: r.busyEnd });
