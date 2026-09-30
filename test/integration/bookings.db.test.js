@@ -524,4 +524,18 @@ describe('generic agenda (bookings module)', { skip }, () => {
     assert.ok(res.body.expensesByCategory.find((c) => c.category === 'staff').amount > 0, 'salaries count as expense');
     await Business.updateOne({ _id: biz._id }, { businessType: 'restaurant', plan: 'basic' });
   });
+
+  test('link an app user to a professional (Mi agenda)', async () => {
+    let res = await request(app).put(`/api/bookings/resources/${ids.ana}`).set(as('owner')).send({ userId: 'staff' });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.userId, 'staff');
+    res = await request(app).put(`/api/bookings/resources/${ids.luis}`).set(as('owner')).send({ userId: 'staff' });
+    assert.equal(res.body.userId, 'staff');
+    const list = (await request(app).get('/api/bookings/resources').set(as('staff'))).body;
+    assert.equal(list.find((r) => r._id === ids.ana).userId, null, 'moved from Ana to Luis');
+    res = await request(app).put(`/api/bookings/resources/${ids.ana}`).set(as('owner')).send({ userId: 'otherOwner' });
+    assert.equal(res.status, 400, 'not a member of this business');
+    res = await request(app).put(`/api/bookings/resources/${ids.luis}`).set(as('owner')).send({ userId: null });
+    assert.equal(res.body.userId, null);
+  });
 });

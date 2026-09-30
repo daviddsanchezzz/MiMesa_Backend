@@ -13,6 +13,8 @@ const resourceSchema = new mongoose.Schema({
   capacity:    { type: Number, default: 1, min: 1, max: 500 },
   minCapacity: { type: Number, default: 1, min: 1, max: 500 },
   staffEmployeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffEmployee', default: null },
+  // App user who IS this professional (sees "Mi agenda"). One per business.
+  userId:     { type: String, default: null },
   bookableOnline:  { type: Boolean, default: true },
   sortOrder:  { type: Number, default: 0 },
   // How it shows in the agenda: a colour and an optional small photo (data URL)

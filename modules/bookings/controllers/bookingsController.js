@@ -4,6 +4,7 @@
  * business exists and has the module enabled.
  */
 const Business = require('../../../core/models/Business');
+const BusinessMember = require('../../../core/models/BusinessMember');
 const { canUseModule } = require('../../../core/lib/planCapabilities');
 const { businessTimezone } = require('../../../core/lib/timezone');
 const Resource = require('../models/Resource');
@@ -68,6 +69,12 @@ exports.updateResource = handle(async (req, res) => {
   v.objectId(req.params.id, 'id');
   const data = v.resourceInput(req.body || {}, { partial: true });
   if (data.parentId) await assertResourcesBelong(req.businessId, [data.parentId]);
+  if (data.userId) {
+    const member = await BusinessMember.exists({ businessId: req.businessId, userId: data.userId, status: { $ne: 'invited' } });
+    if (!member) throw new BookingError(400, 'Ese usuario no es del equipo de este negocio', 'BAD_REQUEST');
+    // A person is one professional: unlink them from any other
+    await Resource.updateMany({ businessId: req.businessId, userId: data.userId, _id: { $ne: req.params.id } }, { $set: { userId: null } });
+  }
   const doc = await Resource.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, data, { new: true, runValidators: true });
   if (!doc) throw notFound('Recurso');
   if (doc.minCapacity > doc.capacity) throw new BookingError(400, 'La capacidad mínima supera la capacidad', 'BAD_REQUEST');

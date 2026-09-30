@@ -91,6 +91,11 @@ function resourceInput(body, { partial = false } = {}) {
     else bad('El color no es válido');
   }
   if (has(body, 'photo')) out.photo = imageDataUrl(body.photo, 'La foto', MAX_PHOTO_CHARS);
+  if (has(body, 'userId')) {
+    if (body.userId === null || body.userId === '') out.userId = null;
+    else if (typeof body.userId === 'string' && body.userId.length <= 100) out.userId = body.userId;
+    else bad('El usuario no es válido');
+  }
   if (has(body, 'attributes')) {
     if (typeof body.attributes !== 'object' || Array.isArray(body.attributes) || JSON.stringify(body.attributes).length > 4000) bad('attributes no es válido');
     out.attributes = body.attributes;
