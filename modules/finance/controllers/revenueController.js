@@ -3,6 +3,7 @@ const Reservation  = require('../../../verticals/restaurant/models/Reservation')
 const Business     = require('../../../core/models/Business');
 const Expense      = require('../models/Expense');
 const { calculateStaffCostForRange } = require('../../staff/lib/staffCosts');
+const { appointmentRevenue } = require('../../bookings/services/revenueService');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -56,6 +57,10 @@ async function getDashboard(req, res) {
   try {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).json({ message: 'Se requieren los parámetros from y to' });
+    if (!DATE_RE.test(from) || !DATE_RE.test(to) || to < from) return res.status(400).json({ message: 'Fechas no válidas' });
+
+    const biz = await Business.findById(req.businessId).select('businessType').lean();
+    if (biz?.businessType === 'appointments') return res.json(await appointmentsDashboard(req.businessId, from, to));
 
     const ticketAverage = await getTicketAverage(req.businessId);
     const estimatedByDate = await buildEstimatedByDate(req.businessId, from, to, ticketAverage);
@@ -138,6 +143,70 @@ async function getDashboard(req, res) {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+}
+
+// Appointment businesses: revenue comes from the appointments (what they're
+// worth) and the till (what was actually charged); a manual figure for a day
+// still wins over the till. Commissions count as an expense.
+async function appointmentsDashboard(businessId, from, to) {
+  const [revenue, actuals, expenses, staffCost] = await Promise.all([
+    appointmentRevenue(businessId, from, to),
+    DailyRevenue.find({ businessId, date: { $gte: from, $lte: to } }).lean(),
+    Expense.find({ businessId, expenseDate: { $gte: from, $lte: to }, category: { $ne: 'staff' } }).lean(),
+    calculateStaffCostForRange(businessId, from, to),
+  ]);
+  const manualByDate = Object.fromEntries(actuals.map((a) => [a.date, a]));
+  const round = (n) => Number(n.toFixed(2));
+
+  const effectiveTo = to > revenue.today ? revenue.today : to;
+  let billedTotal = 0; let appointments = 0; let actualTotal = 0; let anyActual = false; let collectedTotal = 0; let tipsTotal = 0;
+  const days = generateDateRange(from, effectiveTo).reverse().map((date) => {
+    const r = revenue.byDate[date] || { appointments: 0, billed: 0, collected: 0, tips: 0, payments: 0 };
+    const manual = manualByDate[date];
+    const manualValue = manual?.actualRevenue ?? null;
+    const actual = manualValue !== null ? manualValue : (r.payments > 0 ? r.collected : null);
+    billedTotal += r.billed; appointments += r.appointments; collectedTotal += r.collected; tipsTotal += r.tips;
+    if (actual !== null) { actualTotal += actual; anyActual = true; }
+    return {
+      date,
+      appointments: r.appointments,
+      estimatedRevenue: r.billed,
+      collected: r.payments > 0 ? r.collected : null,
+      tips: r.tips,
+      manualRevenue: manualValue,
+      actualRevenue: actual,
+      actualSource: manualValue !== null ? 'manual' : (r.payments > 0 ? 'till' : null),
+      notes: manual?.notes ?? '',
+    };
+  });
+
+  const commissions = revenue.byStaff.reduce((s, x) => s + x.commission, 0);
+  const byCat = {};
+  for (const e of expenses) byCat[e.category] = (byCat[e.category] || 0) + (e.amount || 0);
+  if (staffCost > 0) byCat.staff = (byCat.staff || 0) + staffCost;
+  if (commissions > 0) byCat.commissions = (byCat.commissions || 0) + commissions;
+  const expensesByCategory = Object.entries(byCat)
+    .map(([category, amount]) => ({ category, amount: round(amount) }))
+    .sort((a, b) => b.amount - a.amount);
+  const totalExpenses = round(expensesByCategory.reduce((s, c) => s + c.amount, 0));
+  const actualRevenue = anyActual ? round(actualTotal) : null;
+  const revenueBase = actualRevenue !== null ? actualRevenue : round(billedTotal);
+
+  return {
+    mode: 'appointments',
+    estimatedRevenue: round(billedTotal),
+    actualRevenue,
+    collectedRevenue: round(collectedTotal),
+    tips: round(tipsTotal),
+    totalExpenses,
+    estimatedProfit: round(revenueBase - totalExpenses),
+    profitBasis: actualRevenue !== null ? 'actual' : 'estimated',
+    appointments,
+    averageTicket: appointments ? round(billedTotal / appointments) : 0,
+    expensesByCategory,
+    byStaff: revenue.byStaff,
+    days,
+  };
 }
 
 // PUT /api/revenue/actual  { date, actualRevenue, notes }

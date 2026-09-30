@@ -13,7 +13,7 @@ function requireModule(moduleKey) {
       const access = getModuleAccess(business, moduleKey);
       if (!access.enabled) {
         return res.status(403).json({
-          message: 'Este modulo no esta disponible para este negocio',
+          message: 'Este módulo no está disponible para este negocio',
           module: moduleKey,
           moduleAccess: access,
           upgradeRequired: !access.allowedByPlan,

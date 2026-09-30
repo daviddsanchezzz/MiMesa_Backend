@@ -42,7 +42,13 @@ router.get('/customers/:customerId', requireRole('manager'), c.customerBookings)
 router.get('/availability', c.getAvailability);
 router.get('/', c.listBookings);
 router.post('/', c.createBooking);
+// Caja (any member charges and closes; managers undo and reopen)
+router.get('/cash', c.cashDay);
+router.post('/cash/close', c.closeCash);
+router.delete('/cash/close', requireRole('manager'), c.reopenCash);
 router.get('/:id', c.getBooking);
+router.post('/:id/checkout', c.checkout);
+router.delete('/:id/checkout', requireRole('manager'), c.undoCheckout);
 router.patch('/:id/status', c.setBookingStatus);
 router.patch('/:id/notes', c.updateBookingNotes);
 

@@ -16,6 +16,9 @@ const { BookingError } = require('../lib/errors');
 const emails = require('../services/bookingEmails');
 const { getDashboardStats } = require('../services/statsService');
 const { summarizeCustomer } = require('../lib/customers');
+const { buildPayment, tillTotals } = require('../lib/checkout');
+const CashClose = require('../models/CashClose');
+const { dateInTimezone } = require('../../../core/lib/timezone');
 const { businessLogoUrl } = require('../../../core/lib/images');
 
 // Emails never block or fail the request; errors are logged inside.
@@ -294,6 +297,105 @@ exports.updateBookingNotes = handle(async (req, res) => {
     .select('-publicToken').lean();
   if (!doc) throw notFound('Cita');
   res.json(doc);
+});
+
+// ── Caja: charge appointments and close the day ─────────────────────────────
+async function businessTz(businessId) {
+  return businessTimezone(await Business.findById(businessId).select('timezone').lean());
+}
+
+async function assertTillOpen(businessId, date) {
+  if (await CashClose.exists({ businessId, date })) {
+    throw new BookingError(409, 'La caja de ese día ya está cerrada. Reábrela para cambiar cobros.', 'TILL_CLOSED');
+  }
+}
+
+exports.checkout = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId }).select('-publicToken').lean();
+  if (!booking) throw notFound('Cita');
+  const tz = await businessTz(req.businessId);
+  const now = new Date();
+  const localDate = dateInTimezone(now, tz);
+  await assertTillOpen(req.businessId, localDate);
+  const payment = buildPayment(booking, req.body || {}, { now, localDate, userId: req.user?.id || null });
+  const doc = await Booking.findOneAndUpdate(
+    { _id: booking._id, businessId: req.businessId, payment: null, status: { $in: ['confirmed', 'checked_in', 'completed'] } },
+    { $set: { payment, status: 'completed' } },
+    { new: true },
+  ).lean();
+  if (!doc) throw new BookingError(409, 'Esta cita ya está cobrada', 'ALREADY_PAID');
+  delete doc.publicToken;
+  res.json(doc);
+});
+
+exports.undoCheckout = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId }).select('payment').lean();
+  if (!booking) throw notFound('Cita');
+  if (!booking.payment) throw new BookingError(400, 'Esta cita no está cobrada', 'BAD_REQUEST');
+  await assertTillOpen(req.businessId, booking.payment.date);
+  const doc = await Booking.findOneAndUpdate({ _id: booking._id }, { $set: { payment: null } }, { new: true }).lean();
+  delete doc.publicToken;
+  res.json(doc);
+});
+
+// The till of a day: what was charged (by method), what is left to charge
+// and whether the day is closed.
+exports.cashDay = handle(async (req, res) => {
+  const tz = await businessTz(req.businessId);
+  const date = req.query.date ? v.dateRange({ from: req.query.date }, { maxDays: 1 }).from : dateInTimezone(new Date(), tz);
+  const { localToUtc } = require('../lib/availability');
+  const [paid, ofDay, close] = await Promise.all([
+    Booking.find({ businessId: req.businessId, 'payment.date': date })
+      .select('guestName customerId start segments totalPrice status payment').sort({ 'payment.paidAt': -1 }).lean(),
+    Booking.find({
+      businessId: req.businessId,
+      start: { $gte: localToUtc(date, 0, tz), $lt: localToUtc(date, 1440, tz) },
+      status: { $in: ['confirmed', 'checked_in', 'completed'] },
+      payment: null,
+    }).select('guestName customerId start end segments totalPrice status').sort({ start: 1 }).lean(),
+    CashClose.findOne({ businessId: req.businessId, date }).lean(),
+  ]);
+  res.json({
+    date,
+    totals: tillTotals(paid.map((b) => b.payment)),
+    payments: paid,
+    toCharge: ofDay,
+    toChargeAmount: ofDay.reduce((s, b) => s + (b.totalPrice || 0), 0),
+    close,
+  });
+});
+
+exports.closeCash = handle(async (req, res) => {
+  const tz = await businessTz(req.businessId);
+  const date = req.body?.date ? v.dateRange({ from: req.body.date }, { maxDays: 1 }).from : dateInTimezone(new Date(), tz);
+  const paid = await Booking.find({ businessId: req.businessId, 'payment.date': date }).select('payment').lean();
+  const totals = tillTotals(paid.map((b) => b.payment));
+  let countedCash = null;
+  if (req.body?.countedCash !== undefined && req.body.countedCash !== null && req.body.countedCash !== '') {
+    countedCash = Number(req.body.countedCash);
+    if (!Number.isInteger(countedCash) || countedCash < 0 || countedCash > 100_000_00) throw new BookingError(400, 'El efectivo contado no es válido', 'BAD_REQUEST');
+  }
+  try {
+    const doc = await CashClose.create({
+      businessId: req.businessId, date, totals, countedCash,
+      difference: countedCash === null ? null : countedCash - totals.cash,
+      note: String(req.body?.note || '').slice(0, 500),
+      closedBy: req.user?.id || null,
+    });
+    res.status(201).json(doc);
+  } catch (err) {
+    if (err?.code === 11000) throw new BookingError(409, 'La caja de ese día ya está cerrada', 'TILL_CLOSED');
+    throw err;
+  }
+});
+
+exports.reopenCash = handle(async (req, res) => {
+  const date = v.dateRange({ from: req.query.date }, { maxDays: 1 }).from;
+  const r = await CashClose.deleteOne({ businessId: req.businessId, date });
+  if (!r.deletedCount) throw notFound('Cierre de caja');
+  res.json({ ok: true });
 });
 
 // ── Public (guest) side ─────────────────────────────────────────────────────

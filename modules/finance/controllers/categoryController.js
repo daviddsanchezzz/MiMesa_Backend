@@ -1,4 +1,5 @@
 const BusinessCategory = require('../models/BusinessCategory');
+const Business = require('../../../core/models/Business');
 
 // ── Default seed ──────────────────────────────────────────────────────────────
 
@@ -13,6 +14,21 @@ const DEFAULTS = [
   { value: 'utilities',   label: 'Servicios',      color: 'indigo',  isDefault: true, order: 7 },
   { value: 'staff',       label: 'Personal',       color: 'violet',  isDefault: true, order: 8 },
   { value: 'other',       label: 'Otros',          color: 'slate',   isDefault: true, order: 9 },
+];
+
+// Appointment businesses (salons, clinics…) start with their own list.
+const APPOINTMENT_DEFAULTS = [
+  { value: 'products',    label: 'Productos',              color: 'pink',    isDefault: true, order: 0 },
+  { value: 'rent',        label: 'Alquiler',               color: 'red',     isDefault: true, order: 1 },
+  { value: 'utilities',   label: 'Luz, agua e internet',   color: 'indigo',  isDefault: true, order: 2 },
+  { value: 'staff',       label: 'Personal',               color: 'violet',  isDefault: true, order: 3 },
+  { value: 'commissions', label: 'Comisiones',             color: 'purple',  isDefault: true, order: 4 },
+  { value: 'selfemployed',label: 'Autónomos y seguros',    color: 'blue',    isDefault: true, order: 5 },
+  { value: 'advisor',     label: 'Gestoría',               color: 'cyan',    isDefault: true, order: 6 },
+  { value: 'software',    label: 'Software y apps',        color: 'slate',   isDefault: true, order: 7 },
+  { value: 'marketing',   label: 'Marketing',              color: 'orange',  isDefault: true, order: 8 },
+  { value: 'maintenance', label: 'Mantenimiento',          color: 'yellow',  isDefault: true, order: 9 },
+  { value: 'other',       label: 'Otros',                  color: 'slate',   isDefault: true, order: 10 },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -38,7 +54,9 @@ async function getCategories(req, res) {
     // Auto-seed defaults on first access — deduplicate by value in case old
     // type-split docs exist from a previous schema version
     if (cats.length === 0) {
-      const docs = DEFAULTS.map((d) => ({ ...d, businessId: req.businessId }));
+      const biz = await Business.findById(req.businessId).select('businessType').lean();
+      const seed = biz?.businessType === 'appointments' ? APPOINTMENT_DEFAULTS : DEFAULTS;
+      const docs = seed.map((d) => ({ ...d, businessId: req.businessId }));
       await BusinessCategory.insertMany(docs, { ordered: false }).catch(() => {});
       cats = await BusinessCategory
         .find({ businessId: req.businessId })

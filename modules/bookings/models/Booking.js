@@ -14,6 +14,20 @@ const segmentSchema = new mongoose.Schema({
   price:       { type: Number, default: 0 },           // cents, snapshot
 }, { _id: true });
 
+// What was charged when the appointment ended (Caja). Money in cents.
+const paymentSchema = new mongoose.Schema({
+  method:   { type: String, enum: ['cash', 'card', 'bizum', 'other'], required: true },
+  services: { type: Number, default: 0 },   // appointment price charged
+  extras:   [{ _id: false, name: { type: String, maxlength: 100 }, price: Number, qty: { type: Number, default: 1 } }],
+  discount: { type: Number, default: 0 },
+  tip:      { type: Number, default: 0 },   // not revenue: goes to the team
+  total:    { type: Number, default: 0 },   // services + extras - discount
+  date:     { type: String, required: true }, // business-local YYYY-MM-DD of paidAt (the till day)
+  paidAt:   { type: Date, required: true },
+  paidBy:   { type: String, default: null },
+  note:     { type: String, default: '', maxlength: 300 },
+}, { _id: false });
+
 /**
  * A customer's appointment. One or more consecutive segments, each a service
  * with the resources it occupies ("corte con Ana" + "tinte con Luis").
@@ -41,6 +55,7 @@ const bookingSchema = new mongoose.Schema({
   totalPrice:    { type: Number, default: 0 },          // cents
   cancelledAt:   { type: Date, default: null },
   reminderSentAt:{ type: Date, default: null },   // 24h reminder email already sent
+  payment:       { type: paymentSchema, default: null },
   createdBy:     { type: String, default: null },       // user id, null for online
   // Secret for the guest's cancel link
   publicToken:   { type: String, default: () => crypto.randomBytes(24).toString('hex'), index: true },
@@ -49,5 +64,6 @@ const bookingSchema = new mongoose.Schema({
 bookingSchema.index({ businessId: 1, start: 1 });
 bookingSchema.index({ status: 1, reminderSentAt: 1, start: 1 });
 bookingSchema.index({ businessId: 1, customerId: 1, start: -1 });
+bookingSchema.index({ businessId: 1, 'payment.date': 1 }, { sparse: true });
 
 module.exports = mongoose.model('Booking', bookingSchema);

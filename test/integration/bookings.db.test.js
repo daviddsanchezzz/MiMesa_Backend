@@ -433,4 +433,70 @@ describe('generic agenda (bookings module)', { skip }, () => {
     const other = await request(app).get(`/api/bookings/customers/${c._id}`).set(as('otherOwner'));
     assert.deepEqual(other.body.bookings, [], 'another business sees nothing');
   });
+
+  test('caja: charge an appointment, till of the day, close and reopen', async () => {
+    const Booking = require(path.join(ROOT, 'modules/bookings/models/Booking'));
+    const start = new Date(Date.now() - 3 * 3600000);
+    const end = new Date(start.getTime() + 30 * 60000);
+    const b = await Booking.create({
+      businessId: biz._id, guestName: 'Caja Uno', status: 'confirmed', start, end, totalPrice: 1800,
+      segments: [{ serviceId: ids.corte, serviceName: 'Corte', start, end, busyStart: start, busyEnd: end, resourceIds: [ids.ana], price: 1800 }],
+    });
+    let res = await request(app).post(`/api/bookings/${b._id}/checkout`).set(as('staff'))
+      .send({ method: 'cash', extras: [{ name: 'Laca', price: 900 }], tip: 200 });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.status, 'completed');
+    assert.equal(res.body.payment.total, 2700);
+    res = await request(app).post(`/api/bookings/${b._id}/checkout`).set(as('staff')).send({ method: 'card' });
+    assert.equal(res.status, 400, 'cannot charge twice');
+
+    res = await request(app).get('/api/bookings/cash').set(as('staff'));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.totals.cash, 2900);
+    assert.equal(res.body.totals.total, 2700);
+    assert.equal(res.body.payments.length, 1);
+    const date = res.body.date;
+
+    res = await request(app).post('/api/bookings/cash/close').set(as('staff')).send({ date, countedCash: 2800, note: 'falta 1 €' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.difference, -100);
+    assert.equal((await request(app).post('/api/bookings/cash/close').set(as('staff')).send({ date })).status, 409);
+    assert.equal((await request(app).delete(`/api/bookings/${b._id}/checkout`).set(as('owner'))).status, 409, 'closed day is locked');
+    assert.equal((await request(app).delete(`/api/bookings/cash/close?date=${date}`).set(as('staff'))).status, 403);
+    assert.equal((await request(app).delete(`/api/bookings/cash/close?date=${date}`).set(as('owner'))).status, 200);
+    res = await request(app).delete(`/api/bookings/${b._id}/checkout`).set(as('owner'));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.payment, null);
+    assert.equal((await request(app).delete(`/api/bookings/${b._id}/checkout`).set(as('staff'))).status, 403);
+  });
+
+  test('finanzas for appointment businesses: appointments, till and commissions', async () => {
+    await Business.updateOne({ _id: biz._id }, { businessType: 'appointments', plan: 'pro', 'moduleOverrides.expenses': { enabled: true } });
+    const Booking = require(path.join(ROOT, 'modules/bookings/models/Booking'));
+    const start = new Date(Date.now() - 2 * 3600000);
+    const end = new Date(start.getTime() + 30 * 60000);
+    const b = await Booking.create({
+      businessId: biz._id, guestName: 'Finanzas', status: 'confirmed', start, end, totalPrice: 4000,
+      segments: [{ serviceId: ids.corte, serviceName: 'Corte', start, end, busyStart: start, busyEnd: end, resourceIds: [ids.ana], price: 4000 }],
+    });
+    await request(app).put(`/api/bookings/services/${ids.corte}`).set(as('owner')).send({ staffCommissionPercent: 10 });
+    let res = await request(app).post(`/api/bookings/${b._id}/checkout`).set(as('owner')).send({ method: 'card', discount: 500 });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const today = res.body.payment.date;
+    res = await request(app).get(`/api/revenue/dashboard?from=${today}&to=${today}`).set(as('owner'));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.mode, 'appointments');
+    assert.ok(res.body.estimatedRevenue >= 40, 'billed includes the appointment');
+    const day = res.body.days.find((d) => d.date === today);
+    assert.ok(day.collected >= 35);
+    assert.equal(day.actualSource, 'till');
+    assert.ok(res.body.expensesByCategory.find((c) => c.category === 'commissions').amount >= 4);
+    assert.ok(res.body.byStaff.find((s) => s.name === 'Ana').commission >= 4);
+    // a manual figure for the day wins over the till
+    await request(app).put('/api/revenue/actual').set(as('owner')).send({ date: today, actualRevenue: 99 });
+    res = await request(app).get(`/api/revenue/dashboard?from=${today}&to=${today}`).set(as('owner'));
+    assert.equal(res.body.days.find((d) => d.date === today).actualRevenue, 99);
+    res = await request(app).get('/api/categories').set(as('owner'));
+    await Business.updateOne({ _id: biz._id }, { businessType: 'restaurant', plan: 'basic' });
+  });
 });
