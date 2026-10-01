@@ -118,9 +118,10 @@ exports.me = async (req, res) => {
 
 exports.getPublicBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id).select(`name email phone address brandColor slug businessType ${publicBusinessExtensionFields()}`.trim());
+    const business = await Business.findById(req.params.id).select(`name email phone address brandColor slug businessType logoUpdatedAt ${publicBusinessExtensionFields()}`.trim());
     if (!business) return res.status(404).json({ message: 'Business not found' });
-    res.json(business);
+    // The logo goes as a URL so the public page can show it like the appointments page.
+    res.json({ ...business.toObject(), logoUrl: logoUrl(business) });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
