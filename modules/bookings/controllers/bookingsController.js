@@ -474,6 +474,8 @@ exports.publicCatalog = handle(async (req, res) => {
     services: services.map((s) => ({
       id: s._id, name: s.name, category: s.category, description: s.description, durationMin: s.durationMin,
       bookingMode: s.bookingMode, partySize: s.partySize, price: s.price,
+      // How far ahead guests may book this service (the page loads days up to here).
+      maxDaysAhead: s.onlineBooking?.maxDaysAhead || 60,
       staffChoice: (s.requirements || []).some((r) => r.kind === 'staff' && r.customerCanChoose)
         ? (s.requirements.find((r) => r.kind === 'staff' && r.customerCanChoose).resourceIds || []).map(String)
         : null,
