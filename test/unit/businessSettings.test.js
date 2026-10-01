@@ -52,7 +52,7 @@ describe('business settings endpoints', () => {
     await auth.getPublicBusiness({ params: { id: 'biz1' } }, res);
     assert.equal(res.statusCode, 404);
     assert.equal(captured.publicSelect,
-      'name email phone address brandColor slug businessType maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours');
+      'name email phone address brandColor slug businessType logoUpdatedAt maxReservationPeople maxPeoplePerSlot reservationDuration minBookingNoticeHours');
   });
 
   test('update writes the same fields and normalizations', async () => {
