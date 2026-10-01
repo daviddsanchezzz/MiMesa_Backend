@@ -234,12 +234,10 @@ exports.getPublicSlots = async (req, res) => {
 
     slots.sort((a, b) => a.time.localeCompare(b.time));
 
-    let availableSlots = slots;
-    if (business?.minBookingNoticeHours) {
-      const cutoff = new Date(Date.now() + business.minBookingNoticeHours * 60 * 60 * 1000);
-      const tz = businessTimezone(business);
-      availableSlots = availableSlots.filter((s) => zonedDateTimeToUtc(date, s.time, tz) >= cutoff);
-    }
+    // Never offer times that have already passed (plus the minimum notice, if any)
+    const cutoff = new Date(Date.now() + (business?.minBookingNoticeHours || 0) * 60 * 60 * 1000);
+    const tz = businessTimezone(business);
+    let availableSlots = slots.filter((s) => zonedDateTimeToUtc(date, s.time, tz) >= cutoff);
 
     if (business?.maxPeoplePerSlot) {
       const reservations = await Reservation.find({

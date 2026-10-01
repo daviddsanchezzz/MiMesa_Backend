@@ -585,6 +585,11 @@ const createPublicReservationUnlocked = async (req, res) => {
       return res.status(400).json({ message: 'Ese horario no esta disponible para la fecha seleccionada' });
     }
 
+    // A time that has already passed can't be booked online
+    if (zonedDateTimeToUtc(date, time, businessTimezone(business)) < new Date()) {
+      return res.status(400).json({ message: 'Esa hora ya ha pasado. Elige otra, por favor.', code: 'TIME_PASSED' });
+    }
+
     if (business.minBookingNoticeHours) {
       const cutoff = new Date(Date.now() + business.minBookingNoticeHours * 60 * 60 * 1000);
       if (zonedDateTimeToUtc(date, time, businessTimezone(business)) < cutoff) {

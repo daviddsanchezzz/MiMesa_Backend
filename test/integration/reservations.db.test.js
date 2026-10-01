@@ -112,6 +112,20 @@ describe('reservations with a real database', { skip }, () => {
     assert.equal(res.status, 400);
   });
 
+  test('times that have already passed are not offered nor bookable online', async () => {
+    const { todayInTimezone, zonedDateTimeToUtc } = require(path.join(ROOT, 'core/lib/timezone'));
+    const bizC = await Business.create({ name: 'Rest C', email: 'c@example.test', plan: 'pro', subscriptionStatus: 'active', timezone: 'Europe/Madrid' });
+    await Shift.create({ businessId: bizC._id, name: 'Todo el día', startTime: '00:00', endTime: '23:45', interval: 15, days: [0, 1, 2, 3, 4, 5, 6] });
+    const today = todayInTimezone('Europe/Madrid');
+    const res = await request(app).get(`/api/shifts/public/slots?date=${today}&businessId=${bizC._id}`);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const now = Date.now();
+    assert.ok(res.body.every((sl) => zonedDateTimeToUtc(today, sl.time, 'Europe/Madrid').getTime() >= now), 'no past times today');
+    const past = await request(app).post('/api/reservations/public').send(publicBooking(bizC, { date: today, time: '00:00', guestName: 'Tarde' }));
+    assert.equal(past.status, 400);
+    assert.equal(past.body.code, 'TIME_PASSED');
+  });
+
   test('guest can cancel with the token from the email', async () => {
     const saved = await Reservation.findOne({ businessId: bizA._id, guestName: 'Ana Test' });
     const res = await request(app).post('/api/reservations/public/cancel')
