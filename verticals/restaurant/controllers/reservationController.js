@@ -1053,3 +1053,44 @@ exports.createPublicReservation = serializeBy(
   (req) => `reservation:${req.body?.businessId}:${req.body?.date}`,
   createPublicReservationUnlocked,
 );
+
+/**
+ * Per customer, for the Clientes list (same shape idea as the appointments
+ * summary): visits (seated, or confirmed and already past), last visit, next
+ * reservation, no-shows and the usual party size. Last two years.
+ */
+exports.getCustomersSummary = async (req, res) => {
+  try {
+    const business = await Business.findById(req.businessId).select('timezone').lean();
+    const tz = businessTimezone(business);
+    const today = todayInTimezone(tz);
+    const nowTime = nowTimeInTimezone(tz);
+    const since = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rows = await Reservation.find({ businessId: req.businessId, customerId: { $ne: null }, date: { $gte: since } })
+      .select('customerId date time people status').lean();
+    const out = {};
+    for (const r of rows) {
+      const id = String(r.customerId);
+      const s = out[id] || (out[id] = { visits: 0, lastVisit: null, nextVisit: null, noShows: 0, cancellations: 0, peopleTotal: 0 });
+      const past = r.date < today || (r.date === today && r.time <= nowTime);
+      if (r.status === 'no_show') { s.noShows += 1; continue; }
+      if (r.status === 'cancelled') { s.cancellations += 1; continue; }
+      // A visit is one that already happened: seated or confirmed, and in the past.
+      if (['seated', 'confirmed'].includes(r.status) && past) {
+        s.visits += 1;
+        s.peopleTotal += Number(r.people) || 0;
+        if (!s.lastVisit || r.date > s.lastVisit) s.lastVisit = r.date;
+      } else if (!past && ['pending', 'confirmed', 'seated'].includes(r.status)) {
+        const at = `${r.date} ${r.time}`;
+        if (!s.nextVisit || at < `${s.nextVisit.date} ${s.nextVisit.time}`) s.nextVisit = { date: r.date, time: r.time, people: r.people };
+      }
+    }
+    for (const s of Object.values(out)) {
+      s.people = s.visits ? Math.round(s.peopleTotal / s.visits) : null;
+      delete s.peopleTotal;
+    }
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

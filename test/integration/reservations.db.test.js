@@ -158,4 +158,25 @@ describe('reservations with a real database', { skip }, () => {
     const pro = await request(app).get('/api/staff/employees').set('x-test-user', 'ownerA');
     assert.equal(pro.status, 200);
   });
+  test('customers summary: visits are past ones, next is the coming reservation, per business', async () => {
+    const c = await Customer.create({ businessId: bizA._id, name: 'Marta Resumen', phone: '600111222' });
+    const past = '2026-01-10';
+    await Reservation.create({ businessId: bizA._id, customerId: c._id, guestName: 'Marta', date: past, time: '21:00', people: 4, status: 'seated' });
+    await Reservation.create({ businessId: bizA._id, customerId: c._id, guestName: 'Marta', date: '2026-02-01', time: '21:00', people: 2, status: 'no_show' });
+    await Reservation.create({ businessId: bizA._id, customerId: c._id, guestName: 'Marta', date: '2099-05-01', time: '20:30', people: 3, status: 'confirmed' });
+    // Seated but dated in the future (bad data) is not a past visit.
+    await Reservation.create({ businessId: bizA._id, customerId: c._id, guestName: 'Marta', date: '2099-06-01', time: '20:30', people: 6, status: 'seated' });
+    const res = await request(app).get('/api/reservations/customers/summary').set('x-test-user', 'ownerA');
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const s = res.body[String(c._id)];
+    assert.equal(s.visits, 1);
+    assert.equal(s.lastVisit, past);
+    assert.equal(s.noShows, 1);
+    assert.equal(s.people, 4);
+    assert.deepEqual(s.nextVisit, { date: '2099-05-01', time: '20:30', people: 3 });
+    const staff = await request(app).get('/api/reservations/customers/summary').set('x-test-user', 'staffA');
+    assert.equal(staff.status, 403);
+    const other = await request(app).get('/api/reservations/customers/summary').set('x-test-user', 'ownerB');
+    assert.equal(other.body[String(c._id)], undefined);
+  });
 });

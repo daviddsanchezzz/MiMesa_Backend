@@ -15,6 +15,7 @@ const {
   rejectPendingReservation,
   proposeAlternativeTime,
   markNoShow,
+  getCustomersSummary,
 } = require('../controllers/reservationController');
 const {
   getPublicPaymentConfig,
@@ -34,6 +35,7 @@ router.use(auth);
 router.post('/:id/create-payment-intent', requireRole('manager'), requirePlan('reservationPayments'), createReservationPaymentIntent);
 router.get('/', getReservations);
 router.get('/pending', requireRole('manager'), getPendingReservations);
+router.get('/customers/summary', requireRole('manager'), getCustomersSummary);
 router.post('/', createReservation);
 router.put('/:id/accept', requireRole('manager'), acceptPendingReservation);
 router.put('/:id/reject', requireRole('manager'), rejectPendingReservation);
