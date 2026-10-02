@@ -1,5 +1,6 @@
 ﻿const BusinessMember = require('../models/BusinessMember');
 const AuthUser       = require('../models/AuthUser');
+const { removeLinks } = require('../lib/memberLinks');
 
 // -- GET /api/members -------------------------------------------------------
 // List all members of the current business.
@@ -116,6 +117,7 @@ exports.removeMember = async (req, res) => {
       const StaffEmployee = BusinessMember.db.model('StaffEmployee');
       await StaffEmployee.updateOne({ _id: member.professionalId, businessId: req.businessId }, { $set: { memberId: null } });
     }
+    await removeLinks({ businessId: req.businessId, userId: member.userId });
     await member.deleteOne();
     res.json({ message: 'Miembro eliminado correctamente' });
   } catch (err) {

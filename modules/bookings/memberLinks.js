@@ -9,6 +9,10 @@ const Invitation = require('../../core/models/Invitation');
 
 registerMemberLink({
   key: 'resourceId',
+  async remove({ businessId, userId }) {
+    // Revoke login association, never the professional or their booking history.
+    await Resource.updateMany({ businessId, userId }, { $set: { userId: null } });
+  },
   async validate({ businessId, value, email }) {
     if (!mongoose.isValidObjectId(value)) throw new MemberLinkError('Profesional no válido');
     const resource = await Resource.findOne({ _id: value, businessId, kind: 'staff', active: true }).lean();

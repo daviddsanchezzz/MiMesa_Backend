@@ -51,4 +51,10 @@ async function applyLinks({ businessId, userId, links }) {
   return applied;
 }
 
-module.exports = { registerMemberLink, validateLinks, applyLinks, MemberLinkError };
+async function removeLinks({ businessId, userId }) {
+  for (const kind of kinds.values()) {
+    if (kind.remove) await kind.remove({ businessId, userId });
+  }
+}
+
+module.exports = { registerMemberLink, validateLinks, applyLinks, removeLinks, MemberLinkError };
