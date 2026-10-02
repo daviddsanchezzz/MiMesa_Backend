@@ -19,6 +19,8 @@ router.use(requireAuth, requireModule('bookings'));
 
 // Setup: resources, services and schedules (manager+)
 router.get('/resources', c.listResources);
+router.get('/resources/me', c.getMyResource);
+router.put('/resources/me/photo', c.updateMyResourcePhoto);
 router.post('/resources', requireRole('manager'), c.createResource);
 router.put('/resources/:id', requireRole('manager'), c.updateResource);
 router.put('/resources/:id/services', requireRole('manager'), c.setResourceServices);

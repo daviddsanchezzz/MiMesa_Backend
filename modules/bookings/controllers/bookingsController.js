@@ -68,6 +68,35 @@ exports.listResources = handle(async (req, res) => {
   res.json(await Resource.find(filter).sort({ kind: 1, sortOrder: 1, name: 1 }).lean());
 });
 
+// A linked professional may manage only their own photo and its public visibility.
+exports.getMyResource = handle(async (req, res) => {
+  const resource = await Resource.findOne({
+    businessId: req.businessId,
+    kind: 'staff',
+    userId: req.user.id,
+  }).lean();
+  res.json(resource || null);
+});
+
+exports.updateMyResourcePhoto = handle(async (req, res) => {
+  const data = v.resourceInput(req.body || {}, { partial: true });
+  const allowed = {};
+  if (Object.prototype.hasOwnProperty.call(data, 'photo')) allowed.photo = data.photo;
+  if (Object.prototype.hasOwnProperty.call(data, 'showPhotoToClients')) {
+    allowed.showPhotoToClients = data.showPhotoToClients;
+  }
+  if (!Object.keys(allowed).length) {
+    throw new BookingError(400, 'No hay cambios de foto', 'BAD_REQUEST');
+  }
+  const resource = await Resource.findOneAndUpdate(
+    { businessId: req.businessId, kind: 'staff', userId: req.user.id },
+    allowed,
+    { new: true, runValidators: true },
+  );
+  if (!resource) throw notFound('Profesional vinculado');
+  res.json(resource);
+});
+
 exports.createResource = handle(async (req, res) => {
   const data = v.resourceInput(req.body || {});
   if (data.parentId) await assertResourcesBelong(req.businessId, [data.parentId]);
@@ -461,7 +490,7 @@ exports.publicCatalog = handle(async (req, res) => {
   const staff = await Resource.find({
     businessId: business._id, active: true, bookableOnline: { $ne: false }, kind: 'staff',
     ...(anyStaffKinds ? {} : { _id: { $in: [...choosableIds] } }),
-  }).select('name kind color photo').sort({ sortOrder: 1, name: 1 }).lean();
+  }).select('name kind color photo showPhotoToClients').sort({ sortOrder: 1, name: 1 }).lean();
   const [rules, caps, activeStaff] = await Promise.all([
     policy.getPolicy(business._id),
     limits.capsFor(business._id),
@@ -480,7 +509,12 @@ exports.publicCatalog = handle(async (req, res) => {
         ? (s.requirements.find((r) => r.kind === 'staff' && r.customerCanChoose).resourceIds || []).map(String)
         : null,
     })),
-    staff: staff.filter((r) => !locked.has(String(r._id))).map((r) => ({ id: r._id, name: r.name, color: r.color || null, photo: r.photo || null })),
+    staff: staff.filter((r) => !locked.has(String(r._id))).map((r) => ({
+      id: r._id,
+      name: r.name,
+      color: r.color || null,
+      photo: r.showPhotoToClients === false ? null : (r.photo || null),
+    })),
   });
 });
 

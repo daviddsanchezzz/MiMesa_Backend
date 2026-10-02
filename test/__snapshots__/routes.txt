@@ -241,6 +241,8 @@ POST /api/bookings/public/:businessId/bookings  [corsMiddleware > bookingsContro
 USE /api/bookings/  [requireAuth]
 USE /api/bookings/  [requireModule("bookings")]
 GET /api/bookings/resources  [bookingsController.listResources]
+GET /api/bookings/resources/me  [bookingsController.getMyResource]
+PUT /api/bookings/resources/me/photo  [bookingsController.updateMyResourcePhoto]
 POST /api/bookings/resources  [requireRole("manager") > bookingsController.createResource]
 PUT /api/bookings/resources/:id  [requireRole("manager") > bookingsController.updateResource]
 PUT /api/bookings/resources/:id/services  [requireRole("manager") > bookingsController.setResourceServices]

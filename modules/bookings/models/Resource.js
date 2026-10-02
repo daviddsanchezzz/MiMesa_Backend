@@ -20,6 +20,8 @@ const resourceSchema = new mongoose.Schema({
   // How it shows in the agenda: a colour and an optional small photo (data URL)
   color:      { type: String, default: null },
   photo:      { type: String, default: null },
+  // Internal screens always show the photo. Guests only receive it when allowed.
+  showPhotoToClients: { type: Boolean, default: true },
   // Sector-specific extras (colour in the agenda, table shape...)
   attributes: { type: mongoose.Schema.Types.Mixed, default: {} },
   active:     { type: Boolean, default: true },

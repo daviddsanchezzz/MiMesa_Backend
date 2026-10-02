@@ -7,6 +7,12 @@ const v = load('modules/bookings/lib/validation');
 const throws400 = (fn, re) => assert.throws(fn, (e) => e.status === 400 && (!re || re.test(e.message)));
 
 describe('bookings input validation', () => {
+  test('resource: accepts photo visibility and rejects non-boolean values', () => {
+    assert.equal(v.resourceInput({ showPhotoToClients: false }, { partial: true }).showPhotoToClients, false);
+    assert.equal(v.resourceInput({ showPhotoToClients: true }, { partial: true }).showPhotoToClients, true);
+    throws400(() => v.resourceInput({ showPhotoToClients: 'yes' }, { partial: true }), /showPhotoToClients/);
+  });
+
   test('service: durations and buffers in 5-minute steps', () => {
     assert.equal(v.serviceInput({ name: 'Corte', durationMin: 30 }).durationMin, 30);
     throws400(() => v.serviceInput({ name: 'Corte', durationMin: 32 }), /múltiplo de 5/);
