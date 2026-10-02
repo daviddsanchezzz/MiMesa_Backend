@@ -7,7 +7,6 @@ const StaffPayment = require('../models/StaffPayment');
 const Shift = require('../../../verticals/restaurant/models/Shift');
 const BusinessMember = require('../../../core/models/BusinessMember');
 const Invitation = require('../../../core/models/Invitation');
-const Reservation = require('../../../verticals/restaurant/models/Reservation');
 
 function isValidIsoDate(date) {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -404,6 +403,7 @@ exports.revokeEmployeeAccess = async (req, res) => {
 // GET /staff/performance?month=YYYY-MM - uses real reservation prices and existing cost rules.
 exports.getPerformance = async (req, res) => {
   try {
+    const Reservation = StaffEmployee.db.model('Reservation');
     const month = req.query.month;
     if (!/^\d{4}-\d{2}$/.test(month || '')) return res.status(400).json({ message: 'month requerido (YYYY-MM)' });
     const monthStart = `${month}-01`;

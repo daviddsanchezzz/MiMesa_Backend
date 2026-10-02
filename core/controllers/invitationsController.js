@@ -77,7 +77,7 @@ exports.createInvitation = async (req, res) => {
         return res.status(403).json({ message: 'Solo un owner puede invitar con rol owner' });
       }
       if (professionalId) {
-        const StaffEmployee = require('../../modules/staff/models/StaffEmployee');
+        const StaffEmployee = BusinessMember.db.model('StaffEmployee');
         const professional = await StaffEmployee.findOne({ _id: professionalId, businessId: resolvedBusinessId }).select('_id memberId').lean();
         if (!professional) return res.status(400).json({ message: 'Profesional no válido para este negocio' });
         if (professional.memberId) return res.status(409).json({ message: 'Este profesional ya tiene acceso a Vetra' });
@@ -254,7 +254,7 @@ exports.acceptInvitation = async (req, res) => {
         { upsert: true, new: true },
       );
       if (invitation.professionalId) {
-        const StaffEmployee = require('../models/StaffEmployee');
+        const StaffEmployee = BusinessMember.db.model('StaffEmployee');
         await StaffEmployee.updateOne(
           { _id: invitation.professionalId, businessId: invitation.businessId },
           { $set: { memberId: member._id } },

@@ -113,7 +113,7 @@ exports.removeMember = async (req, res) => {
     }
 
     if (member.professionalId) {
-      const StaffEmployee = require('../models/StaffEmployee');
+      const StaffEmployee = BusinessMember.db.model('StaffEmployee');
       await StaffEmployee.updateOne({ _id: member.professionalId, businessId: req.businessId }, { $set: { memberId: null } });
     }
     await member.deleteOne();
