@@ -4,12 +4,17 @@ const Business = require('../../../core/models/Business');
 const { getCapabilities, markLockedEntities } = require('../../../core/lib/planCapabilities');
 
 function normalizeShape(shape) {
-  return ['circle', 'square', 'rect'].includes(shape) ? shape : null;
+  return ['circle', 'square', 'rect', 'booth'].includes(shape) ? shape : null;
 }
 
+// Any angle, rounded to steps of 15 degrees and kept in 0–345.
 function normalizeAngle(angle) {
-  return Number(angle) === 90 ? 90 : 0;
+  const n = Number(angle);
+  if (!Number.isFinite(n)) return 0;
+  return (((Math.round(n / 15) * 15) % 360) + 360) % 360;
 }
+
+const coord = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Math.round(Number(v)));
 
 async function getBusinessCaps(businessId) {
   const business = await Business.findById(businessId).select('plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId').lean();
@@ -48,7 +53,7 @@ exports.createTable = async (req, res) => {
       });
     }
 
-    const { name, capacity, roomId, shape, angle } = req.body;
+    const { name, capacity, roomId, shape, angle, x, y } = req.body;
     const table = await Table.create({
       businessId: req.businessId,
       name,
@@ -56,6 +61,8 @@ exports.createTable = async (req, res) => {
       roomId: roomId || null,
       shape: normalizeShape(shape),
       angle: normalizeAngle(angle),
+      x: coord(x),
+      y: coord(y),
     });
     await table.populate('roomId', 'name capacity');
     res.status(201).json({ ...table.toObject(), isLocked: false });
@@ -73,6 +80,8 @@ exports.updateTable = async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(payload, 'angle')) {
       payload.angle = normalizeAngle(payload.angle);
     }
+    if (Object.prototype.hasOwnProperty.call(payload, 'x')) payload.x = coord(payload.x);
+    if (Object.prototype.hasOwnProperty.call(payload, 'y')) payload.y = coord(payload.y);
     const table = await Table.findOneAndUpdate(
       { _id: req.params.id, businessId: req.businessId },
       payload,
@@ -124,6 +133,8 @@ exports.bulkCreateTables = async (req, res) => {
       shape:      normalizeShape(t.shape),
       angle:      normalizeAngle(t.angle),
       roomId:     t.roomId || null,
+      x:          coord(t.x),
+      y:          coord(t.y),
     }));
     const created = await Table.insertMany(docs);
     res.status(201).json(created);
@@ -141,3 +152,5 @@ exports.deleteTable = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+exports._normalizeAngle = normalizeAngle;

@@ -5,8 +5,10 @@ const tableSchema = new mongoose.Schema({
   roomId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Room', default: null },
   name:       { type: String, required: true },
   capacity:   { type: Number, required: true, min: 1 },
-  shape:      { type: String, enum: ['circle', 'square', 'rect'], default: null },
-  angle:      { type: Number, enum: [0, 90], default: 0 },
+  // booth = banco corrido (benches on the long sides instead of chairs)
+  shape:      { type: String, enum: ['circle', 'square', 'rect', 'booth'], default: null },
+  // Degrees, in steps of 15 (0 = horizontal, 90 = vertical).
+  angle:      { type: Number, min: 0, max: 345, default: 0 },
   status:     { type: String, enum: ['free', 'reserved', 'occupied'], default: 'free' },
   x:          { type: Number, default: null },
   y:          { type: Number, default: null },
