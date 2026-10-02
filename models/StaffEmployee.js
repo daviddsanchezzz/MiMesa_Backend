@@ -11,6 +11,21 @@ const staffEmployeeSchema = new mongoose.Schema({
   position: { type: String, default: '', trim: true },
   status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
   notes: { type: String, default: '' },
+  color: { type: String, default: '#7C3AED', trim: true },
+  services: [{
+    name: { type: String, required: true, trim: true },
+    duration: { type: Number, default: 30, min: 5 },
+    price: { type: Number, default: 0, min: 0 },
+    active: { type: Boolean, default: true },
+  }],
+  scheduleMode: { type: String, enum: ['business', 'custom'], default: 'business' },
+  weeklySchedule: { type: mongoose.Schema.Types.Mixed, default: {} },
+  vacations: [{
+    startDate: { type: String, required: true },
+    endDate: { type: String, required: true },
+    reason: { type: String, default: '' },
+  }],
+  memberId: { type: mongoose.Schema.Types.ObjectId, ref: 'BusinessMember', default: null, index: true },
   archivedAt: { type: Date, default: null },
 }, { timestamps: true });
 

@@ -27,7 +27,7 @@ exports.addMember = async (req, res) => {
     if (!VALID_ADD_ROLES.includes(role)) {
       return res.status(400).json({ message: `Rol inválido. Usa: ${VALID_ADD_ROLES.join(', ')}` });
     }
-    if (role === 'owner' && req.role !== 'owner') {
+    if (role === 'owner' && req.memberRole !== 'owner') {
       return res.status(403).json({ message: 'Solo un owner puede asignar el rol owner' });
     }
 
@@ -112,6 +112,10 @@ exports.removeMember = async (req, res) => {
       return res.status(400).json({ message: 'No puedes eliminarte a ti mismo' });
     }
 
+    if (member.professionalId) {
+      const StaffEmployee = require('../models/StaffEmployee');
+      await StaffEmployee.updateOne({ _id: member.professionalId, businessId: req.businessId }, { $set: { memberId: null } });
+    }
     await member.deleteOne();
     res.json({ message: 'Miembro eliminado correctamente' });
   } catch (err) {

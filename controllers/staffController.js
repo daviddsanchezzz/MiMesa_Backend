@@ -5,10 +5,23 @@ const StaffAssignment = require('../models/StaffAssignment');
 const StaffPosition = require('../models/StaffPosition');
 const StaffPayment = require('../models/StaffPayment');
 const Shift = require('../models/Shift');
+const BusinessMember = require('../models/BusinessMember');
+const Invitation = require('../models/Invitation');
+const Reservation = require('../models/Reservation');
 
 function isValidIsoDate(date) {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
 }
+
+exports.getPublicProfessionals = async (req, res) => {
+  try {
+    const { businessId } = req.query;
+    if (!businessId) return res.status(400).json({ message: 'businessId requerido' });
+    const rows = await StaffEmployee.find({ businessId, status: 'active', 'services.0': { $exists: true } })
+      .select('firstName lastName color services scheduleMode weeklySchedule vacations').lean();
+    res.json(rows.map((row) => ({ ...row, services: (row.services || []).filter((s) => s.active !== false) })));
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
 
 function isValidTime(value) {
   return typeof value === 'string' && /^\d{2}:\d{2}$/.test(value);
@@ -139,14 +152,19 @@ exports.getEmployees = async (req, res) => {
     if (!includeInactive) filter.status = 'active';
 
     const employees = await StaffEmployee.find(filter).sort({ firstName: 1, lastName: 1 }).lean();
-    const [compensationMap, positions] = await Promise.all([
+    const [compensationMap, positions, members, invitations] = await Promise.all([
       getActiveCompensationMap(
         req.businessId,
         employees.map((e) => e._id),
       ),
       StaffPosition.find({ businessId: req.businessId }).select('_id name color status').lean(),
+      BusinessMember.find({ businessId: req.businessId }).select('_id professionalId userId userName userEmail role').lean(),
+      Invitation.find({ businessId: req.businessId, status: 'pending', expiresAt: { $gt: new Date() } })
+        .select('_id professionalId name email role expiresAt').lean(),
     ]);
     const positionMap = new Map(positions.map((p) => [String(p._id), p]));
+    const memberMap = new Map(members.filter((m) => m.professionalId).map((m) => [String(m.professionalId), m]));
+    const invitationMap = new Map(invitations.filter((i) => i.professionalId).map((i) => [String(i.professionalId), i]));
 
     res.json(employees.map((employee) => {
       const ids = Array.isArray(employee.positionIds) && employee.positionIds.length
@@ -170,6 +188,8 @@ exports.getEmployees = async (req, res) => {
         positionColor: positionRef?.color || null,
         positionStatus: positionRef?.status || null,
         activeCompensation: compensationMap.get(String(employee._id)) || null,
+        member: memberMap.get(String(employee._id)) || null,
+        pendingInvitation: invitationMap.get(String(employee._id)) || null,
       };
     }));
   } catch (err) {
@@ -289,6 +309,10 @@ exports.createEmployee = async (req, res) => {
       positionId = null,
       position = '',
       notes = '',
+      color = '#7C3AED',
+      services = [],
+      scheduleMode = 'business',
+      weeklySchedule = {},
     } = req.body || {};
 
     if (!firstName?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' });
@@ -311,6 +335,10 @@ exports.createEmployee = async (req, res) => {
       positionId: resolvedPosition.positionId,
       position: resolvedPosition.position,
       notes: String(notes),
+      color,
+      services,
+      scheduleMode,
+      weeklySchedule,
       status: 'active',
     });
 
@@ -322,7 +350,7 @@ exports.createEmployee = async (req, res) => {
 
 exports.updateEmployee = async (req, res) => {
   try {
-    const payload = pickFields(req.body, ['firstName', 'lastName', 'phone', 'email', 'positionIds', 'positionId', 'position', 'notes']);
+    const payload = pickFields(req.body, ['firstName', 'lastName', 'phone', 'email', 'positionIds', 'positionId', 'position', 'notes', 'color', 'services', 'scheduleMode', 'weeklySchedule', 'vacations']);
     if (payload.firstName !== undefined) payload.firstName = String(payload.firstName).trim();
     if (payload.lastName !== undefined) payload.lastName = String(payload.lastName).trim();
     if (payload.phone !== undefined) payload.phone = String(payload.phone).trim();
@@ -352,6 +380,75 @@ exports.updateEmployee = async (req, res) => {
     res.json(employee);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+};
+
+// DELETE /staff/employees/:id/access - revokes login without deleting the professional.
+exports.revokeEmployeeAccess = async (req, res) => {
+  try {
+    const employee = await StaffEmployee.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!employee) return res.status(404).json({ message: 'Profesional no encontrado' });
+    const member = await BusinessMember.findOne({ businessId: req.businessId, professionalId: employee._id });
+    if (!member) return res.status(404).json({ message: 'Este profesional no tiene acceso' });
+    if (member.role === 'owner') return res.status(400).json({ message: 'No se puede revocar el acceso del propietario' });
+    if (req.user && member.userId === req.user.id) return res.status(400).json({ message: 'No puedes revocar tu propio acceso' });
+    await member.deleteOne();
+    employee.memberId = null;
+    await employee.save();
+    res.json({ message: 'Acceso revocado. El profesional y sus datos se conservan.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /staff/performance?month=YYYY-MM - uses real reservation prices and existing cost rules.
+exports.getPerformance = async (req, res) => {
+  try {
+    const month = req.query.month;
+    if (!/^\d{4}-\d{2}$/.test(month || '')) return res.status(400).json({ message: 'month requerido (YYYY-MM)' });
+    const monthStart = `${month}-01`;
+    const lastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+    const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
+    const [employees, reservations, assignments] = await Promise.all([
+      StaffEmployee.find({ businessId: req.businessId }).lean(),
+      Reservation.find({ businessId: req.businessId, date: { $gte: monthStart, $lte: monthEnd }, status: { $ne: 'cancelled' }, professionalId: { $ne: null } })
+        .select('professionalId service.price').lean(),
+      StaffAssignment.find({ businessId: req.businessId, date: { $gte: monthStart, $lte: monthEnd } }).lean(),
+    ]);
+    const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
+    const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId }).select('startTime endTime').lean();
+    const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
+    const compMap = await getActiveCompensationMap(req.businessId, employees.map((e) => e._id));
+    const rows = employees.map((employee) => {
+      const id = String(employee._id);
+      const employeeReservations = reservations.filter((r) => String(r.professionalId) === id);
+      const employeeAssignments = assignments.filter((a) => String(a.employeeId) === id);
+      const generated = employeeReservations.reduce((sum, r) => sum + (Number(r.service?.price) || 0), 0);
+      const comp = compMap.get(id);
+      let cost = 0;
+      if (comp?.paymentType === 'monthly_fixed') cost = comp.baseAmount;
+      else if (comp) cost = employeeAssignments.reduce((sum, a) => sum + assignmentCost(a, comp, shiftById), 0);
+      return {
+        employeeId: employee._id,
+        employeeName: `${employee.firstName} ${employee.lastName || ''}`.trim(),
+        color: employee.color,
+        appointments: employeeReservations.length,
+        generated: Number(generated.toFixed(2)),
+        cost: Number(cost.toFixed(2)),
+        margin: Number((generated - cost).toFixed(2)),
+        compensation: comp || null,
+        currency: comp?.currency || 'EUR',
+      };
+    });
+    const totals = rows.reduce((acc, row) => ({
+      generated: acc.generated + row.generated,
+      cost: acc.cost + row.cost,
+      margin: acc.margin + row.margin,
+      appointments: acc.appointments + row.appointments,
+    }), { generated: 0, cost: 0, margin: 0, appointments: 0 });
+    res.json({ month, rows, totals });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };
 

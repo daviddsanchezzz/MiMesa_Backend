@@ -9,6 +9,7 @@ const Shift = require('../models/Shift');
 const Vacation = require('../models/Vacation');
 const Business = require('../models/Business');
 const BusinessMember = require('../models/BusinessMember');
+const StaffEmployee = require('../models/StaffEmployee');
 const Exception = require('../models/Exception');
 const stripeService = require('../services/stripe');
 const {
@@ -34,6 +35,32 @@ const POPULATE = [
   { path: 'tableIds', select: 'name capacity roomId', populate: { path: 'roomId', select: 'name' } },
   { path: 'roomId', select: 'name' },
 ];
+
+async function resolveProfessionalService(businessId, professionalId, serviceInput, date, time) {
+  if (!professionalId) return { professionalId: null, service: {} };
+  if (!mongoose.isValidObjectId(professionalId)) throw new Error('Profesional no válido');
+  const professional = await StaffEmployee.findOne({ _id: professionalId, businessId, status: 'active' }).lean();
+  if (!professional) throw new Error('Profesional no disponible');
+  if (date && (professional.vacations || []).some((v) => v.startDate <= date && v.endDate >= date)) {
+    throw new Error('El profesional está de vacaciones en esa fecha');
+  }
+  if (professional.scheduleMode === 'custom' && date && time) {
+    const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    const dayKey = dayKeys[new Date(`${date}T12:00:00`).getDay()];
+    const schedule = professional.weeklySchedule?.[dayKey];
+    if (!schedule?.enabled || time < schedule.start || time >= schedule.end) {
+      throw new Error('El profesional no está disponible en ese horario');
+    }
+  }
+  const requestedId = serviceInput?.id || serviceInput?._id;
+  if (!requestedId) throw new Error('Selecciona un servicio del profesional');
+  const selected = requestedId ? (professional.services || []).find((s) => String(s._id) === String(requestedId) && s.active !== false) : null;
+  if (requestedId && !selected) throw new Error('Servicio no disponible para este profesional');
+  return {
+    professionalId: professional._id,
+    service: selected ? { id: selected._id, name: selected.name, duration: selected.duration, price: selected.price } : {},
+  };
+}
 const BLOCKING_EXCEPTION_TYPES = ['closed', 'full', 'call'];
 const ALL_SHIFTS_KEY = '__all__';
 
@@ -432,7 +459,7 @@ exports.getPendingReservations = async (req, res) => {
 const createReservationUnlocked = async (req, res) => {
   try {
     const {
-      guestName, guestPhone, guestEmail, roomId, tableId, tableIds: rawTableIds,
+      guestName, guestPhone, guestEmail, roomId, tableId, tableIds: rawTableIds, professionalId = null, service = {},
       date, time, people, notes, consent, thefork,
     } = req.body;
     const tableIds = Array.isArray(rawTableIds) && rawTableIds.length > 0 ? rawTableIds : (tableId ? [tableId] : []);
@@ -474,10 +501,13 @@ const createReservationUnlocked = async (req, res) => {
     });
 
     const customer = await findOrCreateCustomer(req.businessId, guestName, guestPhone, guestEmail);
+    const professionalSelection = await resolveProfessionalService(req.businessId, professionalId, service, date, time);
     const reservation = await Reservation.create({
       businessId: req.businessId,
       customerId: customer?._id || null,
       guestName,
+      professionalId: professionalSelection.professionalId,
+      service: professionalSelection.service,
       guestPhone: guestPhone || '',
       guestEmail: guestEmail || '',
       roomId: roomId || null,
@@ -517,7 +547,7 @@ const createReservationUnlocked = async (req, res) => {
 const createPublicReservationUnlocked = async (req, res) => {
   try {
     const {
-      businessId, guestName, guestPhone, guestEmail, roomId, tableId,
+      businessId, guestName, guestPhone, guestEmail, roomId, tableId, professionalId = null, service = {},
       date, time, people, notes, consent, marketingConsent, marketingConsentText, promoCode: rawPromoCode,
       // Datos de pago (opcionales — solo si el restaurante tiene pagos activos)
       paymentIntentId,
@@ -652,6 +682,7 @@ const createPublicReservationUnlocked = async (req, res) => {
     }
 
     const customer = await findOrCreateCustomer(businessId, guestName, phone, email);
+    const professionalSelection = await resolveProfessionalService(businessId, professionalId, service, date, time);
 
     // ── Construir objeto de pago ───────────────────────────────────────────
     const paymentConfig = getReservationPaymentConfig(business);
@@ -686,6 +717,8 @@ const createPublicReservationUnlocked = async (req, res) => {
       businessId,
       customerId: customer?._id || null,
       guestName,
+      professionalId: professionalSelection.professionalId,
+      service: professionalSelection.service,
       guestPhone: phone,
       guestEmail: email,
       roomId: roomId || null,
@@ -950,7 +983,7 @@ exports.markNoShow = async (req, res) => {
 };
 
 const RESERVATION_UPDATABLE_FIELDS = [
-  'guestName', 'guestPhone', 'guestEmail', 'roomId', 'tableId', 'tableIds',
+  'guestName', 'guestPhone', 'guestEmail', 'roomId', 'tableId', 'tableIds', 'professionalId', 'service',
   'date', 'time', 'people', 'status', 'notes', 'thefork',
 ];
 
@@ -968,6 +1001,11 @@ exports.updateReservation = async (req, res) => {
 
     // If tableIds is provided, sync tableId to the first element
     const body = pickFields(req.body, RESERVATION_UPDATABLE_FIELDS);
+    if (Object.prototype.hasOwnProperty.call(body, 'professionalId') || Object.prototype.hasOwnProperty.call(body, 'service')) {
+      const professionalSelection = await resolveProfessionalService(req.businessId, body.professionalId, body.service, body.date || old.date, body.time || old.time);
+      body.professionalId = professionalSelection.professionalId;
+      body.service = professionalSelection.service;
+    }
     if (Array.isArray(body.tableIds)) {
       body.tableId = body.tableIds[0] || null;
     }

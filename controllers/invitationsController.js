@@ -57,7 +57,7 @@ async function sendEmailOrThrow(payload) {
 // -- POST /api/invitations ---------------------------------------------------
 exports.createInvitation = async (req, res) => {
   try {
-    const { name, email, role = 'staff', businessId: bodyBusinessId } = req.body;
+    const { name, email, role = 'staff', businessId: bodyBusinessId, professionalId = null } = req.body;
     if (!name || !email) return res.status(400).json({ message: 'Nombre y email son obligatorios' });
 
     // By default, invitations sent from a business context are business invitations.
@@ -71,8 +71,16 @@ exports.createInvitation = async (req, res) => {
       if (!VALID_ROLES.includes(role)) {
         return res.status(400).json({ message: 'Rol invalido. Usa: owner, manager, staff' });
       }
-      if (role === 'owner' && req.role !== 'owner') {
+      if (role === 'owner' && req.memberRole !== 'owner') {
         return res.status(403).json({ message: 'Solo un owner puede invitar con rol owner' });
+      }
+      if (professionalId) {
+        const StaffEmployee = require('../models/StaffEmployee');
+        const professional = await StaffEmployee.findOne({ _id: professionalId, businessId: resolvedBusinessId }).select('_id memberId').lean();
+        if (!professional) return res.status(400).json({ message: 'Profesional no válido para este negocio' });
+        if (professional.memberId) return res.status(409).json({ message: 'Este profesional ya tiene acceso a Vetra' });
+        const linkedMember = await BusinessMember.findOne({ businessId: resolvedBusinessId, userEmail: email.toLowerCase(), professionalId: { $ne: null } }).lean();
+        if (linkedMember) return res.status(409).json({ message: 'Este usuario ya está vinculado a otro profesional' });
       }
     }
 
@@ -89,6 +97,9 @@ exports.createInvitation = async (req, res) => {
       ? { email: email.toLowerCase(), type: 'platform', status: 'pending' }
       : { email: email.toLowerCase(), businessId, status: 'pending' };
     await Invitation.updateMany(cancelQuery, { status: 'canceled' });
+    if (professionalId) {
+      await Invitation.updateMany({ businessId, professionalId, status: 'pending' }, { status: 'canceled' });
+    }
 
     const invitation = await Invitation.create({
       name,
@@ -97,6 +108,7 @@ exports.createInvitation = async (req, res) => {
       role: isPlatform ? 'owner' : role,
       type,
       invitedBy: req.user?.id,
+      professionalId: professionalId || null,
     });
 
     const inviteBase = resolveFrontendBaseUrl(req);
@@ -262,16 +274,24 @@ exports.acceptInvitation = async (req, res) => {
     }
 
     if (invitation.type !== 'platform') {
-      await BusinessMember.findOneAndUpdate(
+      const member = await BusinessMember.findOneAndUpdate(
         { userId: canonicalUserId, businessId: invitation.businessId },
         {
           role: invitation.role,
           status: 'active',
           userName: authUser.name || '',
           userEmail: (authUser.email || '').toLowerCase(),
+          professionalId: invitation.professionalId || null,
         },
         { upsert: true, new: true },
       );
+      if (invitation.professionalId) {
+        const StaffEmployee = require('../models/StaffEmployee');
+        await StaffEmployee.updateOne(
+          { _id: invitation.professionalId, businessId: invitation.businessId },
+          { $set: { memberId: member._id } },
+        );
+      }
     }
 
     invitation.status = 'accepted';
@@ -286,4 +306,3 @@ exports.acceptInvitation = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-

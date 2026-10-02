@@ -19,6 +19,7 @@ const businessMemberSchema = new mongoose.Schema({
   // Denormalized for display (no join needed in lists)
   userName:   { type: String, default: '' },
   userEmail:  { type: String, default: '' },
+  professionalId: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffEmployee', default: null, index: true },
   notificationPreferences: {
     newReservationEmail: { type: Boolean, default: true },
     cancelledReservationEmail: { type: Boolean, default: true },
@@ -27,5 +28,9 @@ const businessMemberSchema = new mongoose.Schema({
 
 // A user can only have one membership per business
 businessMemberSchema.index({ userId: 1, businessId: 1 }, { unique: true });
+businessMemberSchema.index(
+  { businessId: 1, professionalId: 1 },
+  { unique: true, partialFilterExpression: { professionalId: { $type: 'objectId' } } },
+);
 
 module.exports = mongoose.model('BusinessMember', businessMemberSchema);

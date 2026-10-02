@@ -7,6 +7,13 @@ const reservationSchema = new mongoose.Schema({
   roomId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Room',     default: null },
   tableId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Table',    default: null },
   tableIds:   [{ type: mongoose.Schema.Types.ObjectId, ref: 'Table' }],
+  professionalId: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffEmployee', default: null, index: true },
+  service: {
+    id: { type: mongoose.Schema.Types.ObjectId, default: null },
+    name: { type: String, default: '' },
+    duration: { type: Number, default: null },
+    price: { type: Number, default: null },
+  },
   // Guest data (always stored, used for display when no customer)
   guestName:  { type: String, required: true },
   guestPhone: { type: String, default: '' },

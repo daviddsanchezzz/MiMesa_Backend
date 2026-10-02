@@ -4,6 +4,7 @@ const requireRole = require('../middleware/requireRole');
 const requireModule = require('../middleware/requireModule');
 const c = require('../controllers/staffController');
 
+router.get('/public/professionals', c.getPublicProfessionals);
 router.use(requireAuth, requireRole('manager'), requireModule('staff'));
 
 router.get('/positions', c.getPositions);
@@ -16,6 +17,7 @@ router.get('/employees', c.getEmployees);
 router.post('/employees', c.createEmployee);
 router.put('/employees/:id', c.updateEmployee);
 router.patch('/employees/:id/status', c.setEmployeeStatus);
+router.delete('/employees/:id/access', requireRole('owner'), c.revokeEmployeeAccess);
 
 router.get('/employees/:id/compensations', c.getEmployeeCompensations);
 router.post('/employees/:id/compensations', c.createEmployeeCompensation);
@@ -28,6 +30,7 @@ router.delete('/assignments/:id', c.deleteAssignment);
 
 router.get('/costs', c.getWeeklyCosts);
 router.get('/costs/monthly', c.getMonthlyCosts);
+router.get('/performance', c.getPerformance);
 router.get('/balances', c.getBalances);
 router.post('/payments', c.createPayment);
 

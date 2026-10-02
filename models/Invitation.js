@@ -11,6 +11,7 @@ const invitationSchema = new mongoose.Schema({
   status:     { type: String, enum: ['pending', 'accepted', 'canceled'], default: 'pending' },
   expiresAt:  { type: Date,   required: true, default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }, // 7 days
   invitedBy:  { type: String }, // Better Auth userId
+  professionalId: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffEmployee', default: null },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Invitation', invitationSchema);
