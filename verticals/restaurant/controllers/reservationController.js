@@ -7,14 +7,9 @@ const Customer = require('../../../core/models/Customer');
 const Table = require('../models/Table');
 const Shift = require('../models/Shift');
 const Vacation = require('../models/Vacation');
-<<<<<<< HEAD:controllers/reservationController.js
-const Business = require('../models/Business');
-const BusinessMember = require('../models/BusinessMember');
-const StaffEmployee = require('../models/StaffEmployee');
-=======
 const Business = require('../../../core/models/Business');
 const BusinessMember = require('../../../core/models/BusinessMember');
->>>>>>> 7a486c99e3ef6a779963259ff1e2c5d423fbac1a:verticals/restaurant/controllers/reservationController.js
+const StaffEmployee = require('../../../modules/staff/models/StaffEmployee');
 const Exception = require('../models/Exception');
 const stripeService = require('../../../core/services/stripe');
 const {

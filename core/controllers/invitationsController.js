@@ -77,7 +77,7 @@ exports.createInvitation = async (req, res) => {
         return res.status(403).json({ message: 'Solo un owner puede invitar con rol owner' });
       }
       if (professionalId) {
-        const StaffEmployee = require('../models/StaffEmployee');
+        const StaffEmployee = require('../../modules/staff/models/StaffEmployee');
         const professional = await StaffEmployee.findOne({ _id: professionalId, businessId: resolvedBusinessId }).select('_id memberId').lean();
         if (!professional) return res.status(400).json({ message: 'Profesional no válido para este negocio' });
         if (professional.memberId) return res.status(409).json({ message: 'Este profesional ya tiene acceso a Vetra' });
@@ -116,11 +116,8 @@ exports.createInvitation = async (req, res) => {
       role: isPlatform ? 'owner' : role,
       type,
       invitedBy: req.user?.id,
-<<<<<<< HEAD:controllers/invitationsController.js
       professionalId: professionalId || null,
-=======
       links,
->>>>>>> 7a486c99e3ef6a779963259ff1e2c5d423fbac1a:core/controllers/invitationsController.js
     });
 
     const inviteBase = resolveFrontendBaseUrl(req);

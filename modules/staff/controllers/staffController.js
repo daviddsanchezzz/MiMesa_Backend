@@ -4,14 +4,10 @@ const StaffCompensation = require('../models/StaffCompensation');
 const StaffAssignment = require('../models/StaffAssignment');
 const StaffPosition = require('../models/StaffPosition');
 const StaffPayment = require('../models/StaffPayment');
-<<<<<<< HEAD:controllers/staffController.js
-const Shift = require('../models/Shift');
-const BusinessMember = require('../models/BusinessMember');
-const Invitation = require('../models/Invitation');
-const Reservation = require('../models/Reservation');
-=======
 const Shift = require('../../../verticals/restaurant/models/Shift');
->>>>>>> 7a486c99e3ef6a779963259ff1e2c5d423fbac1a:modules/staff/controllers/staffController.js
+const BusinessMember = require('../../../core/models/BusinessMember');
+const Invitation = require('../../../core/models/Invitation');
+const Reservation = require('../../../verticals/restaurant/models/Reservation');
 
 function isValidIsoDate(date) {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);

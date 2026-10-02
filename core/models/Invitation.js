@@ -11,12 +11,9 @@ const invitationSchema = new mongoose.Schema({
   status:     { type: String, enum: ['pending', 'accepted', 'canceled'], default: 'pending' },
   expiresAt:  { type: Date,   required: true, default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }, // 7 days
   invitedBy:  { type: String }, // Better Auth userId
-<<<<<<< HEAD:models/Invitation.js
   professionalId: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffEmployee', default: null },
-=======
   // What the person is linked to when they join, e.g. { resourceId } = a professional in the agenda (see core/lib/memberLinks)
   links:      { type: mongoose.Schema.Types.Mixed, default: {} },
->>>>>>> 7a486c99e3ef6a779963259ff1e2c5d423fbac1a:core/models/Invitation.js
 }, { timestamps: true });
 
 module.exports = mongoose.model('Invitation', invitationSchema);
