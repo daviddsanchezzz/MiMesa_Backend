@@ -160,6 +160,7 @@ app.use('/api/invitations',  require('./core/routes/invitations'));
 require('./modules/bookings/templates');
 require('./modules/bookings/memberLinks');
 require('./modules/bookings/customerData');
+require('./modules/purchases/businessData');
 require('./verticals/restaurant/customerData');
 require('./verticals/restaurant/templates');
 
@@ -180,6 +181,7 @@ app.use('/api/expenses',     require('./modules/finance/routes/expenses'));
 app.use('/api/revenue',      require('./modules/finance/routes/revenue'));
 app.use('/api/categories',   require('./modules/finance/routes/categories'));
 app.use('/api/purchases',    require('./modules/purchases/routes/purchases'));
+app.use('/api/invoices',     require('./modules/purchases/routes/invoices'));
 app.use('/api/bookings',     require('./modules/bookings/routes/bookings'));
 app.use('/api/push',         require('./core/routes/pushNotifications'));
 

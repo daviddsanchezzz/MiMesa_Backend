@@ -14,7 +14,7 @@ core/                 Común a cualquier negocio
 modules/              Funcionalidades reutilizables entre sectores
   staff/              Personal: puestos, empleados, salarios, asignaciones, costes
   finance/            Gastos, gastos recurrentes (job diario), ingresos, categorías
-  purchases/          Proveedores, productos y pedidos de compra
+  purchases/          Proveedores, productos, pedidos y facturas extraidas con IA
   bookings/           Agenda genérica: recursos, horarios, servicios y citas (opcional por negocio, ver su README)
 
 verticals/restaurant/ Lo específico de restaurantes

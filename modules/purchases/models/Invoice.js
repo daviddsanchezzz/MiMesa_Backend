@@ -1,0 +1,34 @@
+const mongoose = require('mongoose');
+
+const decimalField = { type: mongoose.Schema.Types.Decimal128, default: null };
+
+const invoiceSchema = new mongoose.Schema({
+  businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
+  supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', default: null, index: true },
+  invoiceNumber: { type: String, default: null, trim: true },
+  invoiceDate: { type: String, default: null },
+  subtotal: decimalField,
+  taxAmount: decimalField,
+  total: decimalField,
+  currency: { type: String, default: 'EUR', uppercase: true, trim: true },
+  documentUrl: { type: String, required: true },
+  documentKey: { type: String, required: true, select: false },
+  documentMimeType: { type: String, required: true },
+  documentOriginalName: { type: String, required: true },
+  documentSize: { type: Number, required: true, min: 1 },
+  status: {
+    type: String,
+    enum: ['PROCESSING', 'REVIEW', 'CONFIRMED', 'FAILED'],
+    default: 'PROCESSING',
+    index: true,
+  },
+  extractionRaw: { type: mongoose.Schema.Types.Mixed, default: null, select: false },
+  extractionWarnings: { type: [String], default: [] },
+  extractionError: { type: String, default: null, select: false },
+  createdBy: { type: String, default: null },
+}, { timestamps: true });
+
+invoiceSchema.index({ businessId: 1, createdAt: -1 });
+invoiceSchema.index({ businessId: 1, supplierId: 1, invoiceDate: -1 });
+
+module.exports = mongoose.model('Invoice', invoiceSchema);
