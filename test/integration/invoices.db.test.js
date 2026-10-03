@@ -26,7 +26,7 @@ const valid = {
 
 describe('invoice extraction API', { skip }, () => {
   let app, mongoose, Business, BusinessMember, Invoice, Supplier;
-  let businessA, businessB, storageDir;
+  let businessA, businessB, storageDir, firstInvoiceId;
   const as = (user, business) => ({ 'x-test-user': user, 'x-business-id': String(business._id) });
 
   before(async () => {
@@ -89,6 +89,7 @@ describe('invoice extraction API', { skip }, () => {
     const response = await upload('valid.pdf');
     assert.equal(response.status, 201, JSON.stringify(response.body));
     assert.equal(response.body.status, 'REVIEW');
+    firstInvoiceId = response.body._id;
     assert.equal(response.body.items.length, 2);
     assert.deepEqual(response.body.items.map((item) => item.taxRate), [10, 21]);
     assert.equal(response.body.supplier.taxId, 'B-12345678');
@@ -102,6 +103,15 @@ describe('invoice extraction API', { skip }, () => {
   test('reuses a supplier by normalized tax ID', async () => {
     const response = await upload('same-supplier.pdf');
     assert.equal(response.status, 201, JSON.stringify(response.body));
+    assert.equal(await Supplier.countDocuments({ businessId: businessA._id }), 1);
+  });
+
+  test('a human correction updates the existing supplier name located by tax ID', async () => {
+    const response = await request(app).patch(`/api/invoices/${firstInvoiceId}`).set(as('owner-a', businessA)).send({
+      supplier: { name: 'Proveedor Uno Corregido', taxId: 'B12345678' },
+    });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(response.body.supplier.name, 'Proveedor Uno Corregido');
     assert.equal(await Supplier.countDocuments({ businessId: businessA._id }), 1);
   });
 

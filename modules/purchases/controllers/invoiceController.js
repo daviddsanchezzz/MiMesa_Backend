@@ -48,7 +48,7 @@ async function completeInvoice(invoiceId, businessId) {
   return invoice ? serializeInvoice(invoice, items) : null;
 }
 
-async function findOrCreateSupplier(businessId, input) {
+async function findOrCreateSupplier(businessId, input, { updateExistingName = false } = {}) {
   const name = String(input?.name || '').trim().replace(/\s+/g, ' ');
   const taxId = String(input?.taxId || '').trim() || null;
   const normalizedTaxId = Supplier.normalizeTaxId(taxId);
@@ -57,7 +57,13 @@ async function findOrCreateSupplier(businessId, input) {
 
   if (normalizedTaxId) {
     let supplier = await Supplier.findOne({ businessId, normalizedTaxId });
-    if (supplier) return supplier;
+    if (supplier) {
+      if (updateExistingName && name && supplier.name !== name) {
+        supplier.name = name;
+        await supplier.save();
+      }
+      return supplier;
+    }
     try {
       return await Supplier.create({ businessId, name: name || taxId, taxId });
     } catch (err) {
@@ -217,7 +223,7 @@ async function supplierFromPatch(businessId, body, currentId) {
     if (!supplier) throw new InvoiceValidationError('Proveedor no encontrado');
     return supplier;
   }
-  if (body.supplier !== undefined) return findOrCreateSupplier(businessId, body.supplier);
+  if (body.supplier !== undefined) return findOrCreateSupplier(businessId, body.supplier, { updateExistingName: true });
   return currentId;
 }
 
