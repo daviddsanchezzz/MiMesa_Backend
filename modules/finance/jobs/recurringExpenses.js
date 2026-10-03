@@ -62,6 +62,8 @@ async function generateRecurringExpenses() {
         attachmentUrl:      '',
         isRecurring:        true,
         recurringExpenseId: tpl._id,
+        sourceType:         'RECURRING',
+        sourceId:           tpl._id,
         createdBy:          'system',
       });
       created++;

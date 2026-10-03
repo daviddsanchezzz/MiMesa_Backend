@@ -5,6 +5,8 @@ const Supplier = require('../models/Supplier');
 const { InvoiceExtractionService } = require('../services/invoiceExtractionService');
 const storage = require('../services/invoiceStorage');
 const { InvoiceValidationError, normalizeInvoiceExtraction } = require('../lib/invoiceValidation');
+const Expense = require('../../finance/models/Expense');
+const { syncInvoiceExpense, removeInvoiceExpense, invoiceExpensePayload } = require('../../finance/services/invoiceExpenseSync');
 
 let extractionService = new InvoiceExtractionService();
 
@@ -55,11 +57,12 @@ function serializeInvoice(invoice, items) {
 }
 
 async function completeInvoice(invoiceId, businessId) {
-  const [invoice, items] = await Promise.all([
+  const [invoice, items, financialEntry] = await Promise.all([
     Invoice.findOne({ _id: invoiceId, businessId }).populate('supplierId', 'name taxId isActive').lean(),
     InvoiceItem.find({ invoiceId, businessId }).sort({ position: 1 }).lean(),
+    Expense.findOne({ businessId, sourceType: 'INVOICE', sourceId: invoiceId }).select('_id amount expenseDate category').lean(),
   ]);
-  return invoice ? serializeInvoice(invoice, items) : null;
+  return invoice ? { ...serializeInvoice(invoice, items), financialEntry } : null;
 }
 
 async function findOrCreateSupplier(businessId, input, { updateExistingName = false } = {}) {
@@ -295,10 +298,7 @@ async function patchInvoice(req, res) {
     const { data, warnings } = normalizeInvoiceExtraction(merged);
     const supplier = await supplierFromPatch(req.businessId, req.body, invoice.supplierId);
 
-    if (req.body.items !== undefined) {
-      await InvoiceItem.deleteMany({ invoiceId: invoice._id, businessId: req.businessId });
-      await InvoiceItem.insertMany(itemDocuments(req.businessId, invoice._id, data.items));
-    }
+    const wasConfirmed = invoice.status === 'CONFIRMED';
     Object.assign(invoice, {
       supplierId: supplier?._id || supplier || null,
       invoiceNumber: data.invoiceNumber,
@@ -313,13 +313,28 @@ async function patchInvoice(req, res) {
       total: data.total,
       taxBreakdown: data.taxBreakdown,
       extractionWarnings: warnings,
-      status: 'REVIEW',
+      status: wasConfirmed ? 'CONFIRMED' : 'REVIEW',
       extractionError: null,
     });
+    let financialSupplier = null;
+    if (wasConfirmed) {
+      financialSupplier = invoice.supplierId
+        ? await Supplier.findOne({ _id: invoice.supplierId, businessId: req.businessId }).lean()
+        : null;
+      invoiceExpensePayload(invoice, financialSupplier);
+    }
+    if (req.body.items !== undefined) {
+      await InvoiceItem.deleteMany({ invoiceId: invoice._id, businessId: req.businessId });
+      await InvoiceItem.insertMany(itemDocuments(req.businessId, invoice._id, data.items));
+    }
     await invoice.save();
+    if (wasConfirmed) {
+      await syncInvoiceExpense(invoice, financialSupplier);
+    }
     return res.json(await completeInvoice(invoice._id, req.businessId));
   } catch (err) {
     if (err instanceof InvoiceValidationError) return res.status(400).json({ message: err.message });
+    if (err.code === 'INVALID_INVOICE_EXPENSE') return res.status(422).json({ message: err.message });
     throw err;
   }
 }
@@ -328,9 +343,19 @@ async function confirmInvoice(req, res) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ message: 'Factura no encontrada' });
   const invoice = await Invoice.findOne({ _id: req.params.id, businessId: req.businessId });
   if (!invoice) return res.status(404).json({ message: 'Factura no encontrada' });
-  if (invoice.status !== 'REVIEW') return res.status(409).json({ message: 'Solo se pueden confirmar facturas en revision' });
-  invoice.status = 'CONFIRMED';
-  await invoice.save();
+  if (!['REVIEW', 'CONFIRMED'].includes(invoice.status)) return res.status(409).json({ message: 'Solo se pueden confirmar facturas en revision' });
+  try {
+    const supplier = invoice.supplierId
+      ? await Supplier.findOne({ _id: invoice.supplierId, businessId: req.businessId }).lean()
+      : null;
+    invoice.status = 'CONFIRMED';
+    invoiceExpensePayload(invoice, supplier);
+    if (invoice.isModified('status')) await invoice.save();
+    await syncInvoiceExpense(invoice, supplier);
+  } catch (err) {
+    if (err.code === 'INVALID_INVOICE_EXPENSE') return res.status(422).json({ message: err.message });
+    throw err;
+  }
   return res.json(await completeInvoice(invoice._id, req.businessId));
 }
 
@@ -345,6 +370,7 @@ async function deleteInvoice(req, res) {
     return res.status(502).json({ message: 'No se pudo eliminar el documento de la factura', code: 'DOCUMENT_DELETE_FAILED' });
   }
   await Promise.all([
+    removeInvoiceExpense(invoice),
     InvoiceItem.deleteMany({ invoiceId: invoice._id, businessId: req.businessId }),
     Invoice.deleteOne({ _id: invoice._id, businessId: req.businessId }),
   ]);

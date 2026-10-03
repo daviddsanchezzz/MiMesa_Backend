@@ -10,6 +10,7 @@ router.get('/',                  c.getSuppliers);
 router.post('/',                 c.createSupplier);
 router.put('/:id',               c.updateSupplier);
 router.get('/:id/expenses',      c.getSupplierExpenses);
+router.get('/:id',               c.getSupplierDetail);
 
 module.exports = router;
 

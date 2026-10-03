@@ -161,6 +161,7 @@ require('./modules/bookings/templates');
 require('./modules/bookings/memberLinks');
 require('./modules/bookings/customerData');
 require('./modules/purchases/businessData');
+require('./modules/finance/businessData');
 require('./verticals/restaurant/customerData');
 require('./verticals/restaurant/templates');
 

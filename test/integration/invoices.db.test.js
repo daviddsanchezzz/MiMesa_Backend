@@ -33,7 +33,7 @@ const valid = {
 };
 
 describe('invoice extraction API', { skip }, () => {
-  let app, mongoose, Business, BusinessMember, Invoice, Supplier;
+  let app, mongoose, Business, BusinessMember, Invoice, Supplier, Expense;
   let businessA, businessB, storageDir, firstInvoiceId, extractionBuffers;
   const as = (user, business) => ({ 'x-test-user': user, 'x-business-id': String(business._id) });
 
@@ -51,6 +51,7 @@ describe('invoice extraction API', { skip }, () => {
     BusinessMember = require('../../core/models/BusinessMember');
     Invoice = require('../../modules/purchases/models/Invoice');
     Supplier = require('../../modules/purchases/models/Supplier');
+    Expense = require('../../modules/finance/models/Expense');
 
     businessA = await Business.create({ name: 'Restaurante A', email: 'invoice-a@example.test', plan: 'pro', subscriptionStatus: 'active' });
     businessB = await Business.create({ name: 'Salon B', email: 'invoice-b@example.test', plan: 'pro', subscriptionStatus: 'active', businessType: 'appointments' });
@@ -58,7 +59,7 @@ describe('invoice extraction API', { skip }, () => {
     addUser({ id: 'owner-b' });
     await BusinessMember.create({ userId: 'owner-a', businessId: businessA._id, role: 'owner' });
     await BusinessMember.create({ userId: 'owner-b', businessId: businessB._id, role: 'owner' });
-    await Promise.all([Invoice.init(), Supplier.init(), require('../../modules/purchases/models/InvoiceItem').init()]);
+    await Promise.all([Invoice.init(), Supplier.init(), Expense.init(), require('../../modules/purchases/models/InvoiceItem').init()]);
 
     const fixtures = {
       'valid.pdf': valid,
@@ -111,6 +112,9 @@ describe('invoice extraction API', { skip }, () => {
     ]);
     assert.equal(response.body.supplier.taxId, 'B-12345678');
     assert.equal(await Supplier.countDocuments({ businessId: businessA._id }), 1);
+    const visibleSuppliers = await request(app).get('/api/suppliers').set(as('owner-a', businessA));
+    assert.equal(visibleSuppliers.status, 200);
+    assert.ok(visibleSuppliers.body.some((supplier) => supplier._id === response.body.supplierId));
     assert.equal(extractionBuffers.get('valid.pdf').toString(), '%PDF-1.4\nfixture');
 
     const stored = await Invoice.findById(firstInvoiceId).select('+documentKey').lean();
@@ -142,12 +146,14 @@ describe('invoice extraction API', { skip }, () => {
     assert.equal(response.body.status, 'REVIEW');
     assert.equal(response.body.total, null);
     assert.equal(response.body.items[0].quantity, null);
+    assert.equal(await Expense.countDocuments({ businessId: businessA._id, sourceType: 'INVOICE' }), 0);
   });
 
   test('invalid AI data and provider errors leave FAILED invoices', async () => {
     const invalid = await upload('invalid-ai.pdf');
     assert.equal(invalid.status, 422);
     assert.equal((await Invoice.findById(invalid.body.invoiceId)).status, 'FAILED');
+    assert.equal(await Expense.countDocuments({ sourceId: invalid.body.invoiceId }), 0);
 
     const failure = await upload('provider-fail.pdf');
     assert.equal(failure.status, 502);
@@ -181,13 +187,52 @@ describe('invoice extraction API', { skip }, () => {
     const confirmed = await request(app).post(`/api/invoices/${id}/confirm`).set(as('owner-b', businessB));
     assert.equal(confirmed.status, 200);
     assert.equal(confirmed.body.status, 'CONFIRMED');
-    assert.equal((await request(app).post(`/api/invoices/${id}/confirm`).set(as('owner-b', businessB))).status, 409);
+    assert.equal((await request(app).post(`/api/invoices/${id}/confirm`).set(as('owner-b', businessB))).status, 200);
+    assert.equal(await Expense.countDocuments({ businessId: businessB._id, sourceType: 'INVOICE', sourceId: id }), 1);
+    let linked = await Expense.findOne({ businessId: businessB._id, sourceType: 'INVOICE', sourceId: id }).lean();
+    assert.equal(linked.amount, 30);
+    assert.equal(String(linked.supplierId), String(confirmed.body.supplierId));
 
     const edited = await request(app).patch(`/api/invoices/${id}`).set(as('owner-b', businessB)).send({ total: 31 });
     assert.equal(edited.status, 200, JSON.stringify(edited.body));
     assert.equal(edited.body.total, 31);
-    assert.equal(edited.body.status, 'REVIEW');
-    assert.equal((await request(app).post(`/api/invoices/${id}/confirm`).set(as('owner-b', businessB))).status, 200);
+    assert.equal(edited.body.status, 'CONFIRMED');
+    linked = await Expense.findOne({ businessId: businessB._id, sourceType: 'INVOICE', sourceId: id }).lean();
+    assert.equal(linked.amount, 31);
+    assert.equal(await Expense.countDocuments({ businessId: businessB._id, sourceType: 'INVOICE', sourceId: id }), 1);
+    assert.equal(await Expense.countDocuments({ businessId: businessA._id, sourceId: id }), 0);
+  });
+
+  test('confirmed invoices are included in Finance and supplier IDs stay tenant-scoped', async () => {
+    const created = await upload('finance-summary.pdf');
+    const confirmed = await request(app).post(`/api/invoices/${created.body._id}/confirm`).set(as('owner-a', businessA));
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+
+    const dashboard = await request(app).get('/api/revenue/dashboard?from=2026-09-30&to=2026-09-30').set(as('owner-a', businessA));
+    assert.equal(dashboard.status, 200, JSON.stringify(dashboard.body));
+    assert.equal(dashboard.body.totalExpenses, 28.05);
+
+    const otherSupplier = await Supplier.create({ businessId: businessB._id, name: 'Solo B', taxId: 'B99999999' });
+    const crossTenant = await request(app).post('/api/expenses').set(as('owner-a', businessA)).send({
+      supplierId: otherSupplier._id, category: 'other', amount: 10, expenseDate: '2026-09-30',
+    });
+    assert.equal(crossTenant.status, 400);
+  });
+
+  test('deleting an invoice removes only its automatic expense', async () => {
+    const created = await upload('delete-linked.pdf');
+    const confirmed = await request(app).post(`/api/invoices/${created.body._id}/confirm`).set(as('owner-a', businessA));
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+    const manual = await Expense.create({
+      businessId: businessA._id, supplierId: created.body.supplierId, category: 'other', amount: 9,
+      expenseDate: '2026-09-30', notes: 'Manual', sourceType: 'MANUAL',
+    });
+    const supplierId = created.body.supplierId;
+    const response = await request(app).delete(`/api/invoices/${created.body._id}`).set(as('owner-a', businessA));
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(await Expense.countDocuments({ sourceType: 'INVOICE', sourceId: created.body._id }), 0);
+    assert.ok(await Expense.findById(manual._id));
+    assert.ok(await Supplier.findById(supplierId));
   });
 
   test('returns a short signed URL without allowing another tenant to request it', async () => {

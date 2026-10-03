@@ -21,6 +21,10 @@ const invoiceSchema = new mongoose.Schema({
   total: decimalField,
   taxBreakdown: { type: [taxBreakdownSchema], default: [] },
   currency: { type: String, default: 'EUR', uppercase: true, trim: true },
+  // Kept separate from status: a confirmed/recognised invoice is not
+  // necessarily paid. Payment workflows can extend this later.
+  paymentStatus: { type: String, enum: ['UNPAID', 'PAID'], default: 'UNPAID' },
+  dueDate: { type: String, default: null },
   documentUrl: { type: String, required: true },
   documentKey: { type: String, required: true, select: false },
   documentMimeType: { type: String, required: true },

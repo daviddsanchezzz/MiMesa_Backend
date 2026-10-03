@@ -1,7 +1,15 @@
 const Expense          = require('../models/Expense');
 const RecurringExpense = require('../models/RecurringExpense');
+const Supplier         = require('../../purchases/models/Supplier');
+const mongoose         = require('mongoose');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function validSupplier(businessId, supplierId) {
+  if (!supplierId) return true;
+  if (!mongoose.Types.ObjectId.isValid(supplierId)) return false;
+  return Boolean(await Supplier.exists({ _id: supplierId, businessId }));
+}
 
 // ── Expenses ──────────────────────────────────────────────────────────────────
 
@@ -16,12 +24,16 @@ async function getExpenses(req, res) {
       if (to) filter.expenseDate.$lte = to;
     }
     if (category) filter.category = category;
-    if (supplierId) filter.supplierId = supplierId;
+    if (supplierId) {
+      if (!mongoose.Types.ObjectId.isValid(supplierId)) return res.status(400).json({ message: 'Proveedor no valido' });
+      filter.supplierId = supplierId;
+    }
 
     const expenses = await Expense.find(filter)
       .sort({ expenseDate: -1, createdAt: -1 })
       .populate('supplierId', 'name')
       .populate('recurringExpenseId', 'dayOfMonth')
+      .populate('invoiceId', 'invoiceNumber status')
       .lean();
 
     res.json(expenses);
@@ -39,6 +51,8 @@ async function createExpense(req, res) {
       return res.status(400).json({ message: 'El importe debe ser mayor que 0' });
     if (!expenseDate || !DATE_RE.test(expenseDate))
       return res.status(400).json({ message: 'La fecha es obligatoria (YYYY-MM-DD)' });
+    if (!(await validSupplier(req.businessId, supplierId)))
+      return res.status(400).json({ message: 'El proveedor no pertenece a este negocio' });
 
     let recurringExpenseId = null;
 
@@ -70,12 +84,15 @@ async function createExpense(req, res) {
       attachmentUrl:      attachmentUrl || '',
       isRecurring:        !!isRecurring,
       recurringExpenseId,
+      sourceType:          isRecurring ? 'RECURRING' : 'MANUAL',
+      sourceId:            recurringExpenseId,
       createdBy:          req.user?.id || null,
     });
 
     const populated = await Expense.findById(expense._id)
       .populate('supplierId', 'name')
       .populate('recurringExpenseId', 'dayOfMonth')
+      .populate('invoiceId', 'invoiceNumber status')
       .lean();
     res.status(201).json(populated);
   } catch (err) {
@@ -89,6 +106,9 @@ async function updateExpense(req, res) {
 
     const expense = await Expense.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!expense) return res.status(404).json({ message: 'Gasto no encontrado' });
+    if (expense.sourceType === 'INVOICE') return res.status(409).json({ message: 'Este gasto se actualiza desde su factura' });
+    if (supplierId !== undefined && !(await validSupplier(req.businessId, supplierId)))
+      return res.status(400).json({ message: 'El proveedor no pertenece a este negocio' });
 
     if (category !== undefined)      expense.category      = category;
     if (amount !== undefined)        expense.amount        = Number(amount);
@@ -131,6 +151,7 @@ async function updateExpense(req, res) {
     const populated = await Expense.findById(expense._id)
       .populate('supplierId', 'name')
       .populate('recurringExpenseId', 'dayOfMonth')
+      .populate('invoiceId', 'invoiceNumber status')
       .lean();
     res.json(populated);
   } catch (err) {
@@ -142,8 +163,10 @@ async function deleteExpense(req, res) {
   try {
     const { scope = 'single' } = req.query;
 
-    const expense = await Expense.findOneAndDelete({ _id: req.params.id, businessId: req.businessId });
+    const expense = await Expense.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!expense) return res.status(404).json({ message: 'Gasto no encontrado' });
+    if (expense.sourceType === 'INVOICE') return res.status(409).json({ message: 'Elimina la factura para retirar este gasto reconocido' });
+    await expense.deleteOne();
 
     if (scope !== 'single' && expense.recurringExpenseId) {
       const templateId = expense.recurringExpenseId;
