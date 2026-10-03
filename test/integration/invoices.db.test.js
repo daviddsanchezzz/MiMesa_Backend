@@ -26,11 +26,12 @@ const valid = {
 
 describe('invoice extraction API', { skip }, () => {
   let app, mongoose, Business, BusinessMember, Invoice, Supplier;
-  let businessA, businessB, storageDir, firstInvoiceId;
+  let businessA, businessB, storageDir, firstInvoiceId, extractionBuffers;
   const as = (user, business) => ({ 'x-test-user': user, 'x-business-id': String(business._id) });
 
   before(async () => {
     storageDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vetra-invoices-'));
+    process.env.INVOICE_STORAGE_PROVIDER = 'local';
     process.env.INVOICE_STORAGE_DIR = storageDir;
     installFakeAuth();
     mongoose = require('mongoose');
@@ -61,8 +62,10 @@ describe('invoice extraction API', { skip }, () => {
       },
       'invalid-ai.pdf': { ...valid, total: 'not-a-number' },
     };
+    extractionBuffers = new Map();
     const provider = {
       extract: async (document) => {
+        extractionBuffers.set(document.originalName, document.buffer);
         if (document.originalName === 'provider-fail.pdf') throw new Error('provider unavailable');
         return fixtures[document.originalName] || valid;
       },
@@ -78,6 +81,7 @@ describe('invoice extraction API', { skip }, () => {
     }
     if (storageDir) await fs.promises.rm(storageDir, { recursive: true, force: true });
     delete process.env.INVOICE_STORAGE_DIR;
+    delete process.env.INVOICE_STORAGE_PROVIDER;
   });
 
   async function upload(name, business = businessA, user = 'owner-a') {
@@ -94,6 +98,10 @@ describe('invoice extraction API', { skip }, () => {
     assert.deepEqual(response.body.items.map((item) => item.taxRate), [10, 21]);
     assert.equal(response.body.supplier.taxId, 'B-12345678');
     assert.equal(await Supplier.countDocuments({ businessId: businessA._id }), 1);
+    assert.equal(extractionBuffers.get('valid.pdf').toString(), '%PDF-1.4\nfixture');
+
+    const stored = await Invoice.findById(firstInvoiceId).select('+documentKey').lean();
+    assert.equal(stored.documentKey, `${businessA._id}/${firstInvoiceId}/original.pdf`);
 
     const document = await request(app).get(response.body.documentUrl).set(as('owner-a', businessA));
     assert.equal(document.status, 200);
@@ -162,5 +170,54 @@ describe('invoice extraction API', { skip }, () => {
     assert.equal(confirmed.body.status, 'CONFIRMED');
     assert.equal((await request(app).post(`/api/invoices/${id}/confirm`).set(as('owner-b', businessB))).status, 409);
     assert.equal((await request(app).patch(`/api/invoices/${id}`).set(as('owner-b', businessB)).send({ total: 31 })).status, 409);
+  });
+
+  test('uses a short signed redirect without allowing another tenant to request it', async () => {
+    const storage = require('../../modules/purchases/services/invoiceStorage');
+    let accesses = 0;
+    storage.setProviderForTests({
+      kind: 'supabase',
+      async access(key, options) {
+        accesses += 1;
+        assert.equal(key, `${businessA._id}/${firstInvoiceId}/original.pdf`);
+        assert.deepEqual(options, { expiresIn: 60 });
+        return { type: 'redirect', url: 'https://storage.example/signed-document', expiresIn: 60 };
+      },
+    });
+    try {
+      const denied = await request(app).get(`/api/invoices/${firstInvoiceId}/document`).set(as('owner-b', businessB));
+      assert.equal(denied.status, 404);
+      assert.equal(accesses, 0);
+
+      const allowed = await request(app).get(`/api/invoices/${firstInvoiceId}/document`).set(as('owner-a', businessA));
+      assert.equal(allowed.status, 302);
+      assert.equal(allowed.headers.location, 'https://storage.example/signed-document');
+      assert.equal(allowed.headers['cache-control'], 'private, no-store');
+      assert.equal(accesses, 1);
+    } finally {
+      storage.resetProviderForTests();
+    }
+  });
+
+  test('keeps Mongo data when storage deletion fails', async () => {
+    const created = await upload('delete-failure.pdf');
+    assert.equal(created.status, 201);
+    const storage = require('../../modules/purchases/services/invoiceStorage');
+    storage.setProviderForTests({
+      kind: 'supabase',
+      async remove() {
+        const error = new Error('remote failure');
+        error.code = 'DOCUMENT_DELETE_FAILED';
+        throw error;
+      },
+    });
+    try {
+      const response = await request(app).delete(`/api/invoices/${created.body._id}`).set(as('owner-a', businessA));
+      assert.equal(response.status, 502);
+      assert.equal(response.body.code, 'DOCUMENT_DELETE_FAILED');
+      assert.ok(await Invoice.findById(created.body._id));
+    } finally {
+      storage.resetProviderForTests();
+    }
   });
 });

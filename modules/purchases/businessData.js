@@ -5,10 +5,8 @@ const storage = require('./services/invoiceStorage');
 registerBusinessData({
   key: 'purchases',
   erase: async (businessId) => {
-    const invoices = await Invoice.find({ businessId }).select('+documentKey').lean();
-    await Promise.all(invoices.map((invoice) => storage.remove(invoice.documentKey).catch((err) => {
-      console.error(`[purchases] failed to erase document invoice=${invoice._id}:`, err.message);
-    })));
+    // Purge first: on failure Mongo remains intact and the erasure can be retried safely.
+    await storage.removeBusiness(businessId);
     return deleteAllFor(businessId, {
       InvoiceItem: require('./models/InvoiceItem'),
       Invoice,

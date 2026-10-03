@@ -129,8 +129,12 @@ async function extractInvoice(req, res) {
       createdBy: req.user?.id || null,
     });
   } catch (err) {
-    if (!invoice && documentKey) await storage.remove(documentKey).catch(() => {});
-    console.error('[invoices] failed to persist upload:', err.message);
+    if (!invoice && documentKey) {
+      await storage.remove(documentKey).catch((cleanupError) => {
+        console.error(`[invoices] upload rollback failed invoice=${invoiceId} business=${req.businessId} code=${cleanupError.code || 'UNKNOWN'}`);
+      });
+    }
+    console.error(`[invoices] failed to persist upload invoice=${invoiceId} business=${req.businessId} code=${err.code || 'UNKNOWN'}`);
     return res.status(500).json({ message: 'No se pudo almacenar la factura' });
   }
 
@@ -198,20 +202,25 @@ async function downloadDocument(req, res) {
   const invoice = await Invoice.findOne({ _id: req.params.id, businessId: req.businessId }).select('+documentKey').lean();
   if (!invoice) return res.status(404).json({ message: 'Factura no encontrada' });
   try {
-    const file = await storage.open(invoice.documentKey);
+    const access = await storage.access(invoice.documentKey, { expiresIn: 60 });
+    if (access.type === 'redirect') {
+      res.set('Cache-Control', 'private, no-store');
+      return res.redirect(302, access.url);
+    }
     const safeName = String(invoice.documentOriginalName || 'factura').replace(/[\r\n"\\]/g, '_');
     const asciiName = safeName.replace(/[^\x20-\x7E]/g, '_');
     const encodedName = encodeURIComponent(safeName).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
     res.set({
       'Content-Type': invoice.documentMimeType,
-      'Content-Length': file.size,
+      'Content-Length': access.size,
       'Content-Disposition': `inline; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
       'Cache-Control': 'private, no-store',
     });
-    return file.stream.pipe(res);
+    return access.stream.pipe(res);
   } catch (err) {
-    console.error(`[invoices] document missing invoice=${invoice._id}:`, err.message);
-    return res.status(404).json({ message: 'Documento no encontrado' });
+    console.error(`[invoices] document access failed invoice=${invoice._id} business=${req.businessId} code=${err.code || 'UNKNOWN'}`);
+    if (err.code === 'DOCUMENT_NOT_FOUND') return res.status(404).json({ message: 'Documento no encontrado' });
+    return res.status(502).json({ message: 'No se pudo acceder al documento', code: 'DOCUMENT_ACCESS_FAILED' });
   }
 }
 
@@ -292,11 +301,16 @@ async function deleteInvoice(req, res) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ message: 'Factura no encontrada' });
   const invoice = await Invoice.findOne({ _id: req.params.id, businessId: req.businessId }).select('+documentKey');
   if (!invoice) return res.status(404).json({ message: 'Factura no encontrada' });
+  try {
+    await storage.remove(invoice.documentKey);
+  } catch (err) {
+    console.error(`[invoices] document delete failed invoice=${invoice._id} business=${req.businessId} code=${err.code || 'UNKNOWN'}`);
+    return res.status(502).json({ message: 'No se pudo eliminar el documento de la factura', code: 'DOCUMENT_DELETE_FAILED' });
+  }
   await Promise.all([
     InvoiceItem.deleteMany({ invoiceId: invoice._id, businessId: req.businessId }),
     Invoice.deleteOne({ _id: invoice._id, businessId: req.businessId }),
   ]);
-  await storage.remove(invoice.documentKey).catch((err) => console.error(`[invoices] document cleanup failed invoice=${invoice._id}:`, err.message));
   return res.json({ success: true });
 }
 
