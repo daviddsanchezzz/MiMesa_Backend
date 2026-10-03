@@ -76,6 +76,13 @@ describe('Supabase invoice storage', () => {
         .access('businessA/invoice1/original.pdf'),
       (error) => error.code === 'SIGNED_URL_FAILED',
     );
+    const notFound = new Error('not found');
+    notFound.statusCode = 404;
+    await assert.rejects(
+      providerFor({ createSignedUrl: async () => ({ data: null, error: notFound }) })
+        .access('businessA/invoice1/original.pdf'),
+      (error) => error.code === 'DOCUMENT_NOT_FOUND',
+    );
     await assert.rejects(
       providerFor({ remove: async () => ({ error: new Error('remote') }) })
         .remove('businessA/invoice1/original.pdf'),

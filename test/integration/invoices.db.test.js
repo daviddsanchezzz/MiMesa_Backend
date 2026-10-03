@@ -172,7 +172,7 @@ describe('invoice extraction API', { skip }, () => {
     assert.equal((await request(app).patch(`/api/invoices/${id}`).set(as('owner-b', businessB)).send({ total: 31 })).status, 409);
   });
 
-  test('uses a short signed redirect without allowing another tenant to request it', async () => {
+  test('returns a short signed URL without allowing another tenant to request it', async () => {
     const storage = require('../../modules/purchases/services/invoiceStorage');
     let accesses = 0;
     storage.setProviderForTests({
@@ -190,10 +190,49 @@ describe('invoice extraction API', { skip }, () => {
       assert.equal(accesses, 0);
 
       const allowed = await request(app).get(`/api/invoices/${firstInvoiceId}/document`).set(as('owner-a', businessA));
-      assert.equal(allowed.status, 302);
-      assert.equal(allowed.headers.location, 'https://storage.example/signed-document');
+      assert.equal(allowed.status, 200);
+      assert.equal(allowed.body.url, 'https://storage.example/signed-document');
+      assert.equal(allowed.body.expiresIn, 60);
+      assert.equal(allowed.body.mimeType, 'application/pdf');
+      assert.equal(allowed.body.fileName, 'valid.pdf');
       assert.equal(allowed.headers['cache-control'], 'private, no-store');
       assert.equal(accesses, 1);
+    } finally {
+      storage.resetProviderForTests();
+    }
+  });
+
+  test('does not call storage for an invoice that does not exist', async () => {
+    const storage = require('../../modules/purchases/services/invoiceStorage');
+    let accesses = 0;
+    storage.setProviderForTests({
+      kind: 'supabase',
+      async access() { accesses += 1; },
+    });
+    try {
+      const missingId = new mongoose.Types.ObjectId();
+      const response = await request(app).get(`/api/invoices/${missingId}/document`).set(as('owner-a', businessA));
+      assert.equal(response.status, 404);
+      assert.equal(accesses, 0);
+    } finally {
+      storage.resetProviderForTests();
+    }
+  });
+
+  test('returns a controlled error when a signed URL cannot be generated', async () => {
+    const storage = require('../../modules/purchases/services/invoiceStorage');
+    storage.setProviderForTests({
+      kind: 'supabase',
+      async access() {
+        const error = new Error('remote failure');
+        error.code = 'SIGNED_URL_FAILED';
+        throw error;
+      },
+    });
+    try {
+      const response = await request(app).get(`/api/invoices/${firstInvoiceId}/document`).set(as('owner-a', businessA));
+      assert.equal(response.status, 502);
+      assert.equal(response.body.code, 'DOCUMENT_ACCESS_FAILED');
     } finally {
       storage.resetProviderForTests();
     }
@@ -216,6 +255,20 @@ describe('invoice extraction API', { skip }, () => {
       assert.equal(response.status, 502);
       assert.equal(response.body.code, 'DOCUMENT_DELETE_FAILED');
       assert.ok(await Invoice.findById(created.body._id));
+    } finally {
+      storage.resetProviderForTests();
+    }
+
+    let removedKey;
+    storage.setProviderForTests({
+      kind: 'supabase',
+      async remove(key) { removedKey = key; },
+    });
+    try {
+      const response = await request(app).delete(`/api/invoices/${created.body._id}`).set(as('owner-a', businessA));
+      assert.equal(response.status, 200);
+      assert.equal(removedKey, `${businessA._id}/${created.body._id}/original.pdf`);
+      assert.equal(await Invoice.findById(created.body._id), null);
     } finally {
       storage.resetProviderForTests();
     }

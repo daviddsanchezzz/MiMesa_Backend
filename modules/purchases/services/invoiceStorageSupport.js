@@ -9,9 +9,13 @@ const MIME_EXTENSIONS = Object.freeze({
 
 class InvoiceStorageError extends Error {
   constructor(message, code, cause) {
-    super(message, { cause });
+    super(message);
     this.name = 'InvoiceStorageError';
     this.code = code;
+    // Keep only non-sensitive provider metadata. Never retain request URLs,
+    // credentials, response bodies, or document contents on the public error.
+    if (cause?.code && typeof cause.code !== 'object') this.providerCode = String(cause.code);
+    if (Number.isInteger(cause?.statusCode || cause?.status)) this.providerStatus = cause.statusCode || cause.status;
   }
 }
 

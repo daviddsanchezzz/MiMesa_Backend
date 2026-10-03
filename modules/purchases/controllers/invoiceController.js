@@ -205,7 +205,12 @@ async function downloadDocument(req, res) {
     const access = await storage.access(invoice.documentKey, { expiresIn: 60 });
     if (access.type === 'redirect') {
       res.set('Cache-Control', 'private, no-store');
-      return res.redirect(302, access.url);
+      return res.json({
+        url: access.url,
+        expiresIn: access.expiresIn,
+        mimeType: invoice.documentMimeType,
+        fileName: invoice.documentOriginalName,
+      });
     }
     const safeName = String(invoice.documentOriginalName || 'factura').replace(/[\r\n"\\]/g, '_');
     const asciiName = safeName.replace(/[^\x20-\x7E]/g, '_');

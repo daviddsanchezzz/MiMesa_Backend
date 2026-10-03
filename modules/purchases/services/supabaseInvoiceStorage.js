@@ -29,6 +29,9 @@ class SupabaseInvoiceStorageProvider {
     const normalizedKey = validateObjectKey(key);
     const { data, error } = await this.storage().createSignedUrl(normalizedKey, expiresIn);
     if (error || !data?.signedUrl) {
+      if (Number(error?.statusCode || error?.status) === 404) {
+        throw new InvoiceStorageError('Documento no encontrado', 'DOCUMENT_NOT_FOUND', error);
+      }
       throw new InvoiceStorageError('No se pudo crear el acceso temporal', 'SIGNED_URL_FAILED', error);
     }
     return { type: 'redirect', url: data.signedUrl, expiresIn };
