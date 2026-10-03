@@ -18,12 +18,21 @@ function serializeItem(item) {
   const value = typeof item.toObject === 'function' ? item.toObject() : item;
   return {
     ...value,
+    packageQuantity: decimalToNumber(value.packageQuantity),
     quantity: decimalToNumber(value.quantity),
     unitPrice: decimalToNumber(value.unitPrice),
     discount: decimalToNumber(value.discount),
     taxRate: decimalToNumber(value.taxRate),
     total: decimalToNumber(value.total),
   };
+}
+
+function serializeTaxBreakdown(entries = []) {
+  return entries.map((entry) => ({
+    taxRate: decimalToNumber(entry.taxRate),
+    taxableBase: decimalToNumber(entry.taxableBase),
+    taxAmount: decimalToNumber(entry.taxAmount),
+  }));
 }
 
 function serializeInvoice(invoice, items) {
@@ -33,9 +42,14 @@ function serializeInvoice(invoice, items) {
     ...value,
     supplierId: populatedSupplier ? value.supplierId._id : value.supplierId,
     supplier: populatedSupplier ? value.supplierId : null,
+    grossAmount: decimalToNumber(value.grossAmount),
+    discountRate: decimalToNumber(value.discountRate),
+    discountAmount: decimalToNumber(value.discountAmount),
+    shippingAmount: decimalToNumber(value.shippingAmount),
     subtotal: decimalToNumber(value.subtotal),
     taxAmount: decimalToNumber(value.taxAmount),
     total: decimalToNumber(value.total),
+    taxBreakdown: serializeTaxBreakdown(value.taxBreakdown),
     ...(items ? { items: items.map(serializeItem) } : {}),
   };
 }
@@ -150,9 +164,14 @@ async function extractInvoice(req, res) {
       supplierId: supplier?._id || null,
       invoiceNumber: extracted.data.invoiceNumber,
       invoiceDate: extracted.data.invoiceDate,
+      grossAmount: extracted.data.grossAmount,
+      discountRate: extracted.data.discountRate,
+      discountAmount: extracted.data.discountAmount,
+      shippingAmount: extracted.data.shippingAmount,
       subtotal: extracted.data.subtotal,
       taxAmount: extracted.data.taxAmount,
       total: extracted.data.total,
+      taxBreakdown: extracted.data.taxBreakdown,
       currency: extracted.data.currency || 'EUR',
       extractionRaw: extracted.raw,
       extractionWarnings: extracted.warnings,
@@ -246,9 +265,12 @@ async function patchInvoice(req, res) {
   const invoice = await Invoice.findOne({ _id: req.params.id, businessId: req.businessId });
   if (!invoice) return res.status(404).json({ message: 'Factura no encontrada' });
   if (invoice.status === 'PROCESSING') return res.status(409).json({ message: 'La factura todavia se esta procesando' });
-  if (invoice.status === 'CONFIRMED') return res.status(409).json({ message: 'Una factura confirmada no se puede editar' });
 
-  const editableFields = ['supplierId', 'supplier', 'invoiceNumber', 'invoiceDate', 'currency', 'items', 'subtotal', 'taxAmount', 'total'];
+  const editableFields = [
+    'supplierId', 'supplier', 'invoiceNumber', 'invoiceDate', 'currency', 'items',
+    'grossAmount', 'discountRate', 'discountAmount', 'shippingAmount',
+    'subtotal', 'taxAmount', 'total', 'taxBreakdown',
+  ];
   if (!editableFields.some((field) => Object.prototype.hasOwnProperty.call(req.body || {}, field))) {
     return res.status(400).json({ message: 'No hay campos editables en la solicitud' });
   }
@@ -261,9 +283,14 @@ async function patchInvoice(req, res) {
       invoiceDate: req.body.invoiceDate !== undefined ? req.body.invoiceDate : invoice.invoiceDate,
       currency: req.body.currency !== undefined ? req.body.currency : invoice.currency,
       items: req.body.items !== undefined ? req.body.items : existingItems.map(serializeItem),
+      grossAmount: req.body.grossAmount !== undefined ? req.body.grossAmount : decimalToNumber(invoice.grossAmount),
+      discountRate: req.body.discountRate !== undefined ? req.body.discountRate : decimalToNumber(invoice.discountRate),
+      discountAmount: req.body.discountAmount !== undefined ? req.body.discountAmount : decimalToNumber(invoice.discountAmount),
+      shippingAmount: req.body.shippingAmount !== undefined ? req.body.shippingAmount : decimalToNumber(invoice.shippingAmount),
       subtotal: req.body.subtotal !== undefined ? req.body.subtotal : decimalToNumber(invoice.subtotal),
       taxAmount: req.body.taxAmount !== undefined ? req.body.taxAmount : decimalToNumber(invoice.taxAmount),
       total: req.body.total !== undefined ? req.body.total : decimalToNumber(invoice.total),
+      taxBreakdown: req.body.taxBreakdown !== undefined ? req.body.taxBreakdown : serializeTaxBreakdown(invoice.taxBreakdown),
     };
     const { data, warnings } = normalizeInvoiceExtraction(merged);
     const supplier = await supplierFromPatch(req.businessId, req.body, invoice.supplierId);
@@ -277,9 +304,14 @@ async function patchInvoice(req, res) {
       invoiceNumber: data.invoiceNumber,
       invoiceDate: data.invoiceDate,
       currency: data.currency || 'EUR',
+      grossAmount: data.grossAmount,
+      discountRate: data.discountRate,
+      discountAmount: data.discountAmount,
+      shippingAmount: data.shippingAmount,
       subtotal: data.subtotal,
       taxAmount: data.taxAmount,
       total: data.total,
+      taxBreakdown: data.taxBreakdown,
       extractionWarnings: warnings,
       status: 'REVIEW',
       extractionError: null,

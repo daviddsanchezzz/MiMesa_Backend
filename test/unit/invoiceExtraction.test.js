@@ -51,6 +51,31 @@ describe('InvoiceExtractionService', () => {
     assert.equal(result.warnings.length, 2);
   });
 
+  test('understands invoice-level discounts and reports an inconsistent printed taxable base precisely', async () => {
+    const result = await serviceReturning({
+      ...base,
+      items: [
+        { description: 'Base reducida', packageQuantity: 1, quantity: 1, unitPrice: 1054.8, discount: null, taxRate: 10, total: 1054.8 },
+        { description: 'Base general', packageQuantity: 0.5, quantity: 1, unitPrice: 19.5, discount: null, taxRate: 21, total: 19.5 },
+      ],
+      grossAmount: 1074.3,
+      discountRate: 7,
+      discountAmount: 75.2,
+      shippingAmount: 0,
+      subtotal: 923.9,
+      taxAmount: 101.91,
+      total: 1101.01,
+      taxBreakdown: [
+        { taxRate: 10, taxableBase: 980.96, taxAmount: 98.1 },
+        { taxRate: 21, taxableBase: 18.14, taxAmount: 3.81 },
+      ],
+    }).extract({});
+
+    assert.equal(result.data.items[0].packageQuantity, 1);
+    assert.equal(result.warnings.length, 1);
+    assert.match(result.warnings[0], /diferencia coincide con el descuento global/);
+  });
+
   test('rejects invalid AI types and impossible dates', async () => {
     await assert.rejects(
       serviceReturning({ ...base, total: '28.05' }).extract({}),

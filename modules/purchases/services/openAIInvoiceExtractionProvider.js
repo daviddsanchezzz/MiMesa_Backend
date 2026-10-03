@@ -1,7 +1,11 @@
 const EXTRACTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['supplier', 'invoiceNumber', 'invoiceDate', 'currency', 'items', 'subtotal', 'taxAmount', 'total'],
+  required: [
+    'supplier', 'invoiceNumber', 'invoiceDate', 'currency', 'items',
+    'grossAmount', 'discountRate', 'discountAmount', 'shippingAmount',
+    'subtotal', 'taxAmount', 'total', 'taxBreakdown',
+  ],
   properties: {
     supplier: {
       type: 'object',
@@ -20,9 +24,10 @@ const EXTRACTION_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['description', 'quantity', 'unitPrice', 'discount', 'taxRate', 'total'],
+        required: ['description', 'packageQuantity', 'quantity', 'unitPrice', 'discount', 'taxRate', 'total'],
         properties: {
           description: { type: 'string' },
+          packageQuantity: { type: ['number', 'null'], description: 'Value in a CAJA, packages, or cases column; never use it as quantity' },
           quantity: { type: ['number', 'null'] },
           unitPrice: { type: ['number', 'null'] },
           discount: { type: ['number', 'null'] },
@@ -31,9 +36,27 @@ const EXTRACTION_SCHEMA = {
         },
       },
     },
+    grossAmount: { type: ['number', 'null'], description: 'Total before invoice-level discounts and taxes, often labelled total neto' },
+    discountRate: { type: ['number', 'null'], description: 'Invoice-level discount percentage' },
+    discountAmount: { type: ['number', 'null'], description: 'Invoice-level discount amount' },
+    shippingAmount: { type: ['number', 'null'], description: 'Shipping, freight, or portes amount' },
     subtotal: { type: ['number', 'null'] },
     taxAmount: { type: ['number', 'null'] },
     total: { type: ['number', 'null'] },
+    taxBreakdown: {
+      type: 'array',
+      description: 'Explicit VAT/tax summary rows visible on the invoice',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['taxRate', 'taxableBase', 'taxAmount'],
+        properties: {
+          taxRate: { type: ['number', 'null'] },
+          taxableBase: { type: ['number', 'null'] },
+          taxAmount: { type: ['number', 'null'] },
+        },
+      },
+    },
   },
 };
 
@@ -74,6 +97,9 @@ class OpenAIInvoiceExtractionProvider {
             'Never infer, calculate, complete, translate, normalize products, or invent missing values.',
             'Use null whenever a value is absent or ambiguous. Preserve each invoice line description.',
             'Discount and taxRate are percentages only when explicitly shown as percentages.',
+            'For line items, quantity means the billed quantity (for example CANT.); never copy a CAJA, packages, or cases column into quantity. Put that value in packageQuantity.',
+            'Extract invoice-level total before discount, discount, shipping, taxable base, tax and tax breakdown into their dedicated fields exactly as printed.',
+            'Read each line tax rate from the IVA/tax column; do not confuse 10 with 0.',
           ].join(' '),
           input: [{
             role: 'user',

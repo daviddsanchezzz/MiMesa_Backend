@@ -19,9 +19,17 @@ const valid = {
     { description: 'Base reducida', quantity: 2, unitPrice: 10, discount: null, taxRate: 10, total: 20 },
     { description: 'Base general', quantity: 1, unitPrice: 5, discount: null, taxRate: 21, total: 5 },
   ],
+  grossAmount: 25,
+  discountRate: null,
+  discountAmount: null,
+  shippingAmount: 0,
   subtotal: 25,
   taxAmount: 3.05,
   total: 28.05,
+  taxBreakdown: [
+    { taxRate: 10, taxableBase: 20, taxAmount: 2 },
+    { taxRate: 21, taxableBase: 5, taxAmount: 1.05 },
+  ],
 };
 
 describe('invoice extraction API', { skip }, () => {
@@ -96,6 +104,11 @@ describe('invoice extraction API', { skip }, () => {
     firstInvoiceId = response.body._id;
     assert.equal(response.body.items.length, 2);
     assert.deepEqual(response.body.items.map((item) => item.taxRate), [10, 21]);
+    assert.equal(response.body.grossAmount, 25);
+    assert.deepEqual(response.body.taxBreakdown, [
+      { taxRate: 10, taxableBase: 20, taxAmount: 2 },
+      { taxRate: 21, taxableBase: 5, taxAmount: 1.05 },
+    ]);
     assert.equal(response.body.supplier.taxId, 'B-12345678');
     assert.equal(await Supplier.countDocuments({ businessId: businessA._id }), 1);
     assert.equal(extractionBuffers.get('valid.pdf').toString(), '%PDF-1.4\nfixture');
@@ -169,7 +182,12 @@ describe('invoice extraction API', { skip }, () => {
     assert.equal(confirmed.status, 200);
     assert.equal(confirmed.body.status, 'CONFIRMED');
     assert.equal((await request(app).post(`/api/invoices/${id}/confirm`).set(as('owner-b', businessB))).status, 409);
-    assert.equal((await request(app).patch(`/api/invoices/${id}`).set(as('owner-b', businessB)).send({ total: 31 })).status, 409);
+
+    const edited = await request(app).patch(`/api/invoices/${id}`).set(as('owner-b', businessB)).send({ total: 31 });
+    assert.equal(edited.status, 200, JSON.stringify(edited.body));
+    assert.equal(edited.body.total, 31);
+    assert.equal(edited.body.status, 'REVIEW');
+    assert.equal((await request(app).post(`/api/invoices/${id}/confirm`).set(as('owner-b', businessB))).status, 200);
   });
 
   test('returns a short signed URL without allowing another tenant to request it', async () => {

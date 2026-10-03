@@ -46,6 +46,7 @@ function normalizeItem(item, index) {
   if (!description) throw new InvoiceValidationError(`items[${index}].description es obligatorio`);
   return {
     description,
+    packageQuantity: nullableNumber(item.packageQuantity, `items[${index}].packageQuantity`, { min: 0 }),
     quantity: nullableNumber(item.quantity, `items[${index}].quantity`, { min: 0 }),
     unitPrice: nullableNumber(item.unitPrice, `items[${index}].unitPrice`),
     discount: nullableNumber(item.discount, `items[${index}].discount`),
@@ -54,22 +55,95 @@ function normalizeItem(item, index) {
   };
 }
 
+function normalizeTaxBreakdown(entry, index) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    throw new InvoiceValidationError(`taxBreakdown[${index}] no es valido`);
+  }
+  return {
+    taxRate: nullableNumber(entry.taxRate, `taxBreakdown[${index}].taxRate`, { max: 100 }),
+    taxableBase: nullableNumber(entry.taxableBase, `taxBreakdown[${index}].taxableBase`),
+    taxAmount: nullableNumber(entry.taxAmount, `taxBreakdown[${index}].taxAmount`),
+  };
+}
+
 function approximatelyDifferent(a, b) {
   return Math.abs(a - b) > Math.max(0.05, Math.abs(b) * 0.02);
 }
 
+function formatAmount(value, currency) {
+  return `${Number(value).toFixed(2).replace('.', ',')} ${currency || 'EUR'}`;
+}
+
 function validationWarnings(data) {
   const warnings = [];
+  const amount = (value) => formatAmount(value, data.currency);
   const lineTotals = data.items.map((item) => item.total).filter((value) => value !== null);
-  if (lineTotals.length === data.items.length && lineTotals.length && data.subtotal !== null) {
-    const lines = lineTotals.reduce((sum, value) => sum + value, 0);
-    if (approximatelyDifferent(lines, data.subtotal)) {
-      warnings.push('La suma de las lineas no coincide aproximadamente con el subtotal');
+  const lines = lineTotals.reduce((sum, value) => sum + value, 0);
+  const allLineTotals = lineTotals.length === data.items.length && lineTotals.length > 0;
+  const breakdownBases = data.taxBreakdown.map((entry) => entry.taxableBase).filter((value) => value !== null);
+  const breakdownTaxes = data.taxBreakdown.map((entry) => entry.taxAmount).filter((value) => value !== null);
+  const hasAllBreakdownBases = breakdownBases.length === data.taxBreakdown.length && breakdownBases.length > 0;
+  const hasAllBreakdownTaxes = breakdownTaxes.length === data.taxBreakdown.length && breakdownTaxes.length > 0;
+  const breakdownBase = breakdownBases.reduce((sum, value) => sum + value, 0);
+  const breakdownTax = breakdownTaxes.reduce((sum, value) => sum + value, 0);
+
+  if (allLineTotals) {
+    const comparableGross = data.grossAmount !== null
+      ? data.grossAmount
+      : (data.discountAmount === null && data.shippingAmount === null && !hasAllBreakdownBases ? data.subtotal : null);
+    if (comparableGross !== null && approximatelyDifferent(lines, comparableGross)) {
+      warnings.push(`La suma de las lineas (${amount(lines)}) no coincide con el total neto (${amount(comparableGross)})`);
     }
   }
-  if (data.subtotal !== null && data.taxAmount !== null && data.total !== null
-      && approximatelyDifferent(data.subtotal + data.taxAmount, data.total)) {
-    warnings.push('Subtotal e impuestos no coinciden aproximadamente con el total');
+
+  data.items.forEach((item, index) => {
+    if (item.quantity === null || item.unitPrice === null || item.total === null) return;
+    const discountMultiplier = item.discount === null ? 1 : (1 - item.discount / 100);
+    const expected = item.quantity * item.unitPrice * discountMultiplier;
+    if (approximatelyDifferent(expected, item.total)) {
+      warnings.push(`La cantidad y el precio de la linea ${index + 1} no coinciden con su importe`);
+    }
+  });
+
+  if (data.grossAmount !== null && data.discountRate !== null && data.discountAmount !== null) {
+    const calculatedDiscount = data.grossAmount * data.discountRate / 100;
+    if (approximatelyDifferent(calculatedDiscount, data.discountAmount)) {
+      warnings.push('El porcentaje de descuento global no coincide con el importe del descuento');
+    }
+  }
+
+  if (data.grossAmount !== null) {
+    const calculatedBase = data.grossAmount - (data.discountAmount || 0) + (data.shippingAmount || 0);
+    const statedBase = hasAllBreakdownBases ? breakdownBase : data.subtotal;
+    if (statedBase !== null && approximatelyDifferent(calculatedBase, statedBase)) {
+      warnings.push(`El total neto menos descuentos y mas portes (${amount(calculatedBase)}) no coincide con la base imponible (${amount(statedBase)})`);
+    }
+  }
+
+  if (hasAllBreakdownBases && data.subtotal !== null && approximatelyDifferent(breakdownBase, data.subtotal)) {
+    const difference = Math.abs(breakdownBase - data.subtotal);
+    const matchesDiscount = data.discountAmount !== null && !approximatelyDifferent(difference, data.discountAmount);
+    warnings.push(`La base imponible indicada (${amount(data.subtotal)}) no coincide con el desglose de IVA (${amount(breakdownBase)})${matchesDiscount ? '; la diferencia coincide con el descuento global' : ''}`);
+  }
+
+  if (hasAllBreakdownTaxes && data.taxAmount !== null && approximatelyDifferent(breakdownTax, data.taxAmount)) {
+    warnings.push(`El IVA indicado (${amount(data.taxAmount)}) no coincide con el desglose de IVA (${amount(breakdownTax)})`);
+  }
+
+  if (data.taxBreakdown.length) {
+    const breakdownRates = new Set(data.taxBreakdown.map((entry) => entry.taxRate).filter((value) => value !== null));
+    const unexpectedRates = [...new Set(data.items.map((item) => item.taxRate)
+      .filter((value) => value !== null && !breakdownRates.has(value)))];
+    if (unexpectedRates.length) {
+      warnings.push(`Hay lineas con tipos de IVA que no aparecen en el desglose: ${unexpectedRates.join('%, ')}%`);
+    }
+  }
+
+  const totalBase = hasAllBreakdownBases ? breakdownBase : data.subtotal;
+  const totalTax = hasAllBreakdownTaxes ? breakdownTax : data.taxAmount;
+  if (totalBase !== null && totalTax !== null && data.total !== null
+      && approximatelyDifferent(totalBase + totalTax, data.total)) {
+    warnings.push(`La base imponible mas impuestos (${amount(totalBase + totalTax)}) no coincide con el total (${amount(data.total)})`);
   }
   return warnings;
 }
@@ -83,6 +157,10 @@ function normalizeInvoiceExtraction(raw) {
   }
   if (!Array.isArray(raw.items) || raw.items.length > 500) {
     throw new InvoiceValidationError('items debe ser una lista de hasta 500 lineas');
+  }
+  if (raw.taxBreakdown !== undefined && raw.taxBreakdown !== null
+      && (!Array.isArray(raw.taxBreakdown) || raw.taxBreakdown.length > 20)) {
+    throw new InvoiceValidationError('taxBreakdown debe ser una lista de hasta 20 tipos de IVA');
   }
 
   const currencyText = nullableText(raw.currency, 'currency', 3);
@@ -100,9 +178,14 @@ function normalizeInvoiceExtraction(raw) {
     invoiceDate: nullableDate(raw.invoiceDate),
     currency,
     items: raw.items.map(normalizeItem),
+    grossAmount: nullableNumber(raw.grossAmount, 'grossAmount'),
+    discountRate: nullableNumber(raw.discountRate, 'discountRate', { max: 100 }),
+    discountAmount: nullableNumber(raw.discountAmount, 'discountAmount'),
+    shippingAmount: nullableNumber(raw.shippingAmount, 'shippingAmount'),
     subtotal: nullableNumber(raw.subtotal, 'subtotal'),
     taxAmount: nullableNumber(raw.taxAmount, 'taxAmount'),
     total: nullableNumber(raw.total, 'total'),
+    taxBreakdown: (raw.taxBreakdown || []).map(normalizeTaxBreakdown),
   };
 
   return { data, warnings: validationWarnings(data) };

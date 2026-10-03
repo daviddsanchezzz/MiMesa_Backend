@@ -6,6 +6,7 @@ const invoiceItemSchema = new mongoose.Schema({
   businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
   invoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice', required: true, index: true },
   description: { type: String, required: true, trim: true },
+  packageQuantity: decimalField,
   quantity: decimalField,
   unitPrice: decimalField,
   discount: decimalField,

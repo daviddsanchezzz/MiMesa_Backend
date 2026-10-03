@@ -1,15 +1,25 @@
 const mongoose = require('mongoose');
 
 const decimalField = { type: mongoose.Schema.Types.Decimal128, default: null };
+const taxBreakdownSchema = new mongoose.Schema({
+  taxRate: decimalField,
+  taxableBase: decimalField,
+  taxAmount: decimalField,
+}, { _id: false });
 
 const invoiceSchema = new mongoose.Schema({
   businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
   supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', default: null, index: true },
   invoiceNumber: { type: String, default: null, trim: true },
   invoiceDate: { type: String, default: null },
+  grossAmount: decimalField,
+  discountRate: decimalField,
+  discountAmount: decimalField,
+  shippingAmount: decimalField,
   subtotal: decimalField,
   taxAmount: decimalField,
   total: decimalField,
+  taxBreakdown: { type: [taxBreakdownSchema], default: [] },
   currency: { type: String, default: 'EUR', uppercase: true, trim: true },
   documentUrl: { type: String, required: true },
   documentKey: { type: String, required: true, select: false },
