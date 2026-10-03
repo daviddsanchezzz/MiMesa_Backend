@@ -285,9 +285,14 @@ function slotView(s) {
 
 exports.getAvailability = handle(async (req, res) => {
   const { from, to } = v.dateRange(req.query, { maxDays: 62 });
+  const serviceIds = req.query.serviceIds
+    ? String(req.query.serviceIds).split(',').filter(Boolean).map((id, i) => v.objectId(id, `serviceIds[${i}]`))
+    : null;
+  if (serviceIds?.length > 5) throw new BookingError(400, 'Indica entre 1 y 5 servicios', 'BAD_REQUEST');
   const { slots } = await svc.getAvailability({
     businessId: req.businessId,
-    serviceId: v.objectId(req.query.serviceId, 'serviceId'),
+    serviceId: serviceIds?.[0] || v.objectId(req.query.serviceId, 'serviceId'),
+    serviceIds,
     from, to,
     partySize: req.query.partySize ? Number(req.query.partySize) : 1,
     resourceId: req.query.resourceId ? v.objectId(req.query.resourceId, 'resourceId') : null,

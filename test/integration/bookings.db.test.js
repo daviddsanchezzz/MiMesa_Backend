@@ -184,6 +184,16 @@ describe('generic agenda (bookings module)', { skip }, () => {
     assert.deepEqual(morning.resourceIds, [[ids.ana]]);
   });
 
+  test('availability validates the complete consecutive service sequence', async () => {
+    const res = await request(app)
+      .get(`/api/bookings/availability?serviceId=${ids.corte}&serviceIds=${ids.corte},${ids.tinte}&from=${day}&resourceId=${ids.ana}`)
+      .set(as('staff'));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const times = res.body.map((slot) => slot.time);
+    assert.ok(times.includes('12:00'), 'the complete sequence fits before closing');
+    assert.ok(!times.includes('12:30'), 'the second service and its buffer would finish after closing');
+  });
+
   test('guest books online and gets a token; customer is created', async () => {
     const res = await request(app).post(`/api/bookings/public/${biz._id}/bookings`).send({
       date: day, time: '09:00', items: [{ serviceId: ids.corte }],

@@ -86,21 +86,38 @@ async function loadEngineData(businessId, services, fromDate, toDate, { excludeB
   return { timezone, contextFor, services };
 }
 
-async function getAvailability({ businessId, serviceId, from, to, partySize = 1, resourceId = null, online }) {
-  const service = await Service.findOne({ _id: serviceId, businessId, active: true }).lean();
-  if (!service) throw new BookingError(404, 'Servicio no encontrado', 'NOT_FOUND');
-  if (online && service.onlineBooking?.enabled === false) throw new BookingError(404, 'Servicio no encontrado', 'NOT_FOUND');
-  if (service.bookingMode === 'quote') return { service, slots: [] };
+async function getAvailability({ businessId, serviceId, serviceIds = null, from, to, partySize = 1, resourceId = null, online }) {
+  const ids = serviceIds?.length ? serviceIds : [serviceId];
+  if (ids.length > 5) throw new BookingError(400, 'Indica entre 1 y 5 servicios', 'BAD_REQUEST');
+  const ordered = await loadOrderedServices(businessId, ids.map((id) => ({ serviceId: id })));
+  const items = ordered.map((service) => ({
+    serviceId: service._id,
+    ...(resourceId && (service.requirements || []).some((r) => r.kind === 'staff') ? { resourceId } : {}),
+  }));
+  if (online && ordered.some((service) => service.onlineBooking?.enabled === false)) {
+    throw new BookingError(404, 'Servicio no encontrado', 'NOT_FOUND');
+  }
+  if (ordered.some((service) => service.bookingMode === 'quote')) return { service: ordered[0], slots: [] };
 
-  const { contextFor } = await loadEngineData(businessId, [service], from, to);
+  const { contextFor } = await loadEngineData(businessId, ordered, from, to);
+  const service = ordered[0];
   const ctx = contextFor(service, { online });
   const preferred = {};
   if (resourceId) {
     const idx = (service.requirements || []).findIndex((r) => r.kind === 'staff' && (!online || r.customerCanChoose));
-    if (idx === -1) throw new BookingError(400, 'Este servicio no permite elegir profesional', 'BAD_REQUEST');
-    preferred[idx] = String(resourceId);
+    if (idx !== -1) preferred[idx] = String(resourceId);
   }
-  const slots = findSlots(ctx, { from, to, partySize, preferred });
+  const candidates = findSlots(ctx, { from, to, partySize, preferred });
+  const slots = ordered.length === 1 ? candidates : candidates.filter((candidate) => {
+    try {
+      planSegments(contextFor, {
+        ordered, items, date: candidate.date, startMin: toMinutes(candidate.time), partySize, online,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  });
   return { service, slots };
 }
 
