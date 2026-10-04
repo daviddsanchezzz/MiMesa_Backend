@@ -1,6 +1,9 @@
 const Expense          = require('../models/Expense');
 const RecurringExpense = require('../models/RecurringExpense');
 const Supplier         = require('../../purchases/models/Supplier');
+const Business         = require('../../../core/models/Business');
+const { calculateStaffCostForRange } = require('../../staff/lib/staffCosts');
+const { teamReport } = require('../../bookings/services/teamService');
 const mongoose         = require('mongoose');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -23,7 +26,9 @@ async function getExpenses(req, res) {
       if (from) filter.expenseDate.$gte = from;
       if (to) filter.expenseDate.$lte = to;
     }
-    if (category) filter.category = category;
+    // Staff costs come from the staff/team modules. Legacy persisted rows must
+    // not be counted alongside those calculated entries.
+    filter.category = category || { $ne: 'staff' };
     if (supplierId) {
       if (!mongoose.Types.ObjectId.isValid(supplierId)) return res.status(400).json({ message: 'Proveedor no valido' });
       filter.supplierId = supplierId;
@@ -36,7 +41,46 @@ async function getExpenses(req, res) {
       .populate('invoiceId', 'invoiceNumber status')
       .lean();
 
-    res.json(expenses);
+    // Salary and commission costs are calculated from the team configuration,
+    // not persisted as Expense rows. Expose read-only ledger entries so the
+    // Gastos tab reconciles with the dashboard total without duplicating data.
+    const automatic = [];
+    if (from && to && !category && !supplierId) {
+      const business = await Business.findById(req.businessId).select('businessType').lean();
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const expenseDate = to < today ? to : today;
+      if (business?.businessType === 'appointments') {
+        const team = await teamReport(req.businessId, from, to, new Date(), { ensure: false });
+        for (const person of team.staff || []) {
+          if (person.salary > 0) automatic.push({
+            _id: `automatic:staff:${person.id}:${from}:${to}`,
+            category: 'staff', amount: person.salary, expenseDate,
+            notes: `Coste de ${person.name}`, sourceType: 'AUTOMATIC',
+            automaticKind: 'salary', professionalName: person.name,
+          });
+          if (person.commission > 0) automatic.push({
+            _id: `automatic:commission:${person.id}:${from}:${to}`,
+            category: 'commissions', amount: person.commission, expenseDate,
+            notes: person.pay?.commissionPercent != null
+              ? `${person.name} · ${person.pay.commissionPercent}%`
+              : person.name,
+            sourceType: 'AUTOMATIC', automaticKind: 'commission',
+            professionalName: person.name,
+          });
+        }
+      } else {
+        const staffCost = await calculateStaffCostForRange(req.businessId, from, to);
+        if (staffCost > 0) automatic.push({
+          _id: `automatic:staff:${from}:${to}`,
+          category: 'staff', amount: staffCost, expenseDate,
+          notes: 'Coste de personal', sourceType: 'AUTOMATIC', automaticKind: 'salary',
+        });
+      }
+    }
+
+    res.json([...expenses, ...automatic].sort((a, b) =>
+      b.expenseDate.localeCompare(a.expenseDate) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

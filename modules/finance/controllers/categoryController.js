@@ -112,8 +112,8 @@ async function updateCategory(req, res) {
   try {
     const cat = await BusinessCategory.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!cat) return res.status(404).json({ message: 'Categoría no encontrada' });
-    if (cat.value === 'staff')
-      return res.status(403).json({ message: 'La categoría Personal no puede modificarse' });
+    if (['staff', 'commissions'].includes(cat.value))
+      return res.status(403).json({ message: 'Las categorías automáticas no pueden modificarse' });
 
     const { label, color } = req.body;
     if (label !== undefined) cat.label = label.trim();
@@ -129,8 +129,8 @@ async function deleteCategory(req, res) {
   try {
     const cat = await BusinessCategory.findOne({ _id: req.params.id, businessId: req.businessId });
     if (!cat) return res.status(404).json({ message: 'Categoría no encontrada' });
-    if (cat.value === 'staff')
-      return res.status(403).json({ message: 'La categoría Personal no puede eliminarse' });
+    if (['staff', 'commissions'].includes(cat.value))
+      return res.status(403).json({ message: 'Las categorías automáticas no pueden eliminarse' });
 
     await cat.deleteOne();
     res.json({ message: 'Categoría eliminada' });
