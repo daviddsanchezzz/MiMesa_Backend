@@ -1,5 +1,6 @@
 const Customer = require('../models/Customer');
 const { pickFields } = require('../lib/pickFields');
+const { optIn, optOut } = require('../lib/customerMarketing');
 const Reservation = require('../../verticals/restaurant/models/Reservation');
 const { upcomingFor, exportFor, eraseFor } = require('../lib/customerData');
 const { getPhoneMatchCandidates, toStoredNormalizedPhone } = require('../lib/phoneMatching');
@@ -97,7 +98,13 @@ exports.createCustomer = async (req, res) => {
 
 exports.updateCustomer = async (req, res) => {
   try {
-    const payload = pickFields(req.body, ['name', 'phone', 'email', 'notes', 'vip']);
+    const payload = pickFields(req.body, ['name', 'phone', 'email', 'notes', 'vip', 'birthday']);
+    if (payload.birthday !== undefined) {
+      payload.birthday = String(payload.birthday || '').trim();
+      if (payload.birthday && !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(payload.birthday)) {
+        return res.status(400).json({ message: 'La fecha de cumpleaños no es válida' });
+      }
+    }
     if (payload.phone !== undefined) {
       const phoneStr = String(payload.phone || '').trim();
       payload.phone = phoneStr;
@@ -126,6 +133,18 @@ exports.updateCustomer = async (req, res) => {
       { new: true }
     );
     if (!customer) return res.status(404).json({ message: 'Customer not found' });
+    // The team records that the customer agreed (or does not want) emails with offers
+    if (typeof req.body?.marketingSubscribed === 'boolean') {
+      if (req.body.marketingSubscribed) {
+        if (!customer.email) return res.status(400).json({ message: 'Para recibir comunicaciones hace falta un email' });
+        if (!(await optIn(customer._id, 'staff'))) {
+          return res.status(409).json({ message: 'Este cliente se dio de baja de las comunicaciones y no se le puede volver a suscribir' });
+        }
+      } else {
+        await optOut(customer._id);
+      }
+      return res.json(await Customer.findById(customer._id));
+    }
     res.json(customer);
   } catch (err) {
     res.status(500).json({ message: err.message });

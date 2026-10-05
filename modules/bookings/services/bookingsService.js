@@ -8,6 +8,7 @@ const Customer = require('../../../core/models/Customer');
 const { acquireLock } = require('../../../core/lib/keyedLock');
 const { businessTimezone, dateInTimezone } = require('../../../core/lib/timezone');
 const { toStoredNormalizedPhone, getPhoneMatchCandidates } = require('../../../core/lib/phoneMatching');
+const { optIn } = require('../../../core/lib/customerMarketing');
 const Resource = require('../models/Resource');
 const Schedule = require('../models/Schedule');
 const Service = require('../models/Service');
@@ -220,7 +221,7 @@ async function loadOrderedServices(businessId, items, { activeOnly = true } = {}
  */
 async function createBooking({
   businessId, date, time, items, partySize = 1, guest, notes = '', internalNotes = '',
-  online, source, userId = null,
+  online, source, userId = null, marketingConsent = false,
 }) {
   if (!Array.isArray(items) || items.length === 0 || items.length > 5) {
     throw new BookingError(400, 'Indica entre 1 y 5 servicios', 'BAD_REQUEST');
@@ -235,6 +236,8 @@ async function createBooking({
 
     const needsApproval = online && ordered.some((s) => s.onlineBooking?.requireApproval);
     const customer = await findOrCreateCustomer(businessId, guest);
+    // Agreed to emails with offers: only when they ticked the box (online) or the team recorded it
+    if (marketingConsent && customer?._id && guest.email) await optIn(customer._id, online ? 'online' : 'staff');
     const booking = new Booking({
       businessId,
       customerId: customer?._id || null,

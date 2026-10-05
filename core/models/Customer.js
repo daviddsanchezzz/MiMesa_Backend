@@ -17,6 +17,9 @@ const customerSchema = new mongoose.Schema({
   marketingUnsubscribed:   { type: Boolean, default: false },
   marketingUnsubscribedAt: { type: Date,    default: null },
   unsubscribeToken:        { type: String,  default: null, index: true },
+  marketingConsentSource:  { type: String,  enum: ['', 'online', 'staff', 'restaurant', 'import'], default: '' },
+  // Month and day of the birthday ('MM-DD'): enough for a greeting, and nothing more than we need
+  birthday:                { type: String,  default: '', match: /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$|^$/ },
 }, { timestamps: true });
 
 customerSchema.index({ businessId: 1, email: 1 });

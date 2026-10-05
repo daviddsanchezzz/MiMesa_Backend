@@ -17,6 +17,8 @@ const { BookingError } = require('../lib/errors');
 const emails = require('../services/bookingEmails');
 const { getDashboardStats } = require('../services/statsService');
 const { getInsights } = require('../services/insightsService');
+const { getSegment } = require('../services/segmentsService');
+const { TYPES: SEGMENT_TYPES } = require('../lib/segments');
 const { summarizeCustomer } = require('../lib/customers');
 const { staffView } = require('../lib/stats');
 const { buildPayment, tillTotals } = require('../lib/checkout');
@@ -359,6 +361,24 @@ exports.updateBookingNotes = handle(async (req, res) => {
   const r = await Booking.updateOne({ _id: req.params.id, businessId: req.businessId }, update);
   if (!r.matchedCount) throw notFound('Cita');
   res.json(await Booking.findById(req.params.id).select('-publicToken').lean());
+});
+
+// ── Segments of customers for campaigns ────────────────────────────────────
+exports.segmentPreview = handle(async (req, res) => {
+  const type = String(req.query.type || 'all');
+  if (!SEGMENT_TYPES.includes(type)) throw new BookingError(400, 'Segmento no válido', 'BAD_REQUEST');
+  const params = {};
+  if (type === 'service') params.serviceId = v.objectId(req.query.serviceId, 'Servicio');
+  const num = (key, max) => {
+    if (req.query[key] === undefined) return undefined;
+    const n = Number(req.query[key]);
+    if (!Number.isInteger(n) || n < 1 || n > max) throw new BookingError(400, 'Valor no válido', 'BAD_REQUEST');
+    return n;
+  };
+  if (type === 'lapsed' || type === 'new') params.days = num('days', 730);
+  if (type === 'frequent') params.visits = num('visits', 200);
+  if (type === 'birthday') params.month = num('month', 12);
+  res.json({ type, ...(await getSegment(req.businessId, type, params)) });
 });
 
 // ── Estadísticas (services, busy hours, customers, cancellations) ──────────
