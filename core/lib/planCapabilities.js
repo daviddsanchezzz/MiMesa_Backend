@@ -125,6 +125,9 @@ PLANS.expired = {
   autoEmails: false,
   bookingReminders: false,
   followUps: false,
+  // Without a plan the business can still look at its money and team results (writes are blocked
+  // by readOnlyGuard), so these screens stay open instead of disappearing with the plan.
+  modulesAllowed: { ...PLANS.free.modulesAllowed, staff: true, expenses: true, purchases: true },
 };
 
 // New businesses: 14 days of Pro, no card.

@@ -90,6 +90,14 @@ describe('planCapabilities', () => {
     }
   });
 
+  test('without a plan the money and team screens stay readable (writes are blocked elsewhere)', () => {
+    const expired = biz('pro', 'canceled');
+    for (const key of ['expenses', 'purchases', 'staff']) assert.equal(plans.canUseModule(expired, key), true, key);
+    assert.equal(plans.canUseModule(expired, 'thefork'), false);
+    // a paying Basic plan still does not include them
+    for (const key of ['expenses', 'purchases', 'staff']) assert.equal(plans.canUseModule(biz('basic', 'active'), key), false, key);
+  });
+
   test('checkReservationLimit short-circuits on unlimited plans', async () => {
     const { checkReservationLimit } = load('verticals/restaurant/lib/reservationLimits');
     assert.deepEqual(await checkReservationLimit('id', biz('pro', 'active')), { allowed: true });
