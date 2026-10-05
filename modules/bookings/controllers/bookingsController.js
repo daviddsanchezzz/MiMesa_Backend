@@ -21,6 +21,7 @@ const { getInsights } = require('../services/insightsService');
 const { getSegment } = require('../services/segmentsService');
 const packsSvc = require('../services/packsService');
 const loyalty = require('../services/loyaltyService');
+const calendar = require('../services/calendarService');
 const { packInput } = require('../lib/packs');
 const Pack = require('../models/Pack');
 const CustomerPack = require('../models/CustomerPack');
@@ -368,6 +369,44 @@ exports.updateBookingNotes = handle(async (req, res) => {
   if (!r.matchedCount) throw notFound('Cita');
   res.json(await Booking.findById(req.params.id).select('-publicToken').lean());
 });
+
+// ── Calendar feed (.ics) of a professional ───────────────────────────────────
+function feedUrls(req, token) {
+  const base = (process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  const url = `${base}/api/bookings/public/calendar/${token}.ics`;
+  return { url, webcalUrl: url.replace(/^https?:/, 'webcal:') };
+}
+
+// The manager, or the professional about their own calendar
+async function assertCalendarAccess(req) {
+  v.objectId(req.params.id, 'id');
+  if (req.memberRole === 'owner' || req.memberRole === 'manager') return;
+  const own = await Resource.exists({ _id: req.params.id, businessId: req.businessId, kind: 'staff', userId: req.user?.id });
+  if (!own) throw new BookingError(403, 'No tienes permiso para ver este calendario', 'FORBIDDEN');
+}
+
+exports.getCalendarLink = handle(async (req, res) => {
+  await assertCalendarAccess(req);
+  res.json(feedUrls(req, await calendar.tokenFor(req.businessId, req.params.id)));
+});
+
+exports.resetCalendarLink = handle(async (req, res) => {
+  await assertCalendarAccess(req);
+  res.json(feedUrls(req, await calendar.tokenFor(req.businessId, req.params.id, { reset: true })));
+});
+
+// Public, secret by its token: calendar apps cannot log in
+exports.publicCalendar = async (req, res) => {
+  try {
+    const token = String(req.params.file || '').replace(/\.ics$/i, '');
+    const ics = await calendar.feedFor(token);
+    if (!ics) return res.status(404).type('text/plain').send('Not found');
+    res.set({ 'Content-Type': 'text/calendar; charset=utf-8', 'Cache-Control': 'private, max-age=300', 'Content-Disposition': 'inline; filename="agenda.ics"' });
+    res.send(ics);
+  } catch (err) {
+    res.status(500).type('text/plain').send('Error');
+  }
+};
 
 // ── Loyalty: every Nth paid visit earns a reward ────────────────────────────
 exports.getLoyalty = handle(async (req, res) => { res.json(await loyalty.getSettings(req.businessId)); });

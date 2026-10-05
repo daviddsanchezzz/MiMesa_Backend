@@ -25,8 +25,11 @@ const resourceSchema = new mongoose.Schema({
   // Sector-specific extras (colour in the agenda, table shape...)
   attributes: { type: mongoose.Schema.Types.Mixed, default: {} },
   active:     { type: Boolean, default: true },
+  // Secret of the calendar feed (.ics) of this professional; never sent with the resource
+  calendarToken: { type: String, default: null, select: false },
 }, { timestamps: true });
 
 resourceSchema.index({ businessId: 1, kind: 1, active: 1 });
+resourceSchema.index({ calendarToken: 1 }, { unique: true, partialFilterExpression: { calendarToken: { $type: 'string' } } });
 
 module.exports = mongoose.model('BookingResource', resourceSchema);

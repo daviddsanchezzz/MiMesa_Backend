@@ -7,6 +7,7 @@ const c = require('../controllers/bookingsController');
 
 // Public booking page (guests, no session). Rate-limited in app.js.
 const publicCors = cors({ origin: '*' });
+router.get('/public/calendar/:file', publicCors, c.publicCalendar);
 router.get('/public/cancel', publicCors, c.publicBookingDetails);
 router.post('/public/cancel', publicCors, c.publicCancelBooking);
 router.post('/public/reschedule/slots', publicCors, c.publicRescheduleSlots);
@@ -20,6 +21,8 @@ router.use(requireAuth, requireModule('bookings'));
 // Setup: resources, services and schedules (manager+)
 router.get('/resources', c.listResources);
 router.get('/resources/me', c.getMyResource);
+router.get('/resources/:id/calendar', c.getCalendarLink);
+router.post('/resources/:id/calendar/reset', c.resetCalendarLink);
 router.put('/resources/me/photo', c.updateMyResourcePhoto);
 router.post('/resources', requireRole('manager'), c.createResource);
 router.put('/resources/:id', requireRole('manager'), c.updateResource);
