@@ -15,6 +15,7 @@ router.post('/me/time-off', requireAuth, requireModule('staff'), timeOff.request
 router.delete('/me/time-off/:id', requireAuth, requireModule('staff'), timeOff.cancelMine);
 router.get('/me/swaps', requireAuth, requireModule('staff'), swaps.mine);
 router.get('/me/swaps/colleagues', requireAuth, requireModule('staff'), swaps.colleagues);
+router.get('/me/swaps/shifts-of', requireAuth, requireModule('staff'), swaps.shiftsOf);
 router.post('/me/swaps', requireAuth, requireModule('staff'), swaps.request);
 router.post('/me/swaps/:id/accept', requireAuth, requireModule('staff'), swaps.accept);
 router.post('/me/swaps/:id/decline', requireAuth, requireModule('staff'), swaps.decline);
@@ -55,6 +56,9 @@ router.patch('/time-off/:id/decision', timeOff.decide);
 router.delete('/time-off/:id', timeOff.remove);
 
 router.get('/swaps', swaps.list);
+router.get('/swaps/by-week', swaps.byWeek);
+router.post('/swaps', swaps.create);
+router.delete('/swaps/:id', swaps.close);
 router.patch('/swaps/:id/decision', swaps.decide);
 
 router.get('/costs', c.getWeeklyCosts);

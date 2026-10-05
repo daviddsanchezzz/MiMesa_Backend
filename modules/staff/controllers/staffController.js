@@ -797,7 +797,7 @@ exports.deleteAssignment = async (req, res) => {
     });
 
     if (!deleted) return res.status(404).json({ message: 'Asignacion no encontrada' });
-    await StaffShiftSwap.updateMany({ businessId: req.businessId, assignmentId: deleted._id, status: { $in: ['pending_peer', 'pending_manager'] } }, { status: 'cancelled' });
+    await StaffShiftSwap.updateMany({ businessId: req.businessId, $or: [{ assignmentId: deleted._id }, { counterAssignmentId: deleted._id }], status: { $in: ['pending_peer', 'pending_manager'] } }, { status: 'cancelled' });
     res.json({ message: 'Asignacion eliminada' });
   } catch (err) {
     res.status(500).json({ message: err.message });

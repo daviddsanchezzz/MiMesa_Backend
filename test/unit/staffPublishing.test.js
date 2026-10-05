@@ -4,7 +4,7 @@ const { load } = require('../helpers/load');
 
 const { snapshotRow, diffSchedules, describeChanges } = load('modules/staff/lib/scheduleDiff');
 const { cleanTimeOff, coversShift, overlapsOther, describe: describeOff } = load('modules/staff/lib/timeOff');
-const { whyCannotTake, overlap } = load('modules/staff/lib/swaps');
+const { whyCannotTake, overlap, evaluateTaker, costOf } = load('modules/staff/lib/swaps');
 const { buildNoticeEmail } = load('modules/staff/services/staffNotifications');
 const { fmtRangeEs } = load('modules/staff/lib/dates');
 
@@ -91,6 +91,44 @@ describe('swaps', () => {
     assert.match(whyCannotTake({ shift, taker, takerTimeOff: [{ status: 'approved', from: '2026-10-05', to: '2026-10-05', fromTime: '', toTime: '' }] }), /ausencia/);
     assert.equal(whyCannotTake({ shift, taker, takerTimeOff: [{ status: 'pending', from: '2026-10-05', to: '2026-10-05', fromTime: '', toTime: '' }] }), null, 'a pending request does not block');
     assert.ok(whyCannotTake({ shift, taker: { status: 'inactive' } }));
+  });
+});
+
+describe('swap rules: blockers and warnings', () => {
+  const taker = { firstName: 'Pablo', status: 'active' };
+  const row = { date: '2026-10-07', start: '13:00', end: '17:00', roleLabel: 'Sala' };
+  test('a free colleague of the same position has nothing to say', () => {
+    assert.deepEqual(evaluateTaker({ row, taker, positionNames: ['Sala'] }), { blockers: [], warnings: [] });
+  });
+  test('another position is a warning, not a blocker', () => {
+    const r = evaluateTaker({ row, taker, positionNames: ['Cocina'] });
+    assert.equal(r.blockers.length, 0);
+    assert.match(r.warnings[0], /otro puesto/);
+    assert.deepEqual(evaluateTaker({ row, taker, positionNames: [] }).warnings, [], 'no positions defined: nothing to compare');
+  });
+  test('less than 12 hours of rest, before or after', () => {
+    const closing = { date: '2026-10-06', start: '20:00', end: '03:00' }; // ends at 03:00 of the 7th: 10 h before we start
+    assert.match(evaluateTaker({ row, taker, nearby: [closing] }).warnings.join(), /menos de 12 h/);
+    assert.deepEqual(evaluateTaker({ row, taker, nearby: [{ date: '2026-10-06', start: '10:00', end: '14:00' }] }).warnings, []);
+    const opening = { date: '2026-10-08', start: '08:00', end: '12:00' }; // starts 15h after our end
+    assert.deepEqual(evaluateTaker({ row, taker, nearby: [opening] }).warnings, []);
+    assert.match(evaluateTaker({ row, taker, nearby: [{ date: '2026-10-07', start: '20:00', end: '23:00' }] }).warnings.join(), /menos de 12 h/, 'same day split shift');
+  });
+  test('more than 40 hours that week', () => {
+    const week = Array.from({ length: 10 }, () => ({ date: '2026-10-05', start: '09:00', end: '13:00' })); // 40 h already
+    assert.match(evaluateTaker({ row, taker, week }).warnings.join(), /40 h/);
+    assert.deepEqual(evaluateTaker({ row, taker, week: week.slice(0, 5) }).warnings, []);
+  });
+  test('working then or being away blocks', () => {
+    assert.match(evaluateTaker({ row, taker, sameDay: [{ date: row.date, start: '16:00', end: '20:00' }] }).blockers[0], /ya trabaja/);
+    assert.match(evaluateTaker({ row, taker, timeOff: [{ status: 'approved', from: row.date, to: row.date, fromTime: '', toTime: '' }] }).blockers[0], /ausencia/);
+  });
+  test('what the shift costs depends on who works it', () => {
+    assert.equal(costOf(row, { paymentType: 'hourly', baseAmount: 10 }), 40);
+    assert.equal(costOf(row, { paymentType: 'per_shift', baseAmount: 55 }), 55);
+    assert.equal(costOf(row, { paymentType: 'monthly_fixed', baseAmount: 1300 }), 0);
+    assert.equal(costOf(row, { paymentType: 'hourly', baseAmount: 10 }, 70), 70, 'a price set on the shift wins');
+    assert.equal(costOf(row, null), 0);
   });
 });
 

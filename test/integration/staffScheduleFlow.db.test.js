@@ -145,4 +145,54 @@ describe('Publishing, time off and shift swaps', { skip }, () => {
     res = await request(app).get(`/api/staff/me/schedule?weekStart=${day}`).set(as('waiter'));
     assert.equal(res.body.days.find((d) => d.date === day).shifts.length, 0);
   });
+
+  test('exchange: two people swap one shift each, the manager approves', async () => {
+    const day2 = plusDays(4);
+    const a2 = (await StaffAssignment.create({ businessId: biz._id, employeeId: ids.marta, date: day2, shiftId: ids.shift }))._id;
+    const b2 = (await StaffAssignment.create({ businessId: biz._id, employeeId: ids.pablo, date: plusDays(5), shiftId: ids.shift }))._id;
+    for (const d of [day2, plusDays(5)]) await request(app).post('/api/staff/schedule/publish').set(as('boss')).send({ weekStart: d, notify: false });
+
+    let res = await request(app).get(`/api/staff/me/swaps/shifts-of?employeeId=${ids.pablo}&assignmentId=${a2}`).set(as('waiter'));
+    assert.ok(res.body.items.some((i) => i.assignmentId === String(b2)));
+    res = await request(app).post('/api/staff/me/swaps').set(as('waiter')).send({ assignmentId: String(a2), toEmployeeId: String(ids.pablo), counterAssignmentId: String(b2) });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.type, 'exchange');
+    const id = res.body.id;
+    assert.equal((await request(app).post(`/api/staff/me/swaps/${id}/accept`).set(as('cook'))).body.status, 'pending_manager');
+
+    res = await request(app).get('/api/staff/swaps').set(as('boss'));
+    const item = res.body.items.find((i) => i.id === id);
+    assert.ok(item.review, 'the manager sees warnings and cost');
+    assert.equal(typeof item.review.cost.delta, 'number');
+    assert.equal((await request(app).patch(`/api/staff/swaps/${id}/decision`).set(as('boss')).send({ status: 'approved' })).status, 200);
+    assert.equal(String((await StaffAssignment.findById(a2)).employeeId), String(ids.pablo));
+    assert.equal(String((await StaffAssignment.findById(b2)).employeeId), String(ids.marta));
+  });
+
+  test('open shift: the manager opens it, the first to claim it wins, the manager approves', async () => {
+    const d = plusDays(6);
+    let res = await request(app).post('/api/staff/swaps').set(as('boss')).send({ date: d, shiftId: String(ids.shift), roleLabel: 'Sala' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const id = res.body.id;
+    assert.equal((await request(app).post('/api/staff/swaps').set(as('waiter')).send({ date: d, shiftId: String(ids.shift) })).status, 403, 'only the manager opens shifts');
+
+    res = await request(app).get('/api/staff/me/swaps').set(as('cook'));
+    assert.ok(res.body.incoming.some((i) => i.id === id && i.type === 'open'));
+    assert.equal((await request(app).post(`/api/staff/me/swaps/${id}/accept`).set(as('cook'))).status, 200);
+    assert.equal((await request(app).post(`/api/staff/me/swaps/${id}/accept`).set(as('waiter'))).status, 404, 'already claimed');
+
+    // rejecting reopens it
+    res = await request(app).patch(`/api/staff/swaps/${id}/decision`).set(as('boss')).send({ status: 'rejected' });
+    assert.equal(res.body.status, 'pending_peer');
+    await request(app).post(`/api/staff/me/swaps/${id}/accept`).set(as('waiter'));
+    res = await request(app).patch(`/api/staff/swaps/${id}/decision`).set(as('boss')).send({ status: 'approved' });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const created = await StaffAssignment.findOne({ businessId: biz._id, date: d, employeeId: ids.marta });
+    assert.ok(created, 'the assignment now exists');
+  });
+
+  test('history keeps what was decided', async () => {
+    const res = await request(app).get('/api/staff/swaps?status=history').set(as('boss'));
+    assert.ok(res.body.items.length >= 3);
+  });
 });
