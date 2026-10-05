@@ -3,6 +3,8 @@
  * time. Pure: the controller loads the week and passes it in. Dates are
  * 'YYYY-MM-DD'; times 'HH:MM'.
  */
+const { staffTimesOf } = require('./shiftTimes');
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const asDate = (iso) => new Date(`${iso}T00:00:00Z`);
@@ -38,8 +40,8 @@ function shortName(employee) {
 }
 
 function timesOf(assignment) {
-  const shift = assignment.shift || null;
-  return { start: assignment.startTime || shift?.startTime || '', end: assignment.endTime || shift?.endTime || '' };
+  const t = staffTimesOf(assignment.shift);
+  return { start: assignment.startTime || t.start, end: assignment.endTime || t.end };
 }
 
 function overlaps(a, b) {

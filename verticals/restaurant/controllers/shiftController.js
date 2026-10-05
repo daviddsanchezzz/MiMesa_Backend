@@ -117,11 +117,13 @@ exports.getSlots = async (req, res) => {
 
 exports.createShift = async (req, res) => {
   try {
-    const { name, startTime, endTime, days, subShifts, startDate, endDate, interval } = req.body;
+    const { name, startTime, endTime, days, subShifts, startDate, endDate, interval, staffStartTime, staffEndTime } = req.body;
     if (!name?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' });
     if (!startTime)    return res.status(400).json({ message: 'La hora de inicio es obligatoria' });
     if (!endTime)      return res.status(400).json({ message: 'La hora de fin es obligatoria' });
     if (!days?.length) return res.status(400).json({ message: 'Selecciona al menos un día' });
+    if ([staffStartTime, staffEndTime].some((t) => t && !/^([01]\d|2[0-3]):[0-5]\d$/.test(t)))
+      return res.status(400).json({ message: 'El horario del personal no es válido' });
     if ((startDate && !endDate) || (!startDate && endDate))
       return res.status(400).json({ message: 'Debes indicar tanto la fecha de inicio como la de fin' });
     if (startDate && endDate && startDate > endDate)
@@ -146,6 +148,7 @@ exports.createShift = async (req, res) => {
     const shift = await Shift.create({
       businessId: req.businessId,
       name: name.trim(), startTime, endTime, days,
+      staffStartTime: staffStartTime || '', staffEndTime: staffEndTime || '',
       startDate: startDate || null, endDate: endDate || null,
       interval: interval || 30,
       subShifts: subShifts || [],
@@ -158,11 +161,13 @@ exports.createShift = async (req, res) => {
 
 exports.updateShift = async (req, res) => {
   try {
-    const { name, startTime, endTime, days, subShifts, startDate, endDate, interval } = req.body;
+    const { name, startTime, endTime, days, subShifts, startDate, endDate, interval, staffStartTime, staffEndTime } = req.body;
     if (!name?.trim()) return res.status(400).json({ message: 'El nombre es obligatorio' });
     if (!startTime)    return res.status(400).json({ message: 'La hora de inicio es obligatoria' });
     if (!endTime)      return res.status(400).json({ message: 'La hora de fin es obligatoria' });
     if (!days?.length) return res.status(400).json({ message: 'Selecciona al menos un día' });
+    if ([staffStartTime, staffEndTime].some((t) => t && !/^([01]\d|2[0-3]):[0-5]\d$/.test(t)))
+      return res.status(400).json({ message: 'El horario del personal no es válido' });
     if ((startDate && !endDate) || (!startDate && endDate))
       return res.status(400).json({ message: 'Debes indicar tanto la fecha de inicio como la de fin' });
     if (startDate && endDate && startDate > endDate)
@@ -174,6 +179,7 @@ exports.updateShift = async (req, res) => {
     const shift = await Shift.findOneAndUpdate(
       { _id: req.params.id, businessId: req.businessId },
       { name: name.trim(), startTime, endTime, days,
+        staffStartTime: staffStartTime || '', staffEndTime: staffEndTime || '',
         startDate: startDate || null, endDate: endDate || null,
         interval: interval || 30,
         subShifts: subShifts || [] },

@@ -8,6 +8,7 @@ const Shift = require('../../../verticals/restaurant/models/Shift');
 const BusinessMember = require('../../../core/models/BusinessMember');
 const Invitation = require('../../../core/models/Invitation');
 const { buildMySchedule, weekOf } = require('../lib/mySchedule');
+const { staffTimesOf } = require('../lib/shiftTimes');
 
 function isValidIsoDate(date) {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -54,8 +55,9 @@ function assignmentMinutes(assignment, shiftById) {
   if ((!start || !end) && assignment.shiftId) {
     const shift = shiftById.get(String(assignment.shiftId));
     if (shift) {
-      start = start || shift.startTime;
-      end = end || shift.endTime;
+      const t = staffTimesOf(shift);
+      start = start || t.start;
+      end = end || t.end;
     }
   }
 
@@ -454,7 +456,7 @@ exports.mySchedule = async (req, res) => {
     const days = weekOf(requested || new Date().toISOString().slice(0, 10));
     const [assignments, employees] = await Promise.all([
       StaffAssignment.find({ businessId: req.businessId, date: { $gte: days[0], $lte: days[6] } })
-        .populate('shiftId', 'name startTime endTime')
+        .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
         .select('employeeId date shiftId startTime endTime roleLabel notes').lean(),
       StaffEmployee.find({ businessId: req.businessId }).select('firstName lastName status').lean(),
     ]);
@@ -490,7 +492,7 @@ exports.getPerformance = async (req, res) => {
       StaffAssignment.find({ businessId: req.businessId, date: { $gte: monthStart, $lte: monthEnd } }).lean(),
     ]);
     const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
-    const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId }).select('startTime endTime').lean();
+    const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId }).select('startTime endTime staffStartTime staffEndTime').lean();
     const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
     const compMap = await getActiveCompensationMap(req.businessId, employees.map((e) => e._id));
     const rows = employees.map((employee) => {
@@ -626,7 +628,7 @@ exports.getAssignments = async (req, res) => {
         businessId: req.businessId,
         date: { $gte: weekStart, $lte: weekEnd },
       })
-        .populate('shiftId', 'name startTime endTime')
+        .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
         .populate('employeeId', 'firstName lastName status position positionId')
         .sort({ date: 1, startTime: 1, createdAt: 1 })
         .lean(),
@@ -645,7 +647,7 @@ exports.getEmployeeAssignments = async (req, res) => {
     if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
 
     const assignments = await StaffAssignment.find({ businessId: req.businessId, employeeId: req.params.id })
-      .populate('shiftId', 'name startTime endTime')
+      .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
       .sort({ date: 1, createdAt: 1 })
       .lean();
 
@@ -702,7 +704,7 @@ exports.createAssignment = async (req, res) => {
     });
 
     const populated = await StaffAssignment.findById(assignment._id)
-      .populate('shiftId', 'name startTime endTime')
+      .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
       .populate('employeeId', 'firstName lastName status position positionId');
 
     res.status(201).json(populated);
@@ -744,7 +746,7 @@ exports.updateAssignment = async (req, res) => {
       payload,
       { new: true, runValidators: true },
     )
-      .populate('shiftId', 'name startTime endTime')
+      .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
       .populate('employeeId', 'firstName lastName status position positionId');
 
     if (!assignment) return res.status(404).json({ message: 'Asignacion no encontrada' });
@@ -788,7 +790,7 @@ exports.getWeeklyCosts = async (req, res) => {
 
     const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
     const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId })
-      .select('startTime endTime')
+      .select('startTime endTime staffStartTime staffEndTime')
       .lean();
     const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
 
@@ -879,7 +881,7 @@ exports.getMonthlyCosts = async (req, res) => {
 
     const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
     const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId })
-      .select('startTime endTime').lean();
+      .select('startTime endTime staffStartTime staffEndTime').lean();
     const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
 
     const compensationMap = await getActiveCompensationMap(req.businessId, employees.map((e) => e._id));
@@ -947,7 +949,7 @@ exports.getBalances = async (req, res) => {
 
     const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
     const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId })
-      .select('startTime endTime').lean();
+      .select('startTime endTime staffStartTime staffEndTime').lean();
     const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
 
     const compensationMap = await getActiveCompensationMap(req.businessId, employeeIds);
