@@ -13,6 +13,7 @@ const cashCloseSchema = new mongoose.Schema({
     services: { type: Number, default: 0 }, extras: { type: Number, default: 0 },
     discount: { type: Number, default: 0 }, tips: { type: Number, default: 0 },
     total: { type: Number, default: 0 }, payments: { type: Number, default: 0 },
+    packSales: { type: Number, default: 0 }, packSessions: { type: Number, default: 0 },
   },
   countedCash: { type: Number, default: null },   // cents counted in the drawer
   difference:  { type: Number, default: null },   // counted - expected cash (with tips paid in cash)

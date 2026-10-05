@@ -1,5 +1,6 @@
 const Customer = require('../models/Customer');
 const { pickFields } = require('../lib/pickFields');
+const BIRTHDAY_RE = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/; // 'MM-DD'
 const { optIn, optOut } = require('../lib/customerMarketing');
 const Reservation = require('../../verticals/restaurant/models/Reservation');
 const { upcomingFor, exportFor, eraseFor } = require('../lib/customerData');
@@ -51,6 +52,8 @@ exports.createCustomer = async (req, res) => {
     const { name, phone, email, notes, vip } = req.body;
     const safeName = String(name || '').trim();
     if (!safeName) return res.status(400).json({ message: 'El nombre es obligatorio' });
+    const birthday = String(req.body.birthday || '').trim();
+    if (birthday && !BIRTHDAY_RE.test(birthday)) return res.status(400).json({ message: 'La fecha de cumpleaños no es válida' });
 
     const phoneStr = String(phone || '').trim();
     const emailStr = String(email || '').trim().toLowerCase();
@@ -69,6 +72,7 @@ exports.createCustomer = async (req, res) => {
       if (phoneStr) update.normalizedPhone = toStoredNormalizedPhone(phoneStr);
       if (notes !== undefined) update.notes = notes || '';
       if (vip !== undefined) update.vip = Boolean(vip);
+      if (birthday) update.birthday = birthday;
 
       if (Object.keys(update).length > 0) {
         const merged = await Customer.findOneAndUpdate(
@@ -89,6 +93,7 @@ exports.createCustomer = async (req, res) => {
       email: emailStr,
       notes: notes || '',
       vip: Boolean(vip),
+      birthday,
     });
     res.status(201).json(customer);
   } catch (err) {
@@ -101,7 +106,7 @@ exports.updateCustomer = async (req, res) => {
     const payload = pickFields(req.body, ['name', 'phone', 'email', 'notes', 'vip', 'birthday']);
     if (payload.birthday !== undefined) {
       payload.birthday = String(payload.birthday || '').trim();
-      if (payload.birthday && !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(payload.birthday)) {
+      if (payload.birthday && !BIRTHDAY_RE.test(payload.birthday)) {
         return res.status(400).json({ message: 'La fecha de cumpleaños no es válida' });
       }
     }

@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { registerCustomerData } = require('../../core/lib/customerData');
 const Booking = require('./models/Booking');
 const Resource = require('./models/Resource');
+const CustomerPack = require('./models/CustomerPack');
 
 const ERASED_NAME = 'Cliente eliminado';
 
@@ -56,6 +57,19 @@ registerCustomerData({
   },
 });
 
+// Packs bought by the customer: exported with their data; erasing keeps the sale (the business's
+// accounting) but drops who bought it.
+registerCustomerData({
+  key: 'packs',
+  label: 'bonos',
+  upcoming: async () => 0,
+  exportRows: async ({ businessId, customer }) => (await CustomerPack.find({ businessId, customerId: customer._id }).sort({ soldAt: 1 }).lean()).map((p) => ({
+    bono: p.name, sesiones: p.sessions, sesiones_restantes: p.remaining, vendido: p.soldAt, caduca: p.expiresAt,
+    pagado: (p.payment?.amount || 0) / 100, metodo: p.payment?.method,
+  })),
+  erase: async ({ businessId, customer }) => (await CustomerPack.updateMany({ businessId, customerId: customer._id }, { $set: { customerId: null } })).modifiedCount,
+});
+
 // Deleting the business deletes the whole agenda.
 const { registerBusinessData, deleteAllFor } = require('../../core/lib/businessData');
 
@@ -71,6 +85,8 @@ registerBusinessData({
     Resource,
     FollowUpSettings: require('./models/FollowUpSettings'),
     BookingPolicy: require('./models/BookingPolicy'),
+    Pack: require('./models/Pack'),
+    CustomerPack,
   }),
 });
 

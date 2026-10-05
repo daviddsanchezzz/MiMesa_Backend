@@ -36,3 +36,14 @@ test('revenue per day and per professional, with commission', () => {
   assert.equal(luis.commission, 0.5);    // s2 has no commission, s1 half share 5 → 0.5
   assert.equal(r.byStaff[0].id, 'luis', 'sorted by revenue');
 });
+
+test('a pack sold counts as collected money on the day of the sale', () => {
+  const { summarize } = load('modules/bookings/services/revenueService');
+  const out = summarize({
+    bookings: [], payments: [], staff: [], commissionByService: {}, tz: 'Europe/Madrid', now: new Date('2026-10-14T10:00:00Z'),
+    packSales: [{ payment: { date: '2026-10-14', amount: 25000 } }],
+  });
+  assert.equal(out.byDate['2026-10-14'].collected, 250);
+  assert.equal(out.byDate['2026-10-14'].payments, 1);
+  assert.equal(out.byDate['2026-10-14'].billed, 0, 'billed stays tied to the appointments, not to the sale');
+});

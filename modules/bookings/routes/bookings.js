@@ -40,6 +40,15 @@ router.get('/stats', c.getStats);
 router.get('/insights', requireRole('manager'), c.insights);
 router.get('/segments', requireRole('manager'), c.segmentPreview);
 
+// Packs (bonos): anyone can see and sell them at the till; the catalogue is the manager's
+router.get('/packs', c.listPacks);
+router.post('/packs', requireRole('manager'), c.createPack);
+router.put('/packs/:id', requireRole('manager'), c.updatePack);
+router.delete('/packs/:id', requireRole('manager'), c.deletePack);
+router.get('/customers/:customerId/packs', c.customerPacks);
+router.post('/customers/:customerId/packs', c.sellPack);
+router.delete('/customer-packs/:id', requireRole('manager'), c.voidPackSale);
+
 // Customer history (manager+, like the customer list)
 router.get('/customers/summary', requireRole('manager'), c.customersSummary);
 router.get('/customers/:customerId', requireRole('manager'), c.customerBookings);
