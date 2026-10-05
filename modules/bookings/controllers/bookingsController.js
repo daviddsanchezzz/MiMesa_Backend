@@ -16,6 +16,7 @@ const v = require('../lib/validation');
 const { BookingError } = require('../lib/errors');
 const emails = require('../services/bookingEmails');
 const { getDashboardStats } = require('../services/statsService');
+const { getInsights } = require('../services/insightsService');
 const { summarizeCustomer } = require('../lib/customers');
 const { staffView } = require('../lib/stats');
 const { buildPayment, tillTotals } = require('../lib/checkout');
@@ -358,6 +359,13 @@ exports.updateBookingNotes = handle(async (req, res) => {
   const r = await Booking.updateOne({ _id: req.params.id, businessId: req.businessId }, update);
   if (!r.matchedCount) throw notFound('Cita');
   res.json(await Booking.findById(req.params.id).select('-publicToken').lean());
+});
+
+// ── Estadísticas (services, busy hours, customers, cancellations) ──────────
+exports.insights = handle(async (req, res) => {
+  const { from, to } = v.dateRange(req.query, { maxDays: 366 });
+  const compare = req.query.compareFrom ? v.dateRange({ from: req.query.compareFrom, to: req.query.compareTo }, { maxDays: 366 }) : null;
+  res.json(await getInsights(req.businessId, from, to, compare));
 });
 
 // ── Team (pay, commissions, what each professional leaves) ─────────────────
