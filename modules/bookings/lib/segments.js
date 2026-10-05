@@ -5,7 +5,7 @@
 const { rhythm, isLive, attended } = require('./customers');
 
 const DAY = 24 * 60 * 60 * 1000;
-const TYPES = ['all', 'service', 'lapsed', 'new', 'frequent', 'birthday'];
+const TYPES = ['all', 'service', 'lapsed', 'new', 'frequent'];
 const DEFAULTS = { lapsedDays: 90, newDays: 30, frequentVisits: 5 };
 
 const idOf = (x) => String(x?._id ?? x);
@@ -42,10 +42,6 @@ function matches(type, params, { customer, facts, now }) {
       return (now - sorted[0]) / DAY <= (params.days ?? DEFAULTS.newDays);
     }
     case 'frequent': return sorted.length >= (params.visits ?? DEFAULTS.frequentVisits);
-    case 'birthday': {
-      const month = params.month ?? (now.getUTCMonth() + 1);
-      return Number(String(customer.birthday || '').slice(0, 2)) === month;
-    }
     default: return false;
   }
 }
@@ -53,8 +49,8 @@ function matches(type, params, { customer, facts, now }) {
 /**
  * @param {object} p
  * @param {string} p.type      one of TYPES
- * @param {object} p.params    { serviceId } | { days } | { visits } | { month }
- * @param {Array}  p.customers  { _id, name, email, birthday, marketingSubscribed, marketingUnsubscribed }
+ * @param {object} p.params    { serviceId } | { days } | { visits }
+ * @param {Array}  p.customers  { _id, name, email, marketingSubscribed, marketingUnsubscribed }
  * @param {Array}  p.bookings   { customerId, status, start, end, segments }
  * @returns {{ total: number, reachable: number, customerIds: string[], sample: string[] }}
  */

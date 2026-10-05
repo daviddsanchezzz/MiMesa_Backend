@@ -20,6 +20,7 @@ const { getDashboardStats } = require('../services/statsService');
 const { getInsights } = require('../services/insightsService');
 const { getSegment } = require('../services/segmentsService');
 const packsSvc = require('../services/packsService');
+const loyalty = require('../services/loyaltyService');
 const { packInput } = require('../lib/packs');
 const Pack = require('../models/Pack');
 const CustomerPack = require('../models/CustomerPack');
@@ -368,6 +369,14 @@ exports.updateBookingNotes = handle(async (req, res) => {
   res.json(await Booking.findById(req.params.id).select('-publicToken').lean());
 });
 
+// ── Loyalty: every Nth paid visit earns a reward ────────────────────────────
+exports.getLoyalty = handle(async (req, res) => { res.json(await loyalty.getSettings(req.businessId)); });
+exports.saveLoyalty = handle(async (req, res) => { res.json(await loyalty.saveSettings(req.businessId, req.body || {})); });
+exports.customerLoyalty = handle(async (req, res) => {
+  v.objectId(req.params.customerId, 'customerId');
+  res.json(await loyalty.progressFor(req.businessId, req.params.customerId));
+});
+
 // ── Packs ("bonos"): catalogue, selling one to a customer ───────────────────
 exports.listPacks = handle(async (req, res) => {
   res.json(await packsSvc.listCatalog(req.businessId, { includeInactive: req.query.includeInactive === 'true' }));
@@ -440,7 +449,6 @@ exports.segmentPreview = handle(async (req, res) => {
   };
   if (type === 'lapsed' || type === 'new') params.days = num('days', 730);
   if (type === 'frequent') params.visits = num('visits', 200);
-  if (type === 'birthday') params.month = num('month', 12);
   res.json({ type, ...(await getSegment(req.businessId, type, params)) });
 });
 

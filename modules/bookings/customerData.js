@@ -87,6 +87,7 @@ registerBusinessData({
     BookingPolicy: require('./models/BookingPolicy'),
     Pack: require('./models/Pack'),
     CustomerPack,
+    LoyaltySettings: require('./models/LoyaltySettings'),
   }),
 });
 

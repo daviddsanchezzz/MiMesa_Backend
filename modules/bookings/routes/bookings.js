@@ -40,6 +40,11 @@ router.get('/stats', c.getStats);
 router.get('/insights', requireRole('manager'), c.insights);
 router.get('/segments', requireRole('manager'), c.segmentPreview);
 
+// Loyalty: the rule is the manager's; where a customer stands is needed at the till
+router.get('/loyalty', requireRole('manager'), c.getLoyalty);
+router.put('/loyalty', requireRole('manager'), c.saveLoyalty);
+router.get('/customers/:customerId/loyalty', c.customerLoyalty);
+
 // Packs (bonos): anyone can see and sell them at the till; the catalogue is the manager's
 router.get('/packs', c.listPacks);
 router.post('/packs', requireRole('manager'), c.createPack);

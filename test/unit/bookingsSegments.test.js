@@ -14,7 +14,7 @@ function visit(customerId, daysAgo, serviceId = 'corte', status = 'confirmed') {
   const start = daysAgo >= 0 ? ago(daysAgo) : new Date(NOW.getTime() + -daysAgo * DAY);
   return { _id: `b${n}`, customerId, status, start, end: new Date(start.getTime() + 3600000), segments: [{ serviceId }] };
 }
-const customer = (id, extra = {}) => ({ _id: id, name: `Cliente ${id}`, email: `${id}@test`, birthday: '', marketingSubscribed: true, marketingUnsubscribed: false, ...extra });
+const customer = (id, extra = {}) => ({ _id: id, name: `Cliente ${id}`, email: `${id}@test`, marketingSubscribed: true, marketingUnsubscribed: false, ...extra });
 
 describe('computeSegment', () => {
   test('only reaches customers who agreed to emails and have one', () => {
@@ -59,15 +59,6 @@ describe('computeSegment', () => {
       type: 'frequent', params: { visits: 3 }, now: NOW,
       customers: [customer('a'), customer('b')],
       bookings: [visit('a', 10), visit('a', 20), visit('a', 30), visit('b', 10), visit('b', 20)],
-    });
-    assert.deepEqual(r.customerIds, ['a']);
-  });
-
-  test('birthday: this month by default', () => {
-    const r = computeSegment({
-      type: 'birthday', now: NOW,
-      customers: [customer('a', { birthday: '10-27' }), customer('b', { birthday: '03-02' }), customer('c')],
-      bookings: [],
     });
     assert.deepEqual(r.customerIds, ['a']);
   });
