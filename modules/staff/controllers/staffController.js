@@ -9,6 +9,10 @@ const BusinessMember = require('../../../core/models/BusinessMember');
 const Invitation = require('../../../core/models/Invitation');
 const { buildMySchedule, weekOf } = require('../lib/mySchedule');
 const { staffTimesOf } = require('../lib/shiftTimes');
+const StaffTimeOff = require('../models/StaffTimeOff');
+const StaffShiftSwap = require('../models/StaffShiftSwap');
+const StaffSchedulePublication = require('../models/StaffSchedulePublication');
+const { coversShift, describe: describeTimeOff } = require('../lib/timeOff');
 
 function isValidIsoDate(date) {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -454,20 +458,38 @@ exports.mySchedule = async (req, res) => {
     const requested = req.query.weekStart;
     if (requested !== undefined && !isValidIsoDate(requested)) return res.status(400).json({ message: 'weekStart no válido (YYYY-MM-DD)' });
     const days = weekOf(requested || new Date().toISOString().slice(0, 10));
-    const [assignments, employees] = await Promise.all([
-      StaffAssignment.find({ businessId: req.businessId, date: { $gte: days[0], $lte: days[6] } })
-        .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
-        .select('employeeId date shiftId startTime endTime roleLabel notes').lean(),
+    const [pub, employees, timeOff, swaps] = await Promise.all([
+      StaffSchedulePublication.findOne({ businessId: req.businessId, weekStart: days[0] }).lean(),
       StaffEmployee.find({ businessId: req.businessId }).select('firstName lastName status').lean(),
+      StaffTimeOff.find({ businessId: req.businessId, employeeId: employee._id, status: { $in: ['pending', 'approved'] }, from: { $lte: days[6] }, to: { $gte: days[0] } }).lean(),
+      StaffShiftSwap.find({ businessId: req.businessId, fromEmployeeId: employee._id, status: { $in: ['pending_peer', 'pending_manager'] }, date: { $gte: days[0], $lte: days[6] } }).lean(),
     ]);
+
+    // Employees only see what the manager has published
     const week = buildMySchedule({
       employeeId: employee._id,
       date: days[0],
       employees,
-      assignments: assignments.map((a) => ({ ...a, shift: a.shiftId && a.shiftId._id ? a.shiftId : null, shiftId: a.shiftId?._id || a.shiftId || null })),
+      assignments: (pub?.rows || []).map((r) => ({
+        _id: r.assignmentId, employeeId: r.employeeId, date: r.date, shiftId: r.shiftId,
+        shift: { name: r.shiftName }, startTime: r.start, endTime: r.end, roleLabel: r.roleLabel, notes: r.notes,
+      })),
     });
+    const swapOf = new Map(swaps.map((w) => [String(w.assignmentId), w]));
+    week.days = week.days.map((day) => ({
+      ...day,
+      shifts: day.shifts.map((sh) => {
+        const w = swapOf.get(sh.id);
+        return w ? { ...sh, swap: { id: String(w._id), status: w.status } } : sh;
+      }),
+      timeOff: timeOff.filter((t) => day.date >= t.from && day.date <= t.to)
+        .map((t) => ({ id: String(t._id), type: t.type, status: t.status, fromTime: t.fromTime, toTime: t.toTime, note: t.note })),
+    }));
+
     res.json({
       linked: true,
+      published: Boolean(pub),
+      publishedAt: pub?.publishedAt || null,
       employee: { id: employee._id, name: [employee.firstName, employee.lastName].filter(Boolean).join(' '), position: employee.position || '', color: employee.color },
       ...week,
     });
@@ -622,7 +644,7 @@ exports.getAssignments = async (req, res) => {
     const weekStart = startOfWeekMonday(weekStartRaw);
     const weekEnd = addDays(weekStart, 6);
 
-    const [employees, assignments] = await Promise.all([
+    const [employees, assignments, timeOff] = await Promise.all([
       StaffEmployee.find({ businessId: req.businessId }).sort({ firstName: 1, lastName: 1 }).lean(),
       StaffAssignment.find({
         businessId: req.businessId,
@@ -632,9 +654,11 @@ exports.getAssignments = async (req, res) => {
         .populate('employeeId', 'firstName lastName status position positionId')
         .sort({ date: 1, startTime: 1, createdAt: 1 })
         .lean(),
+      StaffTimeOff.find({ businessId: req.businessId, status: { $in: ['pending', 'approved'] }, from: { $lte: weekEnd }, to: { $gte: weekStart } })
+        .select('employeeId type from to fromTime toTime status').lean(),
     ]);
 
-    res.json({ weekStart, weekEnd, employees, assignments });
+    res.json({ weekStart, weekEnd, employees, assignments, timeOff });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -681,6 +705,15 @@ exports.createAssignment = async (req, res) => {
 
     const shift = await Shift.findOne({ _id: shiftId, businessId: req.businessId }).lean();
     if (!shift) return res.status(404).json({ message: 'Turno no encontrado' });
+
+    if (!req.body?.force) {
+      const { start, end } = staffTimesOf(shift);
+      const off = await StaffTimeOff.find({ businessId: req.businessId, employeeId, status: 'approved', from: { $lte: date }, to: { $gte: date } }).lean();
+      const hit = off.find((t) => coversShift(t, date, start, end));
+      if (hit) {
+        return res.status(409).json({ code: 'TIME_OFF', message: `${employee.firstName} tiene una ausencia ese día (${describeTimeOff(hit)})` });
+      }
+    }
 
     let normalizedCustomPrice = null;
     if (customPrice !== null && customPrice !== undefined && customPrice !== '') {
@@ -764,6 +797,7 @@ exports.deleteAssignment = async (req, res) => {
     });
 
     if (!deleted) return res.status(404).json({ message: 'Asignacion no encontrada' });
+    await StaffShiftSwap.updateMany({ businessId: req.businessId, assignmentId: deleted._id, status: { $in: ['pending_peer', 'pending_manager'] } }, { status: 'cancelled' });
     res.json({ message: 'Asignacion eliminada' });
   } catch (err) {
     res.status(500).json({ message: err.message });

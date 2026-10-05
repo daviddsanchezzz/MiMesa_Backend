@@ -64,6 +64,12 @@ describe('Mi horario (employee ↔ user link)', { skip }, () => {
 
     res = await request(app).get('/api/staff/me/schedule').set(as('waiter'));
     assert.equal(res.body.linked, true);
+    assert.equal(res.body.published, false, 'a draft week is not shown to employees');
+    assert.equal(res.body.shiftCount, 0);
+    res = await request(app).post('/api/staff/schedule/publish').set(as('boss')).send({ weekStart: today, notify: false });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    res = await request(app).get('/api/staff/me/schedule').set(as('waiter'));
+    assert.equal(res.body.published, true);
     assert.equal(res.body.employee.name, 'Marta García');
     const day = res.body.days.find((d) => d.date === today);
     assert.equal(day.shifts.length, 1);
