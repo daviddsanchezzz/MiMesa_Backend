@@ -5,6 +5,9 @@ const requireModule = require('../../../core/middleware/requireModule');
 const c = require('../controllers/staffController');
 
 router.get('/public/professionals', c.getPublicProfessionals);
+// Anyone who is linked to an employee can see their own shifts; everything else is the manager's
+router.get('/me/schedule', requireAuth, requireModule('staff'), c.mySchedule);
+
 router.use(requireAuth, requireRole('manager'), requireModule('staff'));
 
 router.get('/positions', c.getPositions);
@@ -18,6 +21,8 @@ router.post('/employees', c.createEmployee);
 router.put('/employees/:id', c.updateEmployee);
 router.patch('/employees/:id/status', c.setEmployeeStatus);
 router.delete('/employees/:id/access', requireRole('owner'), c.revokeEmployeeAccess);
+router.put('/employees/:id/link', c.linkEmployeeMember);
+router.delete('/employees/:id/link', c.unlinkEmployeeMember);
 
 router.get('/employees/:id/compensations', c.getEmployeeCompensations);
 router.post('/employees/:id/compensations', c.createEmployeeCompensation);

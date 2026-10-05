@@ -7,6 +7,7 @@ const StaffPayment = require('../models/StaffPayment');
 const Shift = require('../../../verticals/restaurant/models/Shift');
 const BusinessMember = require('../../../core/models/BusinessMember');
 const Invitation = require('../../../core/models/Invitation');
+const { buildMySchedule, weekOf } = require('../lib/mySchedule');
 
 function isValidIsoDate(date) {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -395,6 +396,79 @@ exports.revokeEmployeeAccess = async (req, res) => {
     employee.memberId = null;
     await employee.save();
     res.json({ message: 'Acceso revocado. El profesional y sus datos se conservan.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// PUT /staff/employees/:id/link { memberId } — links a user of the team to this employee ("this is Marta").
+exports.linkEmployeeMember = async (req, res) => {
+  try {
+    const { memberId } = req.body || {};
+    if (!/^[a-f0-9]{24}$/i.test(String(memberId || ''))) return res.status(400).json({ message: 'Elige un usuario del equipo' });
+    const [employee, member] = await Promise.all([
+      StaffEmployee.findOne({ _id: req.params.id, businessId: req.businessId }),
+      BusinessMember.findOne({ _id: memberId, businessId: req.businessId }),
+    ]);
+    if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
+    if (!member) return res.status(404).json({ message: 'Usuario no encontrado' });
+    if (employee.memberId || await BusinessMember.exists({ businessId: req.businessId, professionalId: employee._id })) {
+      return res.status(409).json({ message: 'Este empleado ya tiene un usuario vinculado' });
+    }
+    if (member.professionalId) return res.status(409).json({ message: 'Este usuario ya está vinculado a otro empleado' });
+    member.professionalId = employee._id;
+    employee.memberId = member._id;
+    await Promise.all([member.save(), employee.save()]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// DELETE /staff/employees/:id/link — unlinks the user but keeps them in the team (revoking access is a separate action).
+exports.unlinkEmployeeMember = async (req, res) => {
+  try {
+    const employee = await StaffEmployee.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
+    await BusinessMember.updateMany({ businessId: req.businessId, professionalId: employee._id }, { $set: { professionalId: null } });
+    employee.memberId = null;
+    await employee.save();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /staff/me/schedule?weekStart=YYYY-MM-DD — the signed-in person's own shifts (any role).
+exports.mySchedule = async (req, res) => {
+  try {
+    const member = await BusinessMember.findOne({ businessId: req.businessId, userId: req.user.id }).select('_id professionalId').lean();
+    const employee = member && (
+      (member.professionalId && await StaffEmployee.findOne({ _id: member.professionalId, businessId: req.businessId }).lean())
+      || await StaffEmployee.findOne({ businessId: req.businessId, memberId: member._id }).lean()
+    );
+    if (!employee) return res.json({ linked: false });
+
+    const requested = req.query.weekStart;
+    if (requested !== undefined && !isValidIsoDate(requested)) return res.status(400).json({ message: 'weekStart no válido (YYYY-MM-DD)' });
+    const days = weekOf(requested || new Date().toISOString().slice(0, 10));
+    const [assignments, employees] = await Promise.all([
+      StaffAssignment.find({ businessId: req.businessId, date: { $gte: days[0], $lte: days[6] } })
+        .populate('shiftId', 'name startTime endTime')
+        .select('employeeId date shiftId startTime endTime roleLabel notes').lean(),
+      StaffEmployee.find({ businessId: req.businessId }).select('firstName lastName status').lean(),
+    ]);
+    const week = buildMySchedule({
+      employeeId: employee._id,
+      date: days[0],
+      employees,
+      assignments: assignments.map((a) => ({ ...a, shift: a.shiftId && a.shiftId._id ? a.shiftId : null, shiftId: a.shiftId?._id || a.shiftId || null })),
+    });
+    res.json({
+      linked: true,
+      employee: { id: employee._id, name: [employee.firstName, employee.lastName].filter(Boolean).join(' '), position: employee.position || '', color: employee.color },
+      ...week,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
