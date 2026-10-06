@@ -586,6 +586,14 @@ exports.quickSale = handle(async (req, res) => {
   };
   const booking = await svc.createWalkIn({ businessId: req.businessId, items: clean, guest, timezone: tz, userId: req.user?.id || null });
   try {
+    // A customer picked from the list is linked even when they have no phone or email to match by
+    if (body.customerId) {
+      const known = await Customer.findOne({ _id: v.objectId(body.customerId, 'Cliente'), businessId: req.businessId }).select('name').lean();
+      if (known && String(booking.customerId || '') !== String(known._id)) {
+        booking.customerId = known._id;
+        await booking.save();
+      }
+    }
     const out = await chargeBooking(req, booking.toObject(), body);
     res.status(201).json(out);
   } catch (err) {
