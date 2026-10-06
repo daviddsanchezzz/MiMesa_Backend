@@ -52,6 +52,33 @@ describe('menuImport.planImport', () => {
   });
 });
 
+describe('menuImport: a menu copied from elsewhere (manual prices)', () => {
+  const categories = [{ _id: 'c1', name: { ca: 'Entrants' } }];
+  const items = [
+    { _id: 'i1', categoryId: 'c1', name: { ca: 'Focaccia' }, price: 5, priceSource: 'manual', externalId: '' },
+    { _id: 'i2', categoryId: 'c1', name: { ca: 'Provolone' }, price: 12, priceSource: 'tpv', externalId: '9' },
+  ];
+
+  test('descriptions are read, and rows keep them', () => {
+    const { rows } = normalizeRows([{ category: 'Entrants', name: 'Focaccia', price: 5.9, description: ' Amb ceba i olives ' }]);
+    assert.equal(rows[0].description, 'Amb ceba i olives');
+  });
+
+  test('nothing is linked or reported missing: only new dishes and price changes', () => {
+    const rows = [
+      { category: 'Entrants', name: 'Focaccia', price: 5.9, externalId: '', description: '' },
+      { category: 'Entrants', name: 'Croquetes', price: 12.5, externalId: '', description: '' },
+    ];
+    const { plan, missing } = planImport(rows, { categories, items, language: 'ca', source: 'manual' });
+    assert.deepEqual(plan.map((p) => p.status), ['price', 'new']);
+    assert.deepEqual(missing, []);
+    // the same file as a TPV import would link the manual dish and report the TPV one as missing
+    const tpv = planImport(rows, { categories, items, language: 'ca', source: 'tpv' });
+    assert.equal(tpv.plan[0].status, 'link');
+    assert.deepEqual(tpv.missing.map((m) => m.name), ['Provolone']);
+  });
+});
+
 describe('menu validation', () => {
   test('texts keep only the languages in use and require the main one', () => {
     assert.deepEqual(v.texts({ es: ' Hola ', en: 'Hi', fr: 'Salut' }, ['es', 'en'], { label: 'X', max: 10, required: true }), { es: 'Hola', en: 'Hi' });

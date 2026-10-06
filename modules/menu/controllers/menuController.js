@@ -185,7 +185,9 @@ exports.importItems = handle(async (req, res) => {
     MenuCategory.find({ businessId: req.businessId }).lean(),
     MenuItem.find({ businessId: req.businessId }).lean(),
   ]);
-  const { plan, missing } = planImport(rows, { categories, items, language });
+  // 'tpv' (default): prices come from the till and are locked; 'manual': a menu copied from elsewhere, prices stay editable
+  const source = req.body?.priceSource === 'manual' ? 'manual' : 'tpv';
+  const { plan, missing } = planImport(rows, { categories, items, language, source });
   const count = (s) => plan.filter((p) => p.status === s).length;
   const summary = {
     new: count('new'), price: count('price'), link: count('link'), same: count('same'),
@@ -214,11 +216,14 @@ exports.importItems = handle(async (req, res) => {
       if (!itemOrder.has(k)) itemOrder.set(k, await nextOrder(MenuItem, { businessId: req.businessId, categoryId }));
       const sortOrder = itemOrder.get(k);
       itemOrder.set(k, sortOrder + 1);
-      ops.push({ insertOne: { document: { businessId: req.businessId, categoryId, name: { [language]: p.name }, price: p.price, priceSource: 'tpv', externalId: p.externalId, sortOrder } } });
+      ops.push({ insertOne: { document: {
+        businessId: req.businessId, categoryId, name: { [language]: p.name }, price: p.price, priceSource: source, externalId: p.externalId, sortOrder,
+        ...(p.description ? { description: { [language]: p.description } } : {}),
+      } } });
     } else if (p.status !== 'same' || p.restore) {
       ops.push({ updateOne: {
         filter: { _id: p.itemId, businessId: req.businessId },
-        update: { $set: { price: p.price, priceSource: 'tpv', retired: false, ...(p.externalId ? { externalId: p.externalId } : {}) } },
+        update: { $set: { price: p.price, retired: false, ...(source === 'tpv' ? { priceSource: 'tpv' } : {}), ...(p.externalId ? { externalId: p.externalId } : {}) } },
       } });
     }
   }
