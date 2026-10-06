@@ -1,7 +1,8 @@
-const mongoose = require('mongoose');
 const SiteProfile = require('../models/SiteProfile');
+const Business = require('../../../core/models/Business');
+const { businessTimezone } = require('../../../core/lib/timezone');
 const v = require('../lib/validation');
-const { rangesOf } = require('../lib/hours');
+const { scheduleFor } = require('../services/ficha');
 
 function handle(fn) {
   return async (req, res) => {
@@ -15,55 +16,31 @@ function handle(fn) {
   };
 }
 
-const EMPTY_WEEK = () => [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, ranges: [] }));
-
-/** The saved profile, or an empty one: every day closed, nothing to book with. */
+/** The saved profile, or the defaults: bookings through Vetra, no social links. */
 function withDefaults(doc) {
   const p = doc || {};
   return {
-    openingHours: p.openingHours?.length ? p.openingHours : EMPTY_WEEK(),
-    closures: p.closures || [],
-    reservations: { mode: p.reservations?.mode || 'none', url: p.reservations?.url || '' },
+    reservations: { mode: p.reservations?.mode || 'vetra', url: p.reservations?.url || '' },
     social: { instagram: '', facebook: '', tiktok: '', youtube: '', whatsapp: '', ...(p.social || {}) },
-    contactEmail: p.contactEmail || '',
-    mapsUrl: p.mapsUrl || '',
+  };
+}
+
+// The profile plus how the website currently shows the schedule (read-only: it comes from Horarios y cierres)
+async function respond(businessId, doc) {
+  const business = await Business.findById(businessId).select('timezone phone address email').lean();
+  return {
+    ...withDefaults(doc),
+    schedule: await scheduleFor(businessId, businessTimezone(business)),
+    business: { phone: business?.phone || '', address: business?.address || '', email: business?.email || '' },
   };
 }
 
 exports.getProfile = handle(async (req, res) => {
-  res.json(withDefaults(await SiteProfile.findOne({ businessId: req.businessId }).lean()));
+  res.json(await respond(req.businessId, await SiteProfile.findOne({ businessId: req.businessId }).lean()));
 });
 
 exports.saveProfile = handle(async (req, res) => {
   const data = v.profile(req.body);
   const doc = await SiteProfile.findOneAndUpdate({ businessId: req.businessId }, { $set: data }, { upsert: true, new: true }).lean();
-  res.json(withDefaults(doc));
-});
-
-/**
- * Hours and closures worked out from what the restaurant already has for reservations (turnos and
- * vacations), so someone who uses them does not type everything twice. It only suggests: nothing is
- * saved. The customer-facing times of a turno are used, never the staff times.
- * Models of the restaurant vertical are looked up by name (a module cannot import a vertical).
- */
-exports.hoursSuggestion = handle(async (req, res) => {
-  const Shift = mongoose.models.Shift;
-  const Vacation = mongoose.models.Vacation;
-  const week = EMPTY_WEEK();
-  if (Shift) {
-    const shifts = await Shift.find({ businessId: req.businessId, $or: [{ startDate: null }, { startDate: '' }, { startDate: { $exists: false } }] }).lean();
-    for (const s of shifts) {
-      for (const day of s.days || []) {
-        const target = week.find((d) => d.day === day);
-        if (target && s.startTime && s.endTime && s.startTime !== s.endTime) target.ranges.push({ open: s.startTime, close: s.endTime === '00:00' ? '24:00' : s.endTime });
-      }
-    }
-    for (const d of week) d.ranges.sort((a, b) => a.open.localeCompare(b.open));
-  }
-  const today = new Date().toISOString().slice(0, 10);
-  const closures = Vacation
-    ? (await Vacation.find({ businessId: req.businessId, endDate: { $gte: today } }).sort({ startDate: 1 }).lean())
-      .map((x) => ({ from: x.startDate, to: x.endDate, reason: x.reason || '' }))
-    : [];
-  res.json({ openingHours: week, closures, found: week.some((d) => rangesOf(week, d.day).length) || closures.length > 0 });
+  res.json(await respond(req.businessId, doc));
 });

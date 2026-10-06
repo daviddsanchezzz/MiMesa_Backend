@@ -12,6 +12,5 @@ router.get('/public/:businessId', cors({ origin: '*' }), pub.publicSite);
 router.use(requireAuth, requireModule('web'), requireRole('manager'));
 router.get('/', c.getProfile);
 router.put('/', c.saveProfile);
-router.get('/hours-suggestion', c.hoursSuggestion);
 
 module.exports = router;

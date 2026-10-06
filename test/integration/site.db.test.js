@@ -39,51 +39,45 @@ describe('site profile (web)', { skip }, () => {
     }
   });
 
-  test('the profile is for managers; empty at first, saved and read back', async () => {
+  test('the profile is for managers: bookings through Vetra by default, saved and read back', async () => {
     assert.equal((await request(app).get('/api/site').set(as('staff'))).status, 403);
     let res = await request(app).get('/api/site').set(as('owner'));
     assert.equal(res.status, 200);
-    assert.equal(res.body.openingHours.length, 7);
-    assert.equal(res.body.reservations.mode, 'none');
+    assert.equal(res.body.reservations.mode, 'vetra');
+    assert.equal(res.body.business.phone, '699566291');   // from the business data, not asked again
+    assert.equal(res.body.schedule.openingHours.length, 7);
     res = await request(app).put('/api/site').set(as('owner')).send({
-      openingHours: [1, 2, 3, 4, 5, 6, 0].map((day) => ({ day, ranges: day === 1 ? [] : [{ open: '13:00', close: '16:00' }, { open: '20:00', close: '24:00' }] })),
-      closures: [{ from: '2099-08-01', to: '2099-08-20', reason: 'Vacaciones' }],
-      reservations: { mode: 'vetra' },
+      reservations: { mode: 'link', url: 'https://www.thefork.es/casanita' },
       social: { instagram: '@casanita', whatsapp: '699566291' },
-      contactEmail: 'hola@casanita.test',
     });
     assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.openingHours[1].ranges.length, 0);
-    assert.equal(res.body.openingHours[2].ranges.length, 2);
+    assert.equal(res.body.reservations.mode, 'link');
     res = await request(app).put('/api/site').set(as('owner')).send({ reservations: { mode: 'link', url: 'javascript:alert(1)' } });
     assert.equal(res.status, 400);
   });
 
-  test('the public file: hours, today, closures, how to book and links, without a session', async () => {
+  test('the public file takes hours and closures from the turnos, vacations and closure exceptions', async () => {
+    const Shift = require(path.join(ROOT, 'verticals/restaurant/models/Shift'));
+    const Vacation = require(path.join(ROOT, 'verticals/restaurant/models/Vacation'));
+    const Exception = require(path.join(ROOT, 'verticals/restaurant/models/Exception'));
+    await Shift.create({ businessId: biz._id, name: 'Comida', startTime: '13:30', endTime: '16:00', staffStartTime: '12:30', staffEndTime: '17:30', days: [0, 1, 2, 3, 4, 5, 6] });
+    await Shift.create({ businessId: biz._id, name: 'Cena', startTime: '20:00', endTime: '23:30', days: [1, 2, 3, 4, 5, 6] });
+    await Vacation.create({ businessId: biz._id, startDate: '2099-08-01', endDate: '2099-08-20', reason: 'Vacaciones' });
+    await Exception.create({ businessId: biz._id, date: '2099-05-01', shiftName: '__all__', type: 'closed', message: 'Día del trabajador' });
+    await Exception.create({ businessId: biz._id, date: '2099-05-02', shiftName: 'Cena', type: 'full' });   // not a closure
+
     const res = await request(app).get(`/api/site/public/${biz._id}`);
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.business.name, 'Casanita');
-    assert.equal(res.body.business.email, 'hola@casanita.test');
-    assert.equal(res.body.openingHours.length, 7);
+    assert.equal(res.body.business.phone, '699566291');
+    assert.match(res.body.business.mapsUrl, /google\.com\/maps/);
+    const monday = res.body.openingHours.find((d) => d.day === 1);
+    assert.deepEqual(monday.ranges, [{ open: '13:30', close: '16:00' }, { open: '20:00', close: '23:30' }]);   // customer times, not staff times
+    assert.deepEqual(res.body.openingHours.find((d) => d.day === 0).ranges, [{ open: '13:30', close: '16:00' }]);
+    assert.deepEqual(res.body.closures.map((c) => [c.from, c.reason]), [['2099-05-01', 'Día del trabajador'], ['2099-08-01', 'Vacaciones']]);
     assert.equal(typeof res.body.today.openNow, 'boolean');
-    assert.equal(res.body.closures[0].reason, 'Vacaciones');
-    assert.equal(res.body.reservations.mode, 'vetra');
-    assert.match(res.body.reservations.url, /^https?:\/\//);
+    assert.equal(res.body.reservations.mode, 'link');
     assert.deepEqual(res.body.links.map((l) => l.type), ['instagram', 'whatsapp']);
     assert.equal((await request(app).get('/api/site/public/64b7f0f0f0f0f0f0f0f0f0f0')).status, 404);
-  });
-
-  test('suggestion from the reservation turnos and vacations (nothing is saved)', async () => {
-    const Shift = require(path.join(ROOT, 'verticals/restaurant/models/Shift'));
-    const Vacation = require(path.join(ROOT, 'verticals/restaurant/models/Vacation'));
-    await Shift.create({ businessId: biz._id, name: 'Comida', startTime: '13:30', endTime: '16:00', staffStartTime: '12:30', staffEndTime: '17:30', days: [1, 2, 3] });
-    await Vacation.create({ businessId: biz._id, startDate: '2099-12-24', endDate: '2099-12-26', reason: 'Navidad' });
-    const res = await request(app).get('/api/site/hours-suggestion').set(as('owner'));
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.deepEqual(res.body.openingHours[1].ranges, [{ open: '13:30', close: '16:00' }]);   // customer times, not the staff ones
-    assert.deepEqual(res.body.openingHours[4].ranges, []);
-    assert.equal(res.body.closures[0].reason, 'Navidad');
-    const saved = (await request(app).get('/api/site').set(as('owner'))).body;
-    assert.equal(saved.closures[0].reason, 'Vacaciones');   // untouched
   });
 });

@@ -9,9 +9,7 @@ const { businessTimezone } = require('../../../core/lib/timezone');
 const { businessLogoUrl } = require('../../../core/lib/images');
 const { publicBookingUrl } = require('../../../core/lib/publicUrls');
 const SiteProfile = require('../models/SiteProfile');
-const { isOpenNow, closureOn, upcomingClosures, localNow } = require('../lib/hours');
-
-const EMPTY_WEEK = () => [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, ranges: [] }));
+const { scheduleFor } = require('../services/ficha');
 
 /** Handles and phones become links the website can use as they are. */
 function socialLinks(s = {}) {
@@ -35,31 +33,27 @@ exports.publicSite = async (req, res) => {
     const { businessId } = req.params;
     if (!mongoose.isValidObjectId(businessId)) return res.status(404).json({ message: 'Negocio no encontrado' });
     const business = await Business.findById(businessId)
-      .select('name phone address brandColor logoUpdatedAt slug businessType timezone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId moduleOverrides').lean();
+      .select('name phone address email brandColor logoUpdatedAt slug businessType timezone plan subscriptionStatus legacyAccess paymentFailedAt trialEndsAt stripeSubscriptionId moduleOverrides').lean();
     if (!business || !canUseModule(business, 'web')) return res.status(404).json({ message: 'Negocio no encontrado' });
 
     const profile = await SiteProfile.findOne({ businessId }).lean();
     const timezone = businessTimezone(business);
-    const hours = profile?.openingHours?.length ? profile.openingHours : EMPTY_WEEK();
-    const closures = profile?.closures || [];
-    const now = localNow(new Date(), timezone);
-    const closure = closureOn(closures, now.date);
-    const mode = profile?.reservations?.mode || 'none';
+    const sched = await scheduleFor(businessId, timezone);
+    const mode = profile?.reservations?.mode || 'vetra';
 
     res.set('Cache-Control', 'public, max-age=60');
     res.json({
       business: {
-        name: business.name, phone: business.phone || '', address: business.address || '',
-        email: profile?.contactEmail || '', logoUrl: businessLogoUrl(business), brandColor: business.brandColor || null, timezone,
-        mapsUrl: profile?.mapsUrl || '',
+        name: business.name, phone: business.phone || '', address: business.address || '', email: business.email || '',
+        logoUrl: businessLogoUrl(business), brandColor: business.brandColor || null, timezone,
+        // Opens the address in Google Maps; no need to type a link
+        mapsUrl: business.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${business.name} ${business.address}`)}` : '',
       },
-      openingHours: hours,
-      today: {
-        date: now.date, weekday: now.weekday,
-        closed: !!closure, closureReason: closure?.reason || '',
-        openNow: isOpenNow(hours, closures, now),
-      },
-      closures: upcomingClosures(closures, now.date),
+      // From the turnos, vacations and closures the restaurant already has (Horarios y cierres)
+      openingHours: sched.openingHours,
+      seasonal: sched.seasonal,
+      today: sched.today,
+      closures: sched.closures,
       reservations: {
         mode,
         url: mode === 'vetra' ? publicBookingUrl(business) : mode === 'link' ? profile?.reservations?.url || '' : '',

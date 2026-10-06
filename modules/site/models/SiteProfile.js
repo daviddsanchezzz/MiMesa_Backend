@@ -1,21 +1,12 @@
 const mongoose = require('mongoose');
 
-// What the restaurant's website shows that is not the menu: opening hours (their own, not the
-// reservation turnos), one-off closures, how to book and where to find them. One per business.
-const rangeSchema = new mongoose.Schema({ open: String, close: String }, { _id: false });
-const daySchema = new mongoose.Schema({ day: Number, ranges: { type: [rangeSchema], default: [] } }, { _id: false });
-const closureSchema = new mongoose.Schema({
-  from: { type: String, required: true },   // YYYY-MM-DD
-  to: { type: String, required: true },
-  reason: { type: String, default: '', maxlength: 200 },
-}, { _id: false });
-
+// What the restaurant's website shows that is neither the menu nor already defined elsewhere: how to book
+// and where to find them online. Opening hours and closures come from the turnos, vacations and closure
+// exceptions the restaurant already has; phone, address and email from the business data. One per business.
 const siteProfileSchema = new mongoose.Schema({
   businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, unique: true },
-  openingHours: { type: [daySchema], default: [] },        // day: 0 = Sunday … 6; no ranges = closed
-  closures: { type: [closureSchema], default: [] },        // holidays, works, private events
   reservations: {
-    mode: { type: String, enum: ['none', 'vetra', 'link', 'phone'], default: 'none' },
+    mode: { type: String, enum: ['none', 'vetra', 'link', 'phone'], default: 'vetra' },
     url: { type: String, default: '', maxlength: 300 },    // mode 'link': another booking system (TheFork…)
   },
   social: {
@@ -25,8 +16,6 @@ const siteProfileSchema = new mongoose.Schema({
     youtube: { type: String, default: '', maxlength: 200 },
     whatsapp: { type: String, default: '', maxlength: 30 },
   },
-  contactEmail: { type: String, default: '', maxlength: 200, lowercase: true },
-  mapsUrl: { type: String, default: '', maxlength: 400 },
 }, { timestamps: true });
 
 module.exports = mongoose.model('SiteProfile', siteProfileSchema);
