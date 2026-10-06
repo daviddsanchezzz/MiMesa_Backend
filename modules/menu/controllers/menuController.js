@@ -3,6 +3,7 @@ const MenuCategory = require('../models/MenuCategory');
 const MenuItem = require('../models/MenuItem');
 const DailyMenu = require('../models/DailyMenu');
 const photos = require('../services/photoStorage');
+const translation = require('../services/translationService');
 const v = require('../lib/validation');
 const { DEFAULT_LANGUAGES } = require('../lib/constants');
 const { normalizeRows, planImport } = require('../lib/menuImport');
@@ -15,7 +16,7 @@ function handle(fn) {
     try {
       await fn(req, res);
     } catch (err) {
-      if (err instanceof v.MenuError || err instanceof photos.PhotoError) return res.status(err.status).json({ message: err.message });
+      if (err instanceof v.MenuError || err instanceof photos.PhotoError || err instanceof translation.TranslationError) return res.status(err.status).json({ message: err.message });
       console.error('[menu]', err);
       res.status(500).json({ message: 'Algo ha fallado. Inténtalo de nuevo.' });
     }
@@ -260,3 +261,91 @@ exports.saveDaily = handle(async (req, res) => {
   const doc = await DailyMenu.findOneAndUpdate({ businessId: req.businessId }, { $set: data }, { upsert: true, new: true }).lean();
   res.json(doc);
 });
+
+// ── Translation ─────────────────────────────────────────────────────────────
+// POST /api/menu/translate { from, to: ['en'], items: [{ id, kind, text }] } → { translations: { id: { en } } }
+exports.translateTexts = handle(async (req, res) => {
+  const { languages } = await settingsOf(req.businessId);
+  const from = String(req.body?.from || languages[0]);
+  const to = Array.isArray(req.body?.to) ? req.body.to.filter((l) => languages.includes(l) && l !== from) : [];
+  const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 100) : [];
+  if (!languages.includes(from) || !to.length || !items.length) v.bad('No hay nada que traducir');
+  const translations = await translation.translate({ from, items: items.map((i) => ({ ...i, targets: to })) });
+  res.json({ translations });
+});
+
+const MAX_BULK = 160;
+const emptyIn = (texts, lang) => !(texts && texts[lang]);
+
+/** What is written in the main language and missing in another one, as translation requests. */
+function missingTexts({ languages, categories, items, daily }) {
+  const main = languages[0];
+  const others = languages.slice(1);
+  const out = [];
+  const want = (id, kind, texts, apply) => {
+    const text = texts?.[main];
+    const targets = others.filter((l) => emptyIn(texts, l));
+    if (text && targets.length) out.push({ id, kind, text, targets, apply });
+  };
+  for (const c of categories) want(`cat:${c._id}`, 'category', c.name, (lang, t) => ({ model: 'cat', id: c._id, path: `name.${lang}`, text: t }));
+  for (const i of items) {
+    want(`dish:${i._id}`, 'dish', i.name, (lang, t) => ({ model: 'item', id: i._id, path: `name.${lang}`, text: t }));
+    want(`desc:${i._id}`, 'description', i.description, (lang, t) => ({ model: 'item', id: i._id, path: `description.${lang}`, text: t }));
+  }
+  if (daily) {
+    want('daily:title', 'title', daily.title, (lang, t) => ({ model: 'daily', path: `title.${lang}`, text: t }));
+    want('daily:includes', 'note', daily.includes, (lang, t) => ({ model: 'daily', path: `includes.${lang}`, text: t }));
+    (daily.courses || []).forEach((c, ci) => {
+      want(`daily:c${ci}`, 'course', c.name, (lang, t) => ({ model: 'daily', path: `courses.${ci}.name.${lang}`, text: t }));
+      (c.options || []).forEach((o, oi) => want(`daily:c${ci}o${oi}`, 'option', o.name, (lang, t) => ({ model: 'daily', path: `courses.${ci}.options.${oi}.name.${lang}`, text: t })));
+    });
+  }
+  return out;
+}
+
+async function loadMenu(businessId) {
+  const [settings, categories, items, daily] = await Promise.all([
+    settingsOf(businessId),
+    MenuCategory.find({ businessId }).lean(),
+    MenuItem.find({ businessId, retired: { $ne: true } }).lean(),
+    DailyMenu.findOne({ businessId }).lean(),
+  ]);
+  return { languages: settings.languages, categories, items, daily };
+}
+
+// GET /api/menu/translate-missing → how many texts lack a translation
+exports.countMissing = handle(async (req, res) => {
+  const menu = await loadMenu(req.businessId);
+  const list = missingTexts(menu);
+  res.json({ texts: list.length, languages: menu.languages.slice(1) });
+});
+
+// POST /api/menu/translate-missing → translates and saves up to MAX_BULK texts; `remaining` says if there are more
+exports.translateMissing = handle(async (req, res) => {
+  const menu = await loadMenu(req.businessId);
+  if (menu.languages.length < 2) v.bad('Añade otro idioma a la carta primero');
+  const all = missingTexts(menu);
+  const batch = all.slice(0, MAX_BULK);
+  if (!batch.length) return res.json({ translated: 0, remaining: 0 });
+  const result = await translation.translate({ from: menu.languages[0], items: batch });
+
+  const ops = { MenuCategory: [], MenuItem: [], DailyMenu: [] };
+  let translated = 0;
+  for (const req2 of batch) {
+    for (const [lang, text] of Object.entries(result[req2.id] || {})) {
+      const w = req2.apply(lang, text);
+      // Only into a text that is still empty (somebody may have written it meanwhile)
+      const filter = { businessId: req.businessId, [w.path]: { $exists: false } };
+      if (w.model === 'cat') ops.MenuCategory.push({ updateOne: { filter: { ...filter, _id: w.id }, update: { $set: { [w.path]: w.text } } } });
+      else if (w.model === 'item') ops.MenuItem.push({ updateOne: { filter: { ...filter, _id: w.id }, update: { $set: { [w.path]: w.text } } } });
+      else ops.DailyMenu.push({ updateOne: { filter, update: { $set: { [w.path]: w.text } } } });
+      translated += 1;
+    }
+  }
+  if (ops.MenuCategory.length) await MenuCategory.bulkWrite(ops.MenuCategory, { ordered: false });
+  if (ops.MenuItem.length) await MenuItem.bulkWrite(ops.MenuItem, { ordered: false });
+  if (ops.DailyMenu.length) await DailyMenu.bulkWrite(ops.DailyMenu, { ordered: false });
+  res.json({ translated, remaining: Math.max(0, all.length - batch.length) });
+});
+
+exports._missingTexts = missingTexts;

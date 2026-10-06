@@ -8,4 +8,10 @@ const LANGUAGE_RE = /^[a-z]{2}$/;
 const MAX_LANGUAGES = 6;
 const DEFAULT_LANGUAGES = ['es'];
 
-module.exports = { ALLERGENS, TAGS, LANGUAGE_RE, MAX_LANGUAGES, DEFAULT_LANGUAGES };
+// English names, for the translation prompt
+const LANGUAGE_NAMES = {
+  es: 'Spanish', en: 'English', ca: 'Catalan', eu: 'Basque', gl: 'Galician', fr: 'French', de: 'German',
+  it: 'Italian', pt: 'Portuguese', nl: 'Dutch', ru: 'Russian', zh: 'Chinese (Simplified)', ja: 'Japanese', ar: 'Arabic',
+};
+
+module.exports = { LANGUAGE_NAMES, ALLERGENS, TAGS, LANGUAGE_RE, MAX_LANGUAGES, DEFAULT_LANGUAGES };

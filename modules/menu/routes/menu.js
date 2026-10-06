@@ -41,5 +41,8 @@ router.post('/items/:id/photo', requireRole('manager'), uploadPhoto, c.uploadPho
 router.delete('/items/:id/photo', requireRole('manager'), c.deletePhoto);
 router.delete('/items/:id', requireRole('manager'), c.deleteItem);
 router.post('/import', requireRole('manager'), c.importItems);
+router.post('/translate', requireRole('manager'), c.translateTexts);
+router.get('/translate-missing', requireRole('manager'), c.countMissing);
+router.post('/translate-missing', requireRole('manager'), c.translateMissing);
 
 module.exports = router;
