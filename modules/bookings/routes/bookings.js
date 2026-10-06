@@ -72,6 +72,7 @@ router.post('/team/:resourceId/payments', requireRole('manager'), requireModule(
 
 // Caja (any member charges and closes; managers undo and reopen)
 router.get('/cash', c.cashDay);
+router.get('/cash/summary', c.cashSummary);
 router.post('/cash/close', c.closeCash);
 router.delete('/cash/close', requireRole('manager'), c.reopenCash);
 // What customers can do from their link (managers)

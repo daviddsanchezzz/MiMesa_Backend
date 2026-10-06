@@ -75,4 +75,19 @@ function tillTotals(payments, packSales = []) {
   return t;
 }
 
-module.exports = { buildPayment, tillTotals, METHODS, CHARGEABLE };
+/**
+ * The till over a period: the same totals as a day, plus one line per day that had money in it
+ * (oldest first). `payments` carry their own `date`; pack sales too.
+ * @param {{ date: string, method: string, total: number, tip: number, services: number, extras: object[], discount: number, packUse?: object }[]} payments
+ * @param {{ date: string, method: string, amount: number }[]} packSales
+ */
+function tillByDay(payments, packSales = []) {
+  const dates = [...new Set([...payments.map((p) => p.date), ...packSales.map((x) => x.date)])].sort();
+  const days = dates.map((date) => {
+    const t = tillTotals(payments.filter((p) => p.date === date), packSales.filter((x) => x.date === date));
+    return { date, total: t.cash + t.card + t.bizum + t.other, payments: t.payments, cash: t.cash, card: t.card, bizum: t.bizum, other: t.other, packSales: t.packSales, tips: t.tips };
+  });
+  return { totals: tillTotals(payments, packSales), days };
+}
+
+module.exports = { buildPayment, tillTotals, tillByDay, METHODS, CHARGEABLE };

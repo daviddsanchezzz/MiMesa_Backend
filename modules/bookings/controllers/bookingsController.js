@@ -28,7 +28,7 @@ const CustomerPack = require('../models/CustomerPack');
 const { TYPES: SEGMENT_TYPES } = require('../lib/segments');
 const { summarizeCustomer } = require('../lib/customers');
 const { staffView } = require('../lib/stats');
-const { buildPayment, tillTotals } = require('../lib/checkout');
+const { buildPayment, tillTotals, tillByDay } = require('../lib/checkout');
 const team = require('../services/teamService');
 const CashClose = require('../models/CashClose');
 const { dateInTimezone } = require('../../../core/lib/timezone');
@@ -600,6 +600,16 @@ exports.cashDay = handle(async (req, res) => {
     toChargeAmount: ofDay.reduce((s, b) => s + (b.totalPrice || 0), 0),
     close,
   });
+});
+
+// The till over a period (Finanzas → Ingresos): by payment method and day by day.
+exports.cashSummary = handle(async (req, res) => {
+  const { from, to } = v.dateRange({ from: req.query.from, to: req.query.to }, { maxDays: 366 });
+  const [paid, sales] = await Promise.all([
+    Booking.find({ businessId: req.businessId, 'payment.date': { $gte: from, $lte: to } }).select('payment').lean(),
+    CustomerPack.find({ businessId: req.businessId, 'payment.date': { $gte: from, $lte: to } }).select('payment').lean(),
+  ]);
+  res.json({ from, to, ...tillByDay(paid.map((b) => b.payment), sales.map((x) => x.payment)) });
 });
 
 exports.closeCash = handle(async (req, res) => {

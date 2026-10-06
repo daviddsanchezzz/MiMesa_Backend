@@ -315,6 +315,7 @@ GET /api/bookings/team  [requireRole("manager") > requireModule("staff") > booki
 PUT /api/bookings/team/:resourceId/pay  [requireRole("manager") > requireModule("staff") > bookingsController.setTeamPay]
 POST /api/bookings/team/:resourceId/payments  [requireRole("manager") > requireModule("staff") > bookingsController.addTeamPayment]
 GET /api/bookings/cash  [bookingsController.cashDay]
+GET /api/bookings/cash/summary  [bookingsController.cashSummary]
 POST /api/bookings/cash/close  [bookingsController.closeCash]
 DELETE /api/bookings/cash/close  [requireRole("manager") > bookingsController.reopenCash]
 GET /api/bookings/policy  [bookingsController.getPolicy]
