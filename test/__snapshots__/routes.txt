@@ -357,6 +357,7 @@ POST /api/menu/items/:id/photo  [requireRole("manager") > uploadPhoto > menuCont
 DELETE /api/menu/items/:id/photo  [requireRole("manager") > menuController.deletePhoto]
 DELETE /api/menu/items/:id  [requireRole("manager") > menuController.deleteItem]
 POST /api/menu/import  [requireRole("manager") > menuController.importItems]
+DELETE /api/menu/  [requireRole("owner") > menuController.clearMenu]
 POST /api/menu/translate  [requireRole("manager") > menuController.translateTexts]
 GET /api/menu/translate-missing  [requireRole("manager") > menuController.countMissing]
 POST /api/menu/translate-missing  [requireRole("manager") > menuController.translateMissing]

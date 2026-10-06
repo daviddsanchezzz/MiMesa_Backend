@@ -185,8 +185,8 @@ exports.importItems = handle(async (req, res) => {
     MenuCategory.find({ businessId: req.businessId }).lean(),
     MenuItem.find({ businessId: req.businessId }).lean(),
   ]);
-  // 'tpv' (default): prices come from the till and are locked; 'manual': a menu copied from elsewhere, prices stay editable
-  const source = req.body?.priceSource === 'manual' ? 'manual' : 'tpv';
+  // Never assume the till: prices are locked only when the caller says they come from the TPV; otherwise they stay editable
+  const source = req.body?.priceSource === 'tpv' ? 'tpv' : 'manual';
   const { plan, missing } = planImport(rows, { categories, items, language, source });
   const count = (s) => plan.filter((p) => p.status === s).length;
   const summary = {
@@ -354,3 +354,15 @@ exports.translateMissing = handle(async (req, res) => {
 });
 
 exports._missingTexts = missingTexts;
+
+// ── Delete the whole menu (owner): dishes, categories, menú del día and photos. Languages stay. ──
+exports.clearMenu = handle(async (req, res) => {
+  // Photos first: if the purge fails nothing else is deleted and it can be retried
+  await photos.removeBusiness(String(req.businessId));
+  const [items, categories, daily] = await Promise.all([
+    MenuItem.deleteMany({ businessId: req.businessId }),
+    MenuCategory.deleteMany({ businessId: req.businessId }),
+    DailyMenu.deleteMany({ businessId: req.businessId }),
+  ]);
+  res.json({ items: items.deletedCount || 0, categories: categories.deletedCount || 0, daily: daily.deletedCount || 0 });
+});

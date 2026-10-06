@@ -65,11 +65,11 @@ describe('menu (carta)', { skip }, () => {
       { externalId: '1', category: 'Principales', name: 'Entrecot', price: 22 },
       { externalId: '2', category: 'Principales', name: 'Merluza', price: 18 },
     ];
-    let res = await request(app).post('/api/menu/import').set(as('owner')).send({ rows });
+    let res = await request(app).post('/api/menu/import').set(as('owner')).send({ rows, priceSource: 'tpv' });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.applied, false);
     assert.equal(res.body.summary.new, 2);
-    res = await request(app).post('/api/menu/import').set(as('owner')).send({ rows, apply: true });
+    res = await request(app).post('/api/menu/import').set(as('owner')).send({ rows, apply: true, priceSource: 'tpv' });
     assert.equal(res.body.applied, true);
     let menu = (await request(app).get('/api/menu').set(as('owner'))).body;
     const entrecot = menu.items.find((i) => i.name.es === 'Entrecot');
@@ -81,7 +81,7 @@ describe('menu (carta)', { skip }, () => {
     res = await request(app).put(`/api/menu/items/${entrecot._id}`).set(as('owner')).send({ description: { es: 'Con patatas' }, tags: ['recomendado'] });
     assert.equal(res.status, 200);
     // The TPV raises the price and drops the hake
-    res = await request(app).post('/api/menu/import').set(as('owner')).send({ rows: [{ externalId: '1', category: 'Principales', name: 'Entrecot', price: 24 }], apply: true, retireMissing: true });
+    res = await request(app).post('/api/menu/import').set(as('owner')).send({ rows: [{ externalId: '1', category: 'Principales', name: 'Entrecot', price: 24 }], apply: true, retireMissing: true, priceSource: 'tpv' });
     assert.equal(res.body.summary.price, 1);
     assert.equal(res.body.summary.missing, 1);
     menu = (await request(app).get('/api/menu').set(as('owner'))).body;
@@ -134,5 +134,21 @@ describe('menu (carta)', { skip }, () => {
     assert.equal((await request(app).post(`/api/menu/items/${item}/photo`).set(as('staff')).attach('photo', png, { filename: 'c.png', contentType: 'image/png' })).status, 403);
     res = await request(app).delete(`/api/menu/items/${item}/photo`).set(as('owner'));
     assert.equal(res.body.photo, undefined);
+  });
+  test('clear the whole menu: owner only, languages stay', async () => {
+    assert.equal((await request(app).delete('/api/menu').set(as('staff'))).status, 403);
+    let res = await request(app).delete('/api/menu').set(as('owner'));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(res.body.items > 0 && res.body.categories > 0);
+    const menu = (await request(app).get('/api/menu').set(as('owner'))).body;
+    assert.equal(menu.items.length, 0);
+    assert.equal(menu.categories.length, 0);
+    assert.equal(menu.daily, null);
+    assert.deepEqual(menu.languages, ['es', 'en']);
+    // Importing without saying where the prices come from leaves them editable
+    res = await request(app).post('/api/menu/import').set(as('owner')).send({ rows: [{ category: 'X', name: 'Plato', price: 5 }], apply: true });
+    assert.equal(res.status, 200);
+    const again = (await request(app).get('/api/menu').set(as('owner'))).body;
+    assert.equal(again.items[0].priceSource, 'manual');
   });
 });
