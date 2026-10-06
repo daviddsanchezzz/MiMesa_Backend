@@ -17,6 +17,7 @@ const MODULE_CATALOG = [
   { key: 'purchases', name: 'Compras', description: 'Gestion de productos por proveedor y pedidos de compra' },
   { key: 'thefork', name: 'TheFork', description: 'Marcado de reservas procedentes de TheFork y analitica de canal' },
   { key: 'menu', name: 'Carta', description: 'Carta del restaurante: categorías, platos, alérgenos, traducciones e importación del TPV' },
+  { key: 'web', name: 'Web', description: 'Datos para la web del restaurante: horario de apertura, cierres, reservas y redes' },
   { key: 'bookings', name: 'Agenda de citas', description: 'Agenda generica por servicios, profesionales y recursos (piloto para otros sectores)' },
 ];
 
