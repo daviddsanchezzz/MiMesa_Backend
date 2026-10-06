@@ -9,5 +9,6 @@ router.use(requireAuth, requireRole('owner'), requireModule('expenses')); // sam
 router.get('/dashboard',          c.getDashboard);
 router.put('/actual',             c.upsertActual);
 router.put('/ticket-average',     c.updateTicketAverage);
+router.post('/import',            c.importSales);
 
 module.exports = router;

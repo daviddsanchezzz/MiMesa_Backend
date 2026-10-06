@@ -6,6 +6,8 @@ const { calculateStaffCostForRange } = require('../../staff/lib/staffCosts');
 const { appointmentRevenue } = require('../../bookings/services/revenueService');
 const { teamReport } = require('../../bookings/services/teamService');
 
+const { normalizeRows, planImport } = require('../lib/salesImport');
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,6 +128,8 @@ async function getDashboard(req, res) {
         reservations: est?.reservations ?? 0,
         estimatedRevenue: est ? Number((est.covers * ticketAverage).toFixed(2)) : 0,
         actualRevenue: act?.actualRevenue ?? null,
+        source: act?.actualRevenue != null ? (act.source || 'manual') : null,
+        tickets: act?.tickets ?? null,
         notes: act?.notes ?? '',
       };
     });
@@ -229,6 +233,7 @@ async function upsertActual(req, res) {
           ? Number(actualRevenue)
           : null,
         notes: notes || '',
+        source: 'manual',
       },
       { upsert: true, new: true },
     );
@@ -252,4 +257,42 @@ async function updateTicketAverage(req, res) {
   }
 }
 
-module.exports = { getDashboard, upsertActual, updateTicketAverage };
+// POST /api/revenue/import  { rows: [{ date, total, cash, card, bizum, other, tickets, covers, tips }], apply, overwrite }
+// Without `apply` it only says what would change (preview); with it, it saves the days.
+async function importSales(req, res) {
+  try {
+    const { rows, errors } = normalizeRows(req.body?.rows);
+    if (!rows.length) return res.status(400).json({ message: errors[0]?.message || 'No hay filas que importar', errors });
+    const overwrite = req.body?.overwrite === 'empty' ? 'empty' : 'all';
+    const dates = rows.map((r) => r.date);
+    const [saved, recent] = await Promise.all([
+      DailyRevenue.find({ businessId: req.businessId, date: { $in: dates } }).lean(),
+      DailyRevenue.find({ businessId: req.businessId, actualRevenue: { $gt: 0 } }).sort({ date: -1 }).limit(60).select('actualRevenue').lean(),
+    ]);
+    const average = recent.length >= 5 ? recent.reduce((s, d) => s + d.actualRevenue, 0) / recent.length : 0;
+    const items = planImport(rows, new Map(saved.map((d) => [d.date, d])), { average, overwrite });
+    const summary = {
+      new: items.filter((i) => i.status === 'new').length,
+      update: items.filter((i) => i.status === 'update').length,
+      same: items.filter((i) => i.status === 'same').length,
+      skip: items.filter((i) => i.status === 'skip').length,
+      total: Number(items.filter((i) => i.status === 'new' || i.status === 'update').reduce((s, i) => s + i.total, 0).toFixed(2)),
+    };
+    if (req.body?.apply !== true) return res.json({ applied: false, items, errors, summary });
+
+    const now = new Date();
+    const writes = items.filter((i) => i.status === 'new' || i.status === 'update').map((i) => {
+      const set = { actualRevenue: i.total, source: 'import', importedAt: now, tickets: i.tickets, covers: i.covers, tips: i.tips };
+      if (['cash', 'card', 'bizum', 'other'].some((f) => i[f] !== null)) {
+        set.byMethod = { cash: i.cash ?? 0, card: i.card ?? 0, bizum: i.bizum ?? 0, other: i.other ?? 0 };
+      }
+      return { updateOne: { filter: { businessId: req.businessId, date: i.date }, update: { $set: set }, upsert: true } };
+    });
+    if (writes.length) await DailyRevenue.bulkWrite(writes, { ordered: false });
+    res.json({ applied: true, items, errors, summary });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+module.exports = { getDashboard, upsertActual, updateTicketAverage, importSales };
