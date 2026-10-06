@@ -1,6 +1,8 @@
 const MenuSettings = require('../models/MenuSettings');
 const MenuCategory = require('../models/MenuCategory');
 const MenuItem = require('../models/MenuItem');
+const DailyMenu = require('../models/DailyMenu');
+const photos = require('../services/photoStorage');
 const v = require('../lib/validation');
 const { DEFAULT_LANGUAGES } = require('../lib/constants');
 const { normalizeRows, planImport } = require('../lib/menuImport');
@@ -13,7 +15,7 @@ function handle(fn) {
     try {
       await fn(req, res);
     } catch (err) {
-      if (err instanceof v.MenuError) return res.status(err.status).json({ message: err.message });
+      if (err instanceof v.MenuError || err instanceof photos.PhotoError) return res.status(err.status).json({ message: err.message });
       console.error('[menu]', err);
       res.status(500).json({ message: 'Algo ha fallado. Inténtalo de nuevo.' });
     }
@@ -48,12 +50,13 @@ async function ownItem(businessId, id) {
 
 // ── Read ────────────────────────────────────────────────────────────────────
 exports.getMenu = handle(async (req, res) => {
-  const [settings, categories, items] = await Promise.all([
+  const [settings, categories, items, daily] = await Promise.all([
     settingsOf(req.businessId),
     MenuCategory.find({ businessId: req.businessId }).sort({ sortOrder: 1, createdAt: 1 }).lean(),
     MenuItem.find({ businessId: req.businessId }).sort({ sortOrder: 1, createdAt: 1 }).lean(),
+    DailyMenu.findOne({ businessId: req.businessId }).lean(),
   ]);
-  res.json({ languages: settings.languages, categories, items });
+  res.json({ languages: settings.languages, categories, items, daily: daily || null });
 });
 
 exports.saveSettings = handle(async (req, res) => {
@@ -156,6 +159,8 @@ exports.setSoldOut = handle(async (req, res) => {
 exports.deleteItem = handle(async (req, res) => {
   const item = await ownItem(req.businessId, req.params.id);
   await item.deleteOne();
+  // The photo goes too; a failure there must not undo the deletion
+  if (item.photo?.key) photos.remove(item.photo.key).catch((err) => console.error('[menu] photo cleanup', err.message));
   res.json({ ok: true });
 });
 
@@ -221,4 +226,37 @@ exports.importItems = handle(async (req, res) => {
   }
   if (ops.length) await MenuItem.bulkWrite(ops, { ordered: false });
   res.json({ applied: true, plan, missing, errors, summary });
+});
+
+// ── Photo of a dish: POST multipart "photo" (already shrunk by the app) ─────
+exports.uploadPhoto = handle(async (req, res) => {
+  const item = await ownItem(req.businessId, req.params.id);
+  const file = req.file;
+  if (!file) throw new v.MenuError('Elige una foto');
+  const kind = photos.detectImage(file.buffer);
+  if (!kind) throw new v.MenuError('La foto debe ser JPEG, PNG o WebP');
+  const key = photos.makeKey(req.businessId, item._id, kind.ext);
+  const url = await photos.store({ key, buffer: file.buffer, mime: kind.mime });
+  const previous = item.photo?.key;
+  item.photo = { url, key };
+  await item.save();
+  if (previous) photos.remove(previous).catch((err) => console.error('[menu] photo cleanup', err.message));
+  res.json(item.toObject());
+});
+
+exports.deletePhoto = handle(async (req, res) => {
+  const item = await ownItem(req.businessId, req.params.id);
+  const previous = item.photo?.key;
+  item.photo = undefined;
+  await item.save();
+  if (previous) photos.remove(previous).catch((err) => console.error('[menu] photo cleanup', err.message));
+  res.json(item.toObject());
+});
+
+// ── Menú del día ────────────────────────────────────────────────────────────
+exports.saveDaily = handle(async (req, res) => {
+  const { languages } = await settingsOf(req.businessId);
+  const data = v.daily(req.body, languages);
+  const doc = await DailyMenu.findOneAndUpdate({ businessId: req.businessId }, { $set: data }, { upsert: true, new: true }).lean();
+  res.json(doc);
 });

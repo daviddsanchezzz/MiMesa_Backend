@@ -50,4 +50,42 @@ function pick(list, allowed, label) {
 const allergens = (list) => pick(list, ALLERGENS, 'Los alérgenos');
 const tags = (list) => pick(list, TAGS, 'Las etiquetas');
 
-module.exports = { MenuError, languages, texts, price, allergens, tags, bad };
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The menú del día: price, validity and up to 6 courses of up to 20 options each. */
+function daily(body, langs) {
+  const b = body || {};
+  const date = (x, label) => {
+    if (x === undefined || x === null || x === '') return '';
+    if (typeof x !== 'string' || !DATE_RE.test(x) || Number.isNaN(Date.parse(`${x}T12:00:00Z`))) bad(`${label} no es válida`);
+    return x;
+  };
+  const from = date(b.from, 'La fecha de inicio');
+  const to = date(b.to, 'La fecha de fin');
+  if (from && to && to < from) bad('La fecha de fin es anterior a la de inicio');
+  const days = Array.isArray(b.days) ? [...new Set(b.days.map(Number))] : [];
+  if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) bad('Los días no son válidos');
+  if (!Array.isArray(b.courses) || b.courses.length > 6) bad('Como máximo 6 apartados');
+  const courses = b.courses.map((c, i) => {
+    if (!Array.isArray(c?.options) || c.options.length > 20) bad(`Apartado ${i + 1}: como máximo 20 platos`);
+    return {
+      name: texts(c.name, langs, { label: `El nombre del apartado ${i + 1}`, max: 60, required: true }),
+      options: c.options.map((o, j) => ({
+        name: texts(o?.name, langs, { label: `El plato ${j + 1} del apartado ${i + 1}`, max: 120, required: true }),
+        allergens: allergens(o?.allergens) || [],
+      })),
+    };
+  });
+  return {
+    active: b.active === true,
+    title: texts(b.title, langs, { label: 'El título', max: 80 }),
+    includes: texts(b.includes, langs, { label: 'Lo que incluye', max: 200 }),
+    price: price(b.price),
+    days: days.sort(),
+    from,
+    to,
+    courses,
+  };
+}
+
+module.exports = { daily, MenuError, languages, texts, price, allergens, tags, bad };

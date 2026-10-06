@@ -34,7 +34,7 @@ const publicCors = cors({ origin: '*' });
 const PUBLIC_PREFIXES = [
   '/api/auth/public', '/api/rooms/public', '/api/shifts/public', '/api/vacations/public',
   '/api/exceptions/public', '/api/reservations/public', '/api/marketing/public', '/api/promos/public',
-  '/api/pricing/public', '/api/contact', '/api/bookings/public',
+  '/api/pricing/public', '/api/contact', '/api/bookings/public', '/api/menu/public',
 ];
 PUBLIC_PREFIXES.forEach((prefix) => app.use(prefix, publicCors));
 // Public pages are served from other origins too (vetrareserve.com/{slug}, business
@@ -119,6 +119,7 @@ app.post('/api/reservations/public/payment-intent', makePublicLimiter(15, 30, 'D
 app.use('/api/reservations/public/details',       makePublicLimiter(15, 60, 'Demasiadas consultas, inténtalo más tarde'));
 app.use('/api/reservations/public/cancel',        makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
 app.use('/api/bookings/public', makePublicLimiter(15, 120, 'Demasiadas consultas, inténtalo más tarde'));
+app.use('/api/menu/public', makePublicLimiter(15, 300, 'Demasiadas consultas, inténtalo más tarde'));
 app.post('/api/bookings/public/:businessId/bookings', makePublicLimiter(15, 20, 'Demasiadas reservas desde esta conexión, inténtalo más tarde'));
 app.post('/api/bookings/public/cancel', makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
 app.post('/api/bookings/public/reschedule', makePublicLimiter(15, 20, 'Demasiados cambios, inténtalo más tarde'));

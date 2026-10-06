@@ -12,6 +12,7 @@ const menuItemSchema = new mongoose.Schema({
   externalId:  { type: String, default: '', maxlength: 100 },  // the article code in the POS
   allergens:   { type: [String], default: [] },
   tags:        { type: [String], default: [] },
+  photo:       { type: new mongoose.Schema({ url: String, key: String }, { _id: false }), default: undefined },
   sortOrder:   { type: Number, default: 0 },
   soldOut:     { type: Boolean, default: false },   // "agotado hoy"
   hidden:      { type: Boolean, default: false },   // not shown on the website
