@@ -219,6 +219,8 @@ exports.importItems = handle(async (req, res) => {
       ops.push({ insertOne: { document: {
         businessId: req.businessId, categoryId, name: { [language]: p.name }, price: p.price, priceSource: source, externalId: p.externalId, sortOrder,
         ...(p.description ? { description: { [language]: p.description } } : {}),
+        ...(p.allergens?.length ? { allergens: p.allergens } : {}),
+        ...(p.tags?.length ? { tags: p.tags } : {}),
       } } });
     } else if (p.status !== 'same' || p.restore) {
       ops.push({ updateOne: {

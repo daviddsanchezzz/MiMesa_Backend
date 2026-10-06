@@ -52,6 +52,15 @@ describe('menuImport.planImport', () => {
   });
 });
 
+describe('menuImport: allergens and labels', () => {
+  test('known ones are kept (deduplicated), unknown ones dropped', () => {
+    const { rows } = normalizeRows([{ category: 'X', name: 'Plato', allergens: ['gluten', 'lacteos', 'gluten', 'polvo'], tags: ['vegano', 'mágico'] }]);
+    assert.deepEqual(rows[0].allergens, ['gluten', 'lacteos']);
+    assert.deepEqual(rows[0].tags, ['vegano']);
+    assert.deepEqual(normalizeRows([{ category: 'X', name: 'Plato' }]).rows[0].allergens, []);
+  });
+});
+
 describe('menuImport: a menu copied from elsewhere (manual prices)', () => {
   const categories = [{ _id: 'c1', name: { ca: 'Entrants' } }];
   const items = [

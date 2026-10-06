@@ -6,7 +6,12 @@
  * What the TPV controls is the price (and that a dish exists). Names, descriptions, photos,
  * allergens and translations are the restaurant's own and an import never overwrites them.
  */
+const { ALLERGENS, TAGS } = require('./constants');
+
 const MAX_ROWS = 1500;
+
+// Only known allergens/labels survive; anything else in the file is ignored
+const keep = (list, allowed) => [...new Set((Array.isArray(list) ? list : []).map(String).filter((x) => allowed.includes(x)))];
 
 const strip = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -32,7 +37,7 @@ function normalizeRows(input) {
     if (seen.has(key)) { errors.push({ line, message: `${name}: repetido en el archivo` }); return; }
     seen.add(key);
     const description = String(raw?.description ?? '').trim().slice(0, 500);
-    rows.push({ externalId, category, name, price, description });
+    rows.push({ externalId, category, name, price, description, allergens: keep(raw?.allergens, ALLERGENS), tags: keep(raw?.tags, TAGS) });
   });
   return { rows, errors };
 }
