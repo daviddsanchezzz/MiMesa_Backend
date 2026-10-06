@@ -74,7 +74,7 @@ describe('planCapabilities', () => {
   });
 
   test('getAllModuleAccess lists every module of the plan', () => {
-    assert.deepEqual(Object.keys(plans.getAllModuleAccess(biz('pro', 'active'))).sort(), ['bookings', 'expenses', 'purchases', 'staff', 'thefork']);
+    assert.deepEqual(Object.keys(plans.getAllModuleAccess(biz('pro', 'active'))).sort(), ['bookings', 'expenses', 'menu', 'purchases', 'staff', 'thefork']);
   });
 
   test('appointment businesses get the agenda by default (can still be turned off)', () => {

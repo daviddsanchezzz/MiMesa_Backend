@@ -37,6 +37,7 @@ const PLANS = {
       purchases: false,
       thefork: false,
       bookings: true,
+      menu: true,
     },
   },
 
@@ -72,6 +73,7 @@ const PLANS = {
       purchases: false,
       thefork: false,
       bookings: true,
+      menu: true,
     },
   },
 
@@ -107,6 +109,7 @@ const PLANS = {
       purchases: true,
       thefork: true,
       bookings: true,
+      menu: true,
     },
   },
 };
@@ -218,7 +221,10 @@ function getModuleAccess(business, moduleKey) {
   // Appointment businesses get the agenda on by default; everyone else must opt in.
   const defaultOverrideEnabled = moduleKey === 'bookings'
     ? business?.businessType === 'appointments'
-    : !OPT_IN_MODULES.has(moduleKey);
+    // The menu (carta) is for restaurants
+    : moduleKey === 'menu'
+      ? business?.businessType !== 'appointments'
+      : !OPT_IN_MODULES.has(moduleKey);
 
   const overrideEnabled =
     typeof override?.enabled === 'boolean'

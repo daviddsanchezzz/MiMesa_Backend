@@ -162,6 +162,7 @@ require('./modules/bookings/memberLinks');
 require('./modules/bookings/customerData');
 require('./modules/purchases/businessData');
 require('./modules/finance/businessData');
+require('./modules/menu/businessData');
 require('./verticals/restaurant/customerData');
 require('./verticals/restaurant/templates');
 
@@ -184,6 +185,7 @@ app.use('/api/categories',   require('./modules/finance/routes/categories'));
 app.use('/api/purchases',    require('./modules/purchases/routes/purchases'));
 app.use('/api/invoices',     require('./modules/purchases/routes/invoices'));
 app.use('/api/bookings',     require('./modules/bookings/routes/bookings'));
+app.use('/api/menu',         require('./modules/menu/routes/menu'));
 app.use('/api/push',         require('./core/routes/pushNotifications'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
