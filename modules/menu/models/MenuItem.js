@@ -12,6 +12,8 @@ const menuItemSchema = new mongoose.Schema({
   externalId:  { type: String, default: '', maxlength: 100 },  // the article code in the POS
   allergens:   { type: [String], default: [] },
   tags:        { type: [String], default: [] },
+  // Extras the customer can add ("Masa sin gluten +5 €", "Extra de queso +1,50 €"): { name: {es,…}, price, allergens }
+  extras:      { type: [new mongoose.Schema({ name: { type: mongoose.Schema.Types.Mixed, default: {} }, price: { type: Number, default: null, min: 0 }, allergens: { type: [String], default: [] } }, { _id: false })], default: [] },
   photo:       { type: new mongoose.Schema({ url: String, key: String }, { _id: false }), default: undefined },
   sortOrder:   { type: Number, default: 0 },
   soldOut:     { type: Boolean, default: false },   // "agotado hoy"

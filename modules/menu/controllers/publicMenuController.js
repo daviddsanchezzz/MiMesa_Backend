@@ -45,12 +45,16 @@ exports.publicMenu = async (req, res) => {
     const lang = languages.includes(requested) ? requested : main;
     const t = (texts) => pick(texts, lang, main);
 
+    const extrasOf = (list, scope) => (list || []).map((x) => ({ name: t(x.name), price: x.price, allergens: x.allergens || [], scope }));
     const out = categories.map((c) => ({
       id: c._id,
       name: t(c.name),
+      extras: extrasOf(c.extras, 'category'),
       items: items.filter((i) => String(i.categoryId) === String(c._id)).map((i) => ({
         id: i._id, name: t(i.name), description: t(i.description), price: i.price,
         allergens: i.allergens, tags: i.tags, photo: i.photo?.url || null, soldOut: !!i.soldOut,
+        // The dish's own extras, then the category's ("masa sin gluten +5 €" for every pizza)
+        extras: [...extrasOf(i.extras, 'dish'), ...extrasOf(c.extras, 'category')],
       })),
     })).filter((c) => c.items.length);
 

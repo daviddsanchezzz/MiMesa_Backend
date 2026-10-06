@@ -50,6 +50,19 @@ function pick(list, allowed, label) {
 const allergens = (list) => pick(list, ALLERGENS, 'Los alérgenos');
 const tags = (list) => pick(list, TAGS, 'Las etiquetas');
 
+const MAX_EXTRAS = 12;
+
+/** Extras of a dish or a category: up to 12, each with a name in the main language, an optional price and allergens. */
+function extras(list, langs) {
+  if (list === undefined) return undefined;
+  if (!Array.isArray(list) || list.length > MAX_EXTRAS) bad(`Como máximo ${MAX_EXTRAS} extras`);
+  return list.map((x, i) => ({
+    name: texts(x?.name, langs, { label: `El nombre del extra ${i + 1}`, max: 80, required: true }),
+    price: price(x?.price),
+    allergens: allergens(x?.allergens) || [],
+  }));
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The menú del día: price, validity and up to 6 courses of up to 20 options each. */
@@ -88,4 +101,4 @@ function daily(body, langs) {
   };
 }
 
-module.exports = { daily, MenuError, languages, texts, price, allergens, tags, bad };
+module.exports = { extras, daily, MenuError, languages, texts, price, allergens, tags, bad };

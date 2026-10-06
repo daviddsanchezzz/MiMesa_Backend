@@ -133,6 +133,24 @@ describe('menu validation', () => {
   });
 });
 
+describe('menu extras', () => {
+  test('a list of extras: named in the main language, optional price and allergens', () => {
+    const out = v.extras([{ name: { es: ' Masa sin gluten ', fr: 'x' }, price: '5', allergens: ['gluten'] }, { name: { es: 'Extra de queso' } }], ['es', 'en']);
+    assert.deepEqual(out[0], { name: { es: 'Masa sin gluten' }, price: 5, allergens: ['gluten'] });
+    assert.equal(out[1].price, null);
+    assert.deepEqual(out[1].allergens, []);
+    assert.equal(v.extras(undefined, ['es']), undefined);
+  });
+
+  test('refuses an extra without name, a bad price, an unknown allergen or too many', () => {
+    assert.throws(() => v.extras([{ name: {} }], ['es']), /obligatorio/);
+    assert.throws(() => v.extras([{ name: { es: 'x' }, price: -1 }], ['es']), /precio/);
+    assert.throws(() => v.extras([{ name: { es: 'x' }, allergens: ['polvo'] }], ['es']), /alérgenos/);
+    assert.throws(() => v.extras(Array.from({ length: 13 }, () => ({ name: { es: 'x' } })), ['es']), /12/);
+    assert.throws(() => v.extras('x', ['es']), /12/);
+  });
+});
+
 describe('menu module access', () => {
   const biz = (businessType, plan = 'free') => ({ plan, subscriptionStatus: plan === 'free' ? null : 'active', legacyAccess: plan === 'free', businessType });
   test('on for restaurants on every plan, off for appointment businesses unless enabled', () => {

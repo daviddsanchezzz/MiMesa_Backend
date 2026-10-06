@@ -58,6 +58,20 @@ describe('what is missing a translation', () => {
     assert.deepEqual(byId['daily:c0o0'], ['en', 'ca']);
   });
 
+  test('extras of dishes and categories are translated too', () => {
+    const withExtras = {
+      ...menu,
+      categories: [{ _id: 'c1', name: { es: 'Pizzas', en: 'Pizzas', ca: 'Pizzes' }, extras: [{ name: { es: 'Masa sin gluten' }, price: 5 }] }],
+      items: [{ _id: 'i1', name: { es: 'Margherita', en: 'Margherita', ca: 'Margherita' }, description: {}, extras: [{ name: { es: 'Extra de queso', en: 'Extra cheese' }, price: 1.5 }] }],
+      daily: null,
+    };
+    const list = _missingTexts(withExtras);
+    const byId = Object.fromEntries(list.map((x) => [x.id, x]));
+    assert.deepEqual(byId['xcat:c1:0'].targets, ['en', 'ca']);
+    assert.deepEqual(byId['xdish:i1:0'].targets, ['ca']);
+    assert.deepEqual(byId['xcat:c1:0'].apply('en', 'Gluten-free dough'), { model: 'cat', id: 'c1', path: 'extras.0.name.en', text: 'Gluten-free dough' });
+  });
+
   test('applying a translation targets the right path', () => {
     const list = _missingTexts(menu);
     assert.deepEqual(list.find((x) => x.id === 'daily:c0o0').apply('en', 'Lentils'), { model: 'daily', path: 'courses.0.options.0.name.en', text: 'Lentils' });

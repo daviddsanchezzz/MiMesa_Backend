@@ -73,6 +73,7 @@ exports.createCategory = handle(async (req, res) => {
     businessId: req.businessId,
     name: v.texts(req.body?.name, languages, { label: 'El nombre', max: 80, required: true }),
     hidden: req.body?.hidden === true,
+    extras: v.extras(req.body?.extras, languages) || [],
     sortOrder: await nextOrder(MenuCategory, { businessId: req.businessId }),
   });
   res.status(201).json(doc.toObject());
@@ -83,6 +84,7 @@ exports.updateCategory = handle(async (req, res) => {
   const { languages } = await settingsOf(req.businessId);
   if (req.body?.name !== undefined) cat.name = v.texts(req.body.name, languages, { label: 'El nombre', max: 80, required: true });
   if (req.body?.hidden !== undefined) cat.hidden = req.body.hidden === true;
+  if (req.body?.extras !== undefined) cat.extras = v.extras(req.body.extras, languages);
   await cat.save();
   res.json(cat.toObject());
 });
@@ -116,6 +118,7 @@ exports.createItem = handle(async (req, res) => {
     price: v.price(req.body?.price),
     allergens: v.allergens(req.body?.allergens) || [],
     tags: v.tags(req.body?.tags) || [],
+    extras: v.extras(req.body?.extras, languages) || [],
     hidden: req.body?.hidden === true,
     sortOrder: await nextOrder(MenuItem, { businessId: req.businessId, categoryId: cat._id }),
   });
@@ -142,6 +145,7 @@ exports.updateItem = handle(async (req, res) => {
   }
   if (body.allergens !== undefined) item.allergens = v.allergens(body.allergens);
   if (body.tags !== undefined) item.tags = v.tags(body.tags);
+  if (body.extras !== undefined) item.extras = v.extras(body.extras, languages);
   if (body.hidden !== undefined) item.hidden = body.hidden === true;
   if (body.soldOut !== undefined) item.soldOut = body.soldOut === true;
   if (body.retired === false) item.retired = false;
@@ -303,10 +307,14 @@ function missingTexts({ languages, categories, items, daily }) {
     const targets = others.filter((l) => emptyIn(texts, l));
     if (text && targets.length) out.push({ id, kind, text, targets, apply });
   };
-  for (const c of categories) want(`cat:${c._id}`, 'category', c.name, (lang, t) => ({ model: 'cat', id: c._id, path: `name.${lang}`, text: t }));
+  for (const c of categories) {
+    want(`cat:${c._id}`, 'category', c.name, (lang, t) => ({ model: 'cat', id: c._id, path: `name.${lang}`, text: t }));
+    (c.extras || []).forEach((x, xi) => want(`xcat:${c._id}:${xi}`, 'option', x.name, (lang, t) => ({ model: 'cat', id: c._id, path: `extras.${xi}.name.${lang}`, text: t })));
+  }
   for (const i of items) {
     want(`dish:${i._id}`, 'dish', i.name, (lang, t) => ({ model: 'item', id: i._id, path: `name.${lang}`, text: t }));
     want(`desc:${i._id}`, 'description', i.description, (lang, t) => ({ model: 'item', id: i._id, path: `description.${lang}`, text: t }));
+    (i.extras || []).forEach((x, xi) => want(`xdish:${i._id}:${xi}`, 'option', x.name, (lang, t) => ({ model: 'item', id: i._id, path: `extras.${xi}.name.${lang}`, text: t })));
   }
   if (daily) {
     want('daily:title', 'title', daily.title, (lang, t) => ({ model: 'daily', path: `title.${lang}`, text: t }));

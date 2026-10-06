@@ -151,4 +151,21 @@ describe('menu (carta)', { skip }, () => {
     const again = (await request(app).get('/api/menu').set(as('owner'))).body;
     assert.equal(again.items[0].priceSource, 'manual');
   });
+  test('extras: on a dish and on a category, shown together on the public menu', async () => {
+    let res = await request(app).post('/api/menu/categories').set(as('owner'))
+      .send({ name: { es: 'Pizzas' }, extras: [{ name: { es: 'Masa sin gluten' }, price: 5, allergens: [] }] });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const cat = res.body._id;
+    assert.equal(res.body.extras[0].price, 5);
+    res = await request(app).post('/api/menu/items').set(as('owner'))
+      .send({ categoryId: cat, name: { es: 'Margherita' }, price: 10.5, extras: [{ name: { es: 'Extra de queso' }, price: 1.5, allergens: ['lacteos'] }] });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    res = await request(app).post('/api/menu/items').set(as('owner')).send({ categoryId: cat, name: { es: 'Mala' }, extras: [{ name: {} }] });
+    assert.equal(res.status, 400);
+    res = await request(app).get(`/api/menu/public/${biz._id}`);
+    const pizzas = res.body.categories.find((c) => c.name === 'Pizzas');
+    assert.deepEqual(pizzas.extras.map((x) => x.name), ['Masa sin gluten']);
+    const margherita = pizzas.items.find((x) => x.name === 'Margherita');
+    assert.deepEqual(margherita.extras.map((x) => [x.name, x.price, x.scope]), [['Extra de queso', 1.5, 'dish'], ['Masa sin gluten', 5, 'category']]);
+  });
 });
