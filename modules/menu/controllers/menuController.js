@@ -191,6 +191,7 @@ exports.importItems = handle(async (req, res) => {
   const count = (s) => plan.filter((p) => p.status === s).length;
   const summary = {
     new: count('new'), price: count('price'), link: count('link'), same: count('same'),
+    fill: plan.filter((p) => p.status !== 'new' && p.fills?.length).length,
     missing: missing.length, newCategories: new Set(plan.filter((p) => p.categoryNew).map((p) => p.category.toLowerCase())).size,
   };
   if (req.body?.apply !== true) return res.json({ applied: false, plan, missing, errors, summary });
@@ -222,10 +223,18 @@ exports.importItems = handle(async (req, res) => {
         ...(p.allergens?.length ? { allergens: p.allergens } : {}),
         ...(p.tags?.length ? { tags: p.tags } : {}),
       } } });
-    } else if (p.status !== 'same' || p.restore) {
+    } else if (p.status !== 'same' || p.restore || p.fills?.length) {
       ops.push({ updateOne: {
         filter: { _id: p.itemId, businessId: req.businessId },
-        update: { $set: { price: p.price, retired: false, ...(source === 'tpv' ? { priceSource: 'tpv' } : {}), ...(p.externalId ? { externalId: p.externalId } : {}) } },
+        update: { $set: {
+          retired: false,
+          ...(p.price !== null ? { price: p.price } : {}),
+          ...(source === 'tpv' ? { priceSource: 'tpv' } : {}),
+          ...(p.externalId ? { externalId: p.externalId } : {}),
+          ...(p.fills.includes('allergens') ? { allergens: p.allergens } : {}),
+          ...(p.fills.includes('tags') ? { tags: p.tags } : {}),
+          ...(p.fills.includes('description') ? { [`description.${language}`]: p.description } : {}),
+        } },
       } });
     }
   }

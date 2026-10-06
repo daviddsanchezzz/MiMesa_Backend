@@ -65,10 +65,17 @@ function planImport(rows, { categories, items, language, source = 'tpv' }) {
         && (!i.externalId || !r.externalId) && strip(i.name?.[language]) === strip(r.name)) || null;
     }
     if (item) matched.add(String(item._id));
-    const base = { ...r, categoryNew: !cat, itemId: item ? String(item._id) : null, previous: item?.price ?? null, restore: !!item?.retired };
+    // What the dish lacks and the file brings: filled in, never overwritten (what is written stays)
+    const fills = !item ? [] : [
+      r.allergens?.length && !(item.allergens || []).length ? 'allergens' : null,
+      r.tags?.length && !(item.tags || []).length ? 'tags' : null,
+      r.description && !item.description?.[language] ? 'description' : null,
+    ].filter(Boolean);
+    const base = { ...r, categoryNew: !cat, itemId: item ? String(item._id) : null, previous: item?.price ?? null, restore: !!item?.retired, fills };
     if (!item) return { ...base, status: 'new' };
     if (source === 'tpv' && item.priceSource !== 'tpv') return { ...base, status: 'link' };
-    return { ...base, status: item.price === r.price ? 'same' : 'price' };
+    // A file without a price for the dish does not change the price
+    return { ...base, status: r.price === null || item.price === r.price ? 'same' : 'price' };
   });
 
   const missing = source !== 'tpv' ? [] : items.filter((i) => i.priceSource === 'tpv' && !i.retired && !matched.has(String(i._id)))

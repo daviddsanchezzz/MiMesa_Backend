@@ -61,6 +61,31 @@ describe('menuImport: allergens and labels', () => {
   });
 });
 
+describe('menuImport: filling what a dish lacks', () => {
+  const categories = [{ _id: 'c1', name: { es: 'Pizzas' } }];
+  const items = [
+    { _id: 'i1', categoryId: 'c1', name: { es: 'Margherita' }, description: {}, price: 10.5, priceSource: 'manual', allergens: [], tags: [] },
+    { _id: 'i2', categoryId: 'c1', name: { es: 'Pepperoni' }, description: { es: 'Mi texto' }, price: 12, priceSource: 'manual', allergens: ['gluten'], tags: [] },
+  ];
+  const run = (rows) => planImport(rows, { categories, items, language: 'es', source: 'manual' }).plan;
+
+  test('allergens, labels and description are added where empty and never overwritten', () => {
+    const plan = run([
+      { category: 'Pizzas', name: 'Margherita', price: 10.5, description: 'Tomate y mozzarella', allergens: ['gluten', 'lacteos'], tags: ['vegetariano'] },
+      { category: 'Pizzas', name: 'Pepperoni', price: 12, description: 'Otro texto', allergens: ['gluten', 'lacteos'], tags: ['picante'] },
+    ]);
+    assert.equal(plan[0].status, 'same');
+    assert.deepEqual(plan[0].fills, ['allergens', 'tags', 'description']);
+    assert.deepEqual(plan[1].fills, ['tags']); // it has allergens and a description already
+  });
+
+  test('a file without the price of a dish leaves its price alone', () => {
+    const plan = run([{ category: 'Pizzas', name: 'Margherita', price: null, description: '', allergens: [], tags: [] }]);
+    assert.equal(plan[0].status, 'same');
+    assert.deepEqual(plan[0].fills, []);
+  });
+});
+
 describe('menuImport: a menu copied from elsewhere (manual prices)', () => {
   const categories = [{ _id: 'c1', name: { ca: 'Entrants' } }];
   const items = [
