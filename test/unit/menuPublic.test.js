@@ -62,7 +62,9 @@ describe('menu photos', () => {
       const [biz, file] = key.split('/');
       const served = await photos.open(`${biz}/${file}`);
       assert.ok(served);
-      served.stream.destroy();
+      const chunks = [];
+      for await (const chunk of served.stream) chunks.push(chunk);
+      assert.equal(Buffer.concat(chunks).length, png.length);
       await photos.remove(key);
       assert.equal(await photos.open(`${biz}/${file}`), null);
       const other = photos.makeKey('biz1', 'it2', 'jpg');
