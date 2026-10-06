@@ -316,6 +316,7 @@ PUT /api/bookings/team/:resourceId/pay  [requireRole("manager") > requireModule(
 POST /api/bookings/team/:resourceId/payments  [requireRole("manager") > requireModule("staff") > bookingsController.addTeamPayment]
 GET /api/bookings/cash  [bookingsController.cashDay]
 GET /api/bookings/cash/summary  [bookingsController.cashSummary]
+POST /api/bookings/quick-sale  [bookingsController.quickSale]
 POST /api/bookings/cash/close  [bookingsController.closeCash]
 DELETE /api/bookings/cash/close  [requireRole("manager") > bookingsController.reopenCash]
 GET /api/bookings/policy  [bookingsController.getPolicy]

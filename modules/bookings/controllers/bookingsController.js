@@ -12,6 +12,7 @@ const Resource = require('../models/Resource');
 const Schedule = require('../models/Schedule');
 const Service = require('../models/Service');
 const Booking = require('../models/Booking');
+const Occupancy = require('../models/Occupancy');
 const svc = require('../services/bookingsService');
 const v = require('../lib/validation');
 const { BookingError } = require('../lib/errors');
@@ -526,23 +527,20 @@ async function assertTillOpen(businessId, date) {
   }
 }
 
-exports.checkout = handle(async (req, res) => {
-  v.objectId(req.params.id, 'id');
-  const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId }).select('-publicToken').lean();
-  if (!booking) throw notFound('Cita');
+// Charges a booking (lean doc): spends the pack session first, gives it back if the charge fails.
+async function chargeBooking(req, booking, body) {
   const tz = await businessTz(req.businessId);
   const now = new Date();
   const localDate = dateInTimezone(now, tz);
   await assertTillOpen(req.businessId, localDate);
-  // Paying with a session of the customer's pack: spend it first, give it back if the charge fails
   let packUsed = null;
-  if (req.body?.packId) {
-    v.objectId(req.body.packId, 'Bono');
+  if (body.packId) {
+    v.objectId(body.packId, 'Bono');
     if (booking.payment) throw new BookingError(409, 'Esta cita ya está cobrada', 'ALREADY_PAID');
-    packUsed = await packsSvc.consume(req.businessId, req.body.packId, booking, now);
+    packUsed = await packsSvc.consume(req.businessId, body.packId, booking, now);
   }
   try {
-    const payment = buildPayment(booking, req.body || {}, {
+    const payment = buildPayment(booking, body, {
       now, localDate, userId: req.user?.id || null, pack: packUsed ? { id: packUsed._id, name: packUsed.name } : null,
     });
     const doc = await Booking.findOneAndUpdate(
@@ -552,9 +550,47 @@ exports.checkout = handle(async (req, res) => {
     ).lean();
     if (!doc) throw new BookingError(409, 'Esta cita ya está cobrada', 'ALREADY_PAID');
     delete doc.publicToken;
-    res.json(doc);
+    return doc;
   } catch (err) {
     if (packUsed) await packsSvc.restore(req.businessId, packUsed._id, booking._id);
+    throw err;
+  }
+}
+
+exports.checkout = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId }).select('-publicToken').lean();
+  if (!booking) throw notFound('Cita');
+  res.json(await chargeBooking(req, booking, req.body || {}));
+});
+
+// Cobro rápido: a customer without a booking. Creates the appointment (now, source walk_in)
+// and charges it in one go; if the charge is refused the appointment is not left behind.
+exports.quickSale = handle(async (req, res) => {
+  const body = req.body || {};
+  const items = body.items;
+  if (!Array.isArray(items) || !items.length || items.length > 5) throw new BookingError(400, 'Elige al menos un servicio', 'BAD_REQUEST');
+  const clean = items.map((it, i) => ({
+    serviceId: v.objectId(it?.serviceId, `Servicio ${i + 1}`),
+    resourceId: it?.resourceId ? v.objectId(it.resourceId, `Profesional ${i + 1}`) : null,
+  }));
+  const tz = await businessTz(req.businessId);
+  await assertTillOpen(req.businessId, dateInTimezone(new Date(), tz));
+  // Fail on a bad payment before touching the agenda
+  buildPayment({ status: 'confirmed', totalPrice: 0, payment: null }, { ...body, services: body.services ?? 0, packId: undefined },
+    { localDate: '', pack: body.packId ? { id: 'x', name: 'x' } : null });
+  const guest = {
+    name: String(body.guestName || '').trim().slice(0, 100) || 'Cliente de paso',
+    phone: String(body.guestPhone || '').trim().slice(0, 30),
+    email: String(body.guestEmail || '').trim().toLowerCase().slice(0, 200),
+  };
+  const booking = await svc.createWalkIn({ businessId: req.businessId, items: clean, guest, timezone: tz, userId: req.user?.id || null });
+  try {
+    const out = await chargeBooking(req, booking.toObject(), body);
+    res.status(201).json(out);
+  } catch (err) {
+    await Booking.deleteOne({ _id: booking._id });
+    await Occupancy.deleteMany({ bookingId: booking._id });
     throw err;
   }
 });

@@ -186,4 +186,23 @@ describe('bookings extras (packs, loyalty, segments, calendar)', { skip }, () =>
     assert.equal((await request(app).get('/api/expenses').set(as('owner'))).status, 200);
     assert.equal((await request(app).get('/api/revenue/dashboard?from=2026-10-01&to=2026-10-31').set(as('manager'))).status, 403);
   });
+  test('cobro rápido: crea la cita sin reserva y la cobra aunque no haya hueco; si el cobro falla no deja cita', async () => {
+    const before = await Booking.countDocuments({ businessId: biz._id });
+    // Sin método de pago: se rechaza y no queda nada en la agenda
+    let res = await request(app).post('/api/bookings/quick-sale').set(as('staff'))
+      .send({ items: [{ serviceId: String(ids.facial), resourceId: String(ids.ana) }] });
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(await Booking.countDocuments({ businessId: biz._id }), before);
+
+    // Sin horario definido no hay hueco "normal": el cobro se registra igualmente
+    res = await request(app).post('/api/bookings/quick-sale').set(as('staff'))
+      .send({ items: [{ serviceId: String(ids.facial), resourceId: String(ids.ana) }], method: 'card', tip: 200 });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.source, 'walk_in');
+    assert.equal(res.body.status, 'completed');
+    assert.equal(res.body.payment.method, 'card');
+    assert.equal(res.body.payment.total, 3000);
+    assert.equal(res.body.payment.tip, 200);
+    assert.equal(res.body.guestName, 'Cliente de paso');
+  });
 });
