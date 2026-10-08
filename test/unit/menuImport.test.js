@@ -160,3 +160,30 @@ describe('menu module access', () => {
     assert.equal(plans.canUseModule({ ...biz('appointments'), moduleOverrides: { menu: { enabled: true } } }, 'menu'), true);
   });
 });
+
+describe('menuImport: subcategories', () => {
+  const categories = [{ _id: 'c1', name: { es: 'Pizzas' } }, { _id: 's1', parentId: 'c1', name: { es: 'Sin gluten' } }];
+  const items = [{ _id: 'i1', categoryId: 's1', name: { es: 'Marinara' }, price: 10, priceSource: 'manual', externalId: '' }];
+
+  test('the column is kept and two dishes with the same name in different subcategories are not repeated', () => {
+    const { rows, errors } = normalizeRows([
+      { category: 'Pizzas', subcategory: 'Clásicas', name: 'Margherita', price: 9 },
+      { category: 'Pizzas', subcategory: 'Sin gluten', name: 'Margherita', price: 11 },
+      { category: 'Pizzas', subcategory: 'Sin gluten', name: 'Margherita', price: 11 },
+    ]);
+    assert.equal(rows.length, 2);
+    assert.equal(errors.length, 1);
+    assert.deepEqual(rows.map((r) => r.subcategory), ['Clásicas', 'Sin gluten']);
+  });
+
+  test('a dish is matched inside its subcategory; a new subcategory is flagged', () => {
+    const { plan } = planImport([
+      { category: 'pizzas', subcategory: 'sin gluten', name: 'Marinara', price: 12, externalId: '' },
+      { category: 'Pizzas', subcategory: 'Especiales', name: 'Trufa', price: 15, externalId: '' },
+      { category: 'Pizzas', subcategory: '', name: 'Marinara', price: 9, externalId: '' },
+    ], { categories, items, language: 'es', source: 'manual' });
+    assert.deepEqual(plan.map((p) => p.status), ['price', 'new', 'new']);
+    assert.deepEqual(plan.map((p) => p.subcategoryNew), [false, true, false]);
+    assert.equal(plan[0].categoryNew, false);
+  });
+});

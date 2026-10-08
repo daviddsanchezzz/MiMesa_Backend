@@ -168,4 +168,38 @@ describe('menu (carta)', { skip }, () => {
     const margherita = pizzas.items.find((x) => x.name === 'Margherita');
     assert.deepEqual(margherita.extras.map((x) => [x.name, x.price, x.scope]), [['Extra de queso', 1.5, 'dish'], ['Masa sin gluten', 5, 'category']]);
   });
+  test('subcategories: one level, dishes inherit the category extras, import by column', async () => {
+    let res = await request(app).post('/api/menu/categories').set(as('owner'))
+      .send({ name: { es: 'Bebidas' }, extras: [{ name: { es: 'Con hielo' }, price: 0, allergens: [] }] });
+    const bebidas = res.body._id;
+    res = await request(app).post('/api/menu/categories').set(as('owner')).send({ name: { es: 'Vinos' }, parentId: bebidas });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const vinos = res.body._id;
+    assert.equal(res.body.parentId, bebidas);
+    // Only one level
+    res = await request(app).post('/api/menu/categories').set(as('owner')).send({ name: { es: 'Tintos' }, parentId: vinos });
+    assert.equal(res.status, 400);
+    res = await request(app).post('/api/menu/items').set(as('owner')).send({ categoryId: vinos, name: { es: 'Rioja' }, price: 3.5 });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    // A category with subcategories cannot be deleted, nor become a subcategory
+    res = await request(app).delete(`/api/menu/categories/${bebidas}`).set(as('owner'));
+    assert.equal(res.status, 409);
+    res = await request(app).put(`/api/menu/categories/${bebidas}`).set(as('owner')).send({ parentId: vinos });
+    assert.equal(res.status, 400);
+    // Public: nested, and the dish carries the parent's extras
+    res = await request(app).get(`/api/menu/public/${biz._id}`);
+    const cat = res.body.categories.find((c) => c.name === 'Bebidas');
+    assert.equal(cat.items.length, 0);
+    assert.equal(cat.subcategories[0].name, 'Vinos');
+    assert.deepEqual(cat.subcategories[0].items[0].extras.map((x) => [x.name, x.scope]), [['Con hielo', 'category']]);
+    // Import with a subcategory column creates category and subcategory
+    res = await request(app).post('/api/menu/import').set(as('owner'))
+      .send({ rows: [{ category: 'Pizzas', subcategory: 'Sin gluten', name: 'Marinara GF', price: 11 }], apply: true });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.summary.newSubcategories, 1);
+    res = await request(app).get('/api/menu').set(as('owner'));
+    const sub = res.body.categories.find((c) => c.parentId && c.name.es === 'Sin gluten');
+    assert.ok(sub);
+    assert.ok(res.body.items.find((i) => i.name.es === 'Marinara GF' && String(i.categoryId) === String(sub._id)));
+  });
 });

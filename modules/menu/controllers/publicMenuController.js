@@ -46,17 +46,19 @@ exports.publicMenu = async (req, res) => {
     const t = (texts) => pick(texts, lang, main);
 
     const extrasOf = (list, scope) => (list || []).map((x) => ({ name: t(x.name), price: x.price, allergens: x.allergens || [], scope }));
-    const out = categories.map((c) => ({
-      id: c._id,
-      name: t(c.name),
-      extras: extrasOf(c.extras, 'category'),
-      items: items.filter((i) => String(i.categoryId) === String(c._id)).map((i) => ({
-        id: i._id, name: t(i.name), description: t(i.description), price: i.price,
-        allergens: i.allergens, tags: i.tags, photo: i.photo?.url || null, soldOut: !!i.soldOut,
-        // The dish's own extras, then the category's ("masa sin gluten +5 €" for every pizza)
-        extras: [...extrasOf(i.extras, 'dish'), ...extrasOf(c.extras, 'category')],
-      })),
-    })).filter((c) => c.items.length);
+    const itemsOf = (cat, inherited) => items.filter((i) => String(i.categoryId) === String(cat._id)).map((i) => ({
+      id: i._id, name: t(i.name), description: t(i.description), price: i.price,
+      allergens: i.allergens, tags: i.tags, photo: i.photo?.url || null, soldOut: !!i.soldOut,
+      // The dish's own extras, then its category's and, in a subcategory, the parent's (masa sin gluten +5 EUR for every pizza)
+      extras: [...extrasOf(i.extras, 'dish'), ...extrasOf(cat.extras, 'category'), ...inherited],
+    }));
+    const out = categories.filter((c) => !c.parentId).map((c) => {
+      const parentExtras = extrasOf(c.extras, 'category');
+      const subcategories = categories.filter((s2) => String(s2.parentId) === String(c._id)).map((s2) => ({
+        id: s2._id, name: t(s2.name), extras: extrasOf(s2.extras, 'category'), items: itemsOf(s2, parentExtras),
+      })).filter((s2) => s2.items.length);
+      return { id: c._id, name: t(c.name), extras: parentExtras, items: itemsOf(c, []), subcategories };
+    }).filter((c) => c.items.length || c.subcategories.length);
 
     const today = dateInTimezone(new Date(), businessTimezone(business));
     const dailyOut = dailyIsOn(daily, today) ? {

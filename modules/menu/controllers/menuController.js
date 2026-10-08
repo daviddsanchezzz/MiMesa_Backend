@@ -42,6 +42,15 @@ async function ownCategory(businessId, id) {
   return cat;
 }
 
+/** The category a subcategory goes under: one of the business's own and itself a top-level one (one level only). */
+async function parentFor(businessId, parentId, selfId = null) {
+  if (parentId === null || parentId === undefined || parentId === '') return null;
+  const parent = await ownCategory(businessId, parentId);
+  if (selfId && String(parent._id) === String(selfId)) v.bad('Una categoría no puede estar dentro de sí misma');
+  if (parent.parentId) v.bad('Solo se permite un nivel de subcategorías');
+  return parent;
+}
+
 async function ownItem(businessId, id) {
   if (!isId(id)) throw notFound('El plato');
   const item = await MenuItem.findOne({ _id: id, businessId });
@@ -69,12 +78,14 @@ exports.saveSettings = handle(async (req, res) => {
 // ── Categories ──────────────────────────────────────────────────────────────
 exports.createCategory = handle(async (req, res) => {
   const { languages } = await settingsOf(req.businessId);
+  const parent = await parentFor(req.businessId, req.body?.parentId);
   const doc = await MenuCategory.create({
     businessId: req.businessId,
+    parentId: parent?._id || null,
     name: v.texts(req.body?.name, languages, { label: 'El nombre', max: 80, required: true }),
     hidden: req.body?.hidden === true,
     extras: v.extras(req.body?.extras, languages) || [],
-    sortOrder: await nextOrder(MenuCategory, { businessId: req.businessId }),
+    sortOrder: await nextOrder(MenuCategory, { businessId: req.businessId, parentId: parent?._id || null }),
   });
   res.status(201).json(doc.toObject());
 });
@@ -85,6 +96,13 @@ exports.updateCategory = handle(async (req, res) => {
   if (req.body?.name !== undefined) cat.name = v.texts(req.body.name, languages, { label: 'El nombre', max: 80, required: true });
   if (req.body?.hidden !== undefined) cat.hidden = req.body.hidden === true;
   if (req.body?.extras !== undefined) cat.extras = v.extras(req.body.extras, languages);
+  if (req.body?.parentId !== undefined && String(req.body.parentId || '') !== String(cat.parentId || '')) {
+    const parent = await parentFor(req.businessId, req.body.parentId, cat._id);
+    // A category that has subcategories cannot become one itself
+    if (parent && await MenuCategory.exists({ businessId: req.businessId, parentId: cat._id })) v.bad('Esta categoría tiene subcategorías: no puede ir dentro de otra');
+    cat.parentId = parent?._id || null;
+    cat.sortOrder = await nextOrder(MenuCategory, { businessId: req.businessId, parentId: cat.parentId });
+  }
   await cat.save();
   res.json(cat.toObject());
 });
@@ -93,6 +111,9 @@ exports.deleteCategory = handle(async (req, res) => {
   const cat = await ownCategory(req.businessId, req.params.id);
   if (await MenuItem.exists({ businessId: req.businessId, categoryId: cat._id })) {
     throw new v.MenuError('Esta categoría tiene platos. Muévelos o bórralos antes.', 409);
+  }
+  if (await MenuCategory.exists({ businessId: req.businessId, parentId: cat._id })) {
+    throw new v.MenuError('Esta categoría tiene subcategorías. Bórralas o muévelas antes.', 409);
   }
   await cat.deleteOne();
   res.json({ ok: true });
@@ -197,14 +218,20 @@ exports.importItems = handle(async (req, res) => {
     new: count('new'), price: count('price'), link: count('link'), same: count('same'),
     fill: plan.filter((p) => p.status !== 'new' && p.fills?.length).length,
     missing: missing.length, newCategories: new Set(plan.filter((p) => p.categoryNew).map((p) => p.category.toLowerCase())).size,
+    newSubcategories: new Set(plan.filter((p) => p.subcategory && p.subcategoryNew).map((p) => `${p.category.toLowerCase()}>${p.subcategory.toLowerCase()}`)).size,
   };
   if (req.body?.apply !== true) return res.json({ applied: false, plan, missing, errors, summary });
 
   // Categories first (a new one per distinct name), then the dishes
   const { strip } = require('../lib/menuImport');
-  const catIds = new Map();
-  for (const c of categories) for (const n of Object.values(c.name || {})) catIds.set(strip(n), c._id);
-  let catOrder = await nextOrder(MenuCategory, { businessId: req.businessId });
+  const catIds = new Map();      // top-level categories by name
+  const subIds = new Map();      // subcategories by "parent id|name"
+  for (const c of categories) {
+    if (!c.parentId) { for (const n of Object.values(c.name || {})) catIds.set(strip(n), c._id); }
+    else for (const n of Object.values(c.name || {})) subIds.set(`${c.parentId}|${strip(n)}`, c._id);
+  }
+  let catOrder = await nextOrder(MenuCategory, { businessId: req.businessId, parentId: null });
+  const subOrder = new Map();
   const itemOrder = new Map();
   for (const p of plan) {
     const key = strip(p.category);
@@ -212,10 +239,22 @@ exports.importItems = handle(async (req, res) => {
       const created = await MenuCategory.create({ businessId: req.businessId, name: { [language]: p.category }, sortOrder: catOrder++ });
       catIds.set(key, created._id);
     }
+    if (p.subcategory) {
+      const parentId = catIds.get(key);
+      const skey = `${parentId}|${strip(p.subcategory)}`;
+      if (!subIds.has(skey)) {
+        if (!subOrder.has(String(parentId))) subOrder.set(String(parentId), await nextOrder(MenuCategory, { businessId: req.businessId, parentId }));
+        const order = subOrder.get(String(parentId));
+        subOrder.set(String(parentId), order + 1);
+        const created = await MenuCategory.create({ businessId: req.businessId, parentId, name: { [language]: p.subcategory }, sortOrder: order });
+        subIds.set(skey, created._id);
+      }
+    }
   }
   const ops = [];
   for (const p of plan) {
-    const categoryId = catIds.get(strip(p.category));
+    const topId = catIds.get(strip(p.category));
+    const categoryId = p.subcategory ? subIds.get(`${topId}|${strip(p.subcategory)}`) : topId;
     if (p.status === 'new') {
       const k = String(categoryId);
       if (!itemOrder.has(k)) itemOrder.set(k, await nextOrder(MenuItem, { businessId: req.businessId, categoryId }));

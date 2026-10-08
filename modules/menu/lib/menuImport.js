@@ -25,6 +25,7 @@ function normalizeRows(input) {
     const line = i + 1;
     const name = String(raw?.name ?? '').trim().slice(0, 120);
     const category = String(raw?.category ?? '').trim().slice(0, 80) || 'Sin categoría';
+    const subcategory = String(raw?.subcategory ?? '').trim().slice(0, 80);
     const externalId = String(raw?.externalId ?? '').trim().slice(0, 100);
     if (!name) { errors.push({ line, message: 'Falta el nombre' }); return; }
     let price = null;
@@ -33,11 +34,11 @@ function normalizeRows(input) {
       if (!Number.isFinite(price) || price < 0 || price > 10_000) { errors.push({ line, message: `${name}: precio no válido` }); return; }
       price = Math.round(price * 100) / 100;
     }
-    const key = externalId ? `id:${externalId}` : `n:${strip(category)}|${strip(name)}`;
+    const key = externalId ? `id:${externalId}` : `n:${strip(category)}|${strip(subcategory)}|${strip(name)}`;
     if (seen.has(key)) { errors.push({ line, message: `${name}: repetido en el archivo` }); return; }
     seen.add(key);
     const description = String(raw?.description ?? '').trim().slice(0, 500);
-    rows.push({ externalId, category, name, price, description, allergens: keep(raw?.allergens, ALLERGENS), tags: keep(raw?.tags, TAGS) });
+    rows.push({ externalId, category, subcategory, name, price, description, allergens: keep(raw?.allergens, ALLERGENS), tags: keep(raw?.tags, TAGS) });
   });
   return { rows, errors };
 }
@@ -52,13 +53,20 @@ const namesOf = (doc) => Object.values(doc?.name || {}).map(strip).filter(Boolea
  *          somewhere else: prices stay editable, nothing is linked and nothing is "missing").
  */
 function planImport(rows, { categories, items, language, source = 'tpv' }) {
-  const catByName = new Map();
-  for (const c of categories) for (const n of namesOf(c)) if (!catByName.has(n)) catByName.set(n, c);
+  const catByName = new Map();      // top-level categories
+  const subByName = new Map();      // subcategories, by "parent id|name"
+  for (const c of categories) {
+    if (!c.parentId) { for (const n of namesOf(c)) if (!catByName.has(n)) catByName.set(n, c); }
+    else for (const n of namesOf(c)) if (!subByName.has(`${c.parentId}|${n}`)) subByName.set(`${c.parentId}|${n}`, c);
+  }
   const byExternal = new Map(items.filter((i) => i.externalId).map((i) => [i.externalId, i]));
   const matched = new Set();
 
   const plan = rows.map((r) => {
-    const cat = catByName.get(strip(r.category)) || null;
+    const top = catByName.get(strip(r.category)) || null;
+    const sub = r.subcategory && top ? subByName.get(`${top._id}|${strip(r.subcategory)}`) || null : null;
+    // Where the dish lives: the subcategory when the row names one, else the category
+    const cat = r.subcategory ? sub : top;
     let item = r.externalId ? byExternal.get(r.externalId) : null;
     if (!item && cat) {
       item = items.find((i) => String(i.categoryId) === String(cat._id) && !matched.has(String(i._id))
@@ -71,7 +79,7 @@ function planImport(rows, { categories, items, language, source = 'tpv' }) {
       r.tags?.length && !(item.tags || []).length ? 'tags' : null,
       r.description && !item.description?.[language] ? 'description' : null,
     ].filter(Boolean);
-    const base = { ...r, categoryNew: !cat, itemId: item ? String(item._id) : null, previous: item?.price ?? null, restore: !!item?.retired, fills };
+    const base = { ...r, categoryNew: !top, subcategoryNew: !!r.subcategory && !sub, itemId: item ? String(item._id) : null, previous: item?.price ?? null, restore: !!item?.retired, fills };
     if (!item) return { ...base, status: 'new' };
     if (source === 'tpv' && item.priceSource !== 'tpv') return { ...base, status: 'link' };
     // A file without a price for the dish does not change the price
