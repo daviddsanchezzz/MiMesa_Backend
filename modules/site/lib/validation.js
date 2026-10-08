@@ -46,13 +46,31 @@ function reservations(input) {
   return { mode, url: mode === 'link' ? link : '' };
 }
 
+/** Google reviews: rating (0–5, one decimal) and how many; both or none. Accepts "4,6" as well as 4.6. */
+function reviews(input) {
+  if (input === undefined) return undefined;
+  const r = input && typeof input === 'object' ? input : {};
+  const blank = (x) => x === undefined || x === null || String(x).trim() === '';
+  const link = url(r.url, 'El enlace de las reseñas');
+  if (blank(r.rating) && blank(r.count)) return { rating: null, count: null, url: '' };
+  if (blank(r.rating) || blank(r.count)) bad('Pon la valoración y cuántas reseñas tienes (o deja las dos vacías)');
+  const rating = Number(String(r.rating).replace(',', '.'));
+  const rawCount = String(r.count).trim().replace(/\s/g, '');
+  // "1.234" is a thousand separator, "2.5" is not a whole number
+  const count = Number(/^\d{1,3}(\.\d{3})+$/.test(rawCount) ? rawCount.replace(/\./g, '') : rawCount.replace(',', '.'));
+  if (!Number.isFinite(rating) || rating < 0 || rating > 5) bad('La valoración va de 0 a 5');
+  if (!Number.isInteger(count) || count < 0 || count > 10_000_000) bad('El número de reseñas no es válido');
+  return { rating: Math.round(rating * 10) / 10, count, url: link };
+}
+
 /** What the editor sends: how to book and the social links. Only what is present is validated and returned. */
 function profile(body = {}) {
   const out = {};
   const set = (key, value) => { if (value !== undefined) out[key] = value; };
   set('reservations', reservations(body.reservations));
   set('social', social(body.social));
+  set('reviews', reviews(body.reviews));
   return out;
 }
 
-module.exports = { SiteError, social, reservations, profile };
+module.exports = { SiteError, social, reservations, reviews, profile };

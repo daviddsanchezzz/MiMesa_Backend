@@ -21,6 +21,7 @@ function withDefaults(doc) {
   const p = doc || {};
   return {
     reservations: { mode: p.reservations?.mode || 'vetra', url: p.reservations?.url || '' },
+    reviews: { rating: p.reviews?.rating ?? null, count: p.reviews?.count ?? null, url: p.reviews?.url || '' },
     social: { instagram: '', facebook: '', tiktok: '', youtube: '', whatsapp: '', ...(p.social || {}) },
   };
 }

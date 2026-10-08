@@ -98,6 +98,20 @@ describe('schedule from the turnos, vacations and closures already defined', () 
   });
 });
 
+describe('google reviews', () => {
+  test('rating and count together, decimal comma accepted, or nothing', () => {
+    assert.deepEqual(v.reviews({ rating: '4,6', count: '1.234', url: 'https://g.page/r/abc' }), { rating: 4.6, count: 1234, url: 'https://g.page/r/abc' });
+    assert.deepEqual(v.reviews({ rating: 5, count: 3 }), { rating: 5, count: 3, url: '' });
+    assert.deepEqual(v.reviews({ rating: '', count: '' }), { rating: null, count: null, url: '' });
+    assert.throws(() => v.reviews({ rating: 4.5 }), /valoración y cuántas/);
+    assert.throws(() => v.reviews({ rating: 6, count: 10 }), /0 a 5/);
+    assert.throws(() => v.reviews({ rating: 4, count: 2.5 }), /reseñas/);
+    assert.throws(() => v.reviews({ rating: 4, count: 10, url: 'javascript:x' }), /http/);
+    assert.equal(v.reviews(undefined), undefined);
+    assert.ok('reviews' in v.profile({ reviews: { rating: 4, count: 1 } }));
+  });
+});
+
 describe('social links', () => {
   test('handles and phones become links', () => {
     const links = socialLinks({ instagram: '@casanita', tiktok: 'casanita', facebook: 'https://facebook.com/casanita', whatsapp: '699566291' });

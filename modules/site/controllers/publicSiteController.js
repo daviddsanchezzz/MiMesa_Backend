@@ -59,6 +59,9 @@ exports.publicSite = async (req, res) => {
         url: mode === 'vetra' ? publicBookingUrl(business) : mode === 'link' ? profile?.reservations?.url || '' : '',
         phone: mode === 'phone' ? business.phone || '' : '',
       },
+      // Typed by the restaurant; null when not set (the website shows nothing)
+      reviews: profile?.reviews?.rating != null && profile?.reviews?.count != null
+        ? { source: 'google', rating: profile.reviews.rating, count: profile.reviews.count, url: profile.reviews.url || '' } : null,
       links: socialLinks(profile?.social),
     });
   } catch (err) {
