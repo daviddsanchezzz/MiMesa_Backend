@@ -228,12 +228,26 @@ exports.alerts = wrap(async (req, res) => {
 });
 
 // GET/PUT /api/ingredients/settings
-exports.getSettings = wrap(async (req, res) => res.json({ alertPct: await alertPctOf(req.businessId) }));
+exports.getSettings = wrap(async (req, res) => {
+  const s = await CostSettings.findOne({ businessId: req.businessId }).lean();
+  res.json({ alertPct: s?.alertPct || 5, targetMarginPct: s?.targetMarginPct ?? 70, vatPct: s?.vatPct ?? 10 });
+});
 exports.saveSettings = wrap(async (req, res) => {
   const alertPct = Math.round(Number(req.body?.alertPct));
   if (!Number.isFinite(alertPct) || alertPct < 1 || alertPct > 100) return bad(res, 'El aviso va de 1 % a 100 %');
-  const doc = await CostSettings.findOneAndUpdate({ businessId: req.businessId }, { $set: { alertPct } }, { upsert: true, new: true }).lean();
-  res.json({ alertPct: doc.alertPct });
+  const set = { alertPct };
+  if (req.body?.targetMarginPct !== undefined) {
+    const t = Math.round(Number(req.body.targetMarginPct));
+    if (!Number.isFinite(t) || t < 1 || t > 95) return bad(res, 'El margen objetivo va de 1 % a 95 %');
+    set.targetMarginPct = t;
+  }
+  if (req.body?.vatPct !== undefined) {
+    const v = Number(req.body.vatPct);
+    if (!Number.isFinite(v) || v < 0 || v > 30) return bad(res, 'El IVA va de 0 % a 30 %');
+    set.vatPct = v;
+  }
+  const doc = await CostSettings.findOneAndUpdate({ businessId: req.businessId }, { $set: set }, { upsert: true, new: true }).lean();
+  res.json({ alertPct: doc.alertPct, targetMarginPct: doc.targetMarginPct ?? 70, vatPct: doc.vatPct ?? 10 });
 });
 
 exports._serialize = serialize;
