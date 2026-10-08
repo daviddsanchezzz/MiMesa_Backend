@@ -5,6 +5,9 @@ const businessData = require('../../core/lib/businessData');
 const models = {
   InvoiceItem: require('../../modules/purchases/models/InvoiceItem'),
   Invoice: require('../../modules/purchases/models/Invoice'),
+  IngredientPrice: require('../../modules/purchases/models/IngredientPrice'),
+  Ingredient: require('../../modules/purchases/models/Ingredient'),
+  CostSettings: require('../../modules/purchases/models/CostSettings'),
   PurchaseOrder: require('../../modules/purchases/models/PurchaseOrder'),
   PurchaseProduct: require('../../modules/purchases/models/PurchaseProduct'),
   Supplier: require('../../modules/purchases/models/Supplier'),

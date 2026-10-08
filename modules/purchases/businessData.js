@@ -15,6 +15,9 @@ registerBusinessData({
     return deleteAllFor(businessId, {
       InvoiceItem: require('./models/InvoiceItem'),
       Invoice,
+      IngredientPrice: require('./models/IngredientPrice'),
+      Ingredient: require('./models/Ingredient'),
+      CostSettings: require('./models/CostSettings'),
       PurchaseOrder: require('./models/PurchaseOrder'),
       PurchaseProduct: require('./models/PurchaseProduct'),
       Supplier: require('./models/Supplier'),

@@ -12,6 +12,9 @@ const invoiceItemSchema = new mongoose.Schema({
   discount: decimalField,
   taxRate: decimalField,
   total: decimalField,
+  // The ingredient this line is, and how many of its unit (kg, l, ud) one purchased unit holds
+  ingredientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Ingredient', default: null, index: true },
+  content: { type: Number, default: null },
   position: { type: Number, required: true, min: 0 },
 }, { timestamps: true });
 

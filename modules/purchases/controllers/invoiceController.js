@@ -5,6 +5,7 @@ const Supplier = require('../models/Supplier');
 const { InvoiceExtractionService } = require('../services/invoiceExtractionService');
 const storage = require('../services/invoiceStorage');
 const { InvoiceValidationError, normalizeInvoiceExtraction } = require('../lib/invoiceValidation');
+const ingredients = require('../services/ingredientSync');
 const Expense = require('../../finance/models/Expense');
 const { syncInvoiceExpense, removeInvoiceExpense, invoiceExpensePayload } = require('../../finance/services/invoiceExpenseSync');
 
@@ -182,6 +183,7 @@ async function extractInvoice(req, res) {
       status: 'REVIEW',
     });
     await invoice.save();
+    await ingredients.safely('link after extraction', () => ingredients.syncInvoice(req.businessId, invoice._id));
     return res.status(201).json(await completeInvoice(invoice._id, req.businessId));
   } catch (err) {
     await InvoiceItem.deleteMany({ invoiceId: invoice._id, businessId: req.businessId }).catch(() => {});
@@ -331,6 +333,7 @@ async function patchInvoice(req, res) {
     if (wasConfirmed) {
       await syncInvoiceExpense(invoice, financialSupplier);
     }
+    await ingredients.safely('sync after edit', () => ingredients.syncInvoice(req.businessId, invoice._id));
     return res.json(await completeInvoice(invoice._id, req.businessId));
   } catch (err) {
     if (err instanceof InvoiceValidationError) return res.status(400).json({ message: err.message });
@@ -356,6 +359,7 @@ async function confirmInvoice(req, res) {
     if (err.code === 'INVALID_INVOICE_EXPENSE') return res.status(422).json({ message: err.message });
     throw err;
   }
+  await ingredients.safely('prices after confirm', () => ingredients.syncInvoice(req.businessId, invoice._id));
   return res.json(await completeInvoice(invoice._id, req.businessId));
 }
 
@@ -369,6 +373,7 @@ async function deleteInvoice(req, res) {
     console.error(`[invoices] document delete failed invoice=${invoice._id} business=${req.businessId} code=${err.code || 'UNKNOWN'}`);
     return res.status(502).json({ message: 'No se pudo eliminar el documento de la factura', code: 'DOCUMENT_DELETE_FAILED' });
   }
+  await ingredients.safely('prices after delete', () => ingredients.removeInvoice(req.businessId, invoice._id));
   await Promise.all([
     removeInvoiceExpense(invoice),
     InvoiceItem.deleteMany({ invoiceId: invoice._id, businessId: req.businessId }),
