@@ -83,7 +83,9 @@ function generateSlots(startTime, endTime) {
     em = 0;
   }
   const slots = [];
-  for (let t = sh * 60 + sm; t < eh * 60 + em; t += 30) {
+  // The end time is the last time a table can be booked (included); a turno ending at midnight stops before it
+  const limit = eh * 60 + em >= 1440 ? 1440 : eh * 60 + em + 1;
+  for (let t = sh * 60 + sm; t < limit; t += 30) {
     const h = Math.floor(t / 60) % 24;
     const m = t % 60;
     slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);

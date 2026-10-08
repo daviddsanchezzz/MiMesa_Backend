@@ -128,13 +128,14 @@ describe('social links', () => {
 describe('closing time = last booking + how long a table stays', () => {
   const { serviceEnd } = require('../../modules/site/lib/schedule');
   test('generated slots, specific slots, past midnight and no duration', () => {
-    // 13:00–15:00 every 30 min: last slot 14:30, tables stay 90 → 16:00
-    assert.equal(serviceEnd({ startTime: '13:00', endTime: '15:00', interval: 30 }, 90), '16:00');
-    // end 15:00 with every 15 min: the 15:00 slot does not exist, the last is 14:45
-    assert.equal(serviceEnd({ startTime: '13:00', endTime: '15:00', interval: 15 }, 90), '16:15');
+    // The end of the turno is the last booking: 13:00–15:00, tables stay 90 → 16:30
+    assert.equal(serviceEnd({ startTime: '13:00', endTime: '15:00', interval: 30 }, 90), '16:30');
+    assert.equal(serviceEnd({ startTime: '13:00', endTime: '15:00', interval: 15 }, 90), '16:30');
+    // an end that does not fall on a slot: every 20 min from 13:10 the last one is 14:50
+    assert.equal(serviceEnd({ startTime: '13:10', endTime: '15:00', interval: 20 }, 90), '16:20');
     // specific slots win over the interval
     assert.equal(serviceEnd({ startTime: '20:00', endTime: '23:00', interval: 30, subShifts: [{ time: '20:30' }, { time: '22:00' }] }, 120), '24:00');
-    assert.equal(serviceEnd({ startTime: '20:00', endTime: '23:30', interval: 30 }, 90), '00:30');
+    assert.equal(serviceEnd({ startTime: '20:00', endTime: '23:00', interval: 30 }, 90), '00:30');
     // no duration configured: the turno's end stays; night turnos are left alone
     assert.equal(serviceEnd({ startTime: '13:00', endTime: '15:00' }, 0), '15:00');
     assert.equal(serviceEnd({ startTime: '22:00', endTime: '02:00' }, 90), '02:00');

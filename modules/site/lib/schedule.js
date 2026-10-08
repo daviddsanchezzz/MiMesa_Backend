@@ -46,8 +46,8 @@ function serviceEnd(shift, duration) {
   if (!stay || end <= start) return shift.endTime;
   const specific = (shift.subShifts || []).map((x) => toMinutes(x.time)).filter((m) => Number.isFinite(m));
   const interval = Number(shift.interval) > 0 ? Number(shift.interval) : 30;
-  // The slots are generated every `interval` from the start while they are before the end
-  const last = specific.length ? Math.max(...specific) : start + Math.floor((end - start - 1) / interval) * interval;
+  // The slots are generated every `interval` from the start up to the end time, included
+  const last = specific.length ? Math.max(...specific) : start + Math.floor((end - start) / interval) * interval;
   const total = (last + stay) % 1440;
   const hh = String(Math.floor(total / 60)).padStart(2, '0');
   const mm = String(total % 60).padStart(2, '0');
