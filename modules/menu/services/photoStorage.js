@@ -40,9 +40,23 @@ class SupabasePhotos {
 
   bucketApi() { return getSupabaseClient().storage.from(this.bucket); }
 
+  /** Creates the public bucket the first time (needs the service key, which the backend has). */
+  async ensureBucket() {
+    const { error } = await getSupabaseClient().storage.createBucket(this.bucket, { public: true, fileSizeLimit: MAX_BYTES, allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'] });
+    // Somebody else (another request) may have just created it
+    if (error && !/already exists|duplicate/i.test(error.message || '')) throw error;
+  }
+
   async store({ key, buffer, mime }) {
-    const { error } = await this.bucketApi().upload(key, buffer, { contentType: mime, upsert: false, cacheControl: '31536000' });
-    if (error) throw new PhotoError('No se pudo subir la foto', 502);
+    const upload = () => this.bucketApi().upload(key, buffer, { contentType: mime, upsert: false, cacheControl: '31536000' });
+    let { error } = await upload();
+    if (error && /bucket not found|not found/i.test(error.message || '')) {
+      try { await this.ensureBucket(); ({ error } = await upload()); } catch (err) { error = err; }
+    }
+    if (error) {
+      console.error(`[menu] photo upload to bucket "${this.bucket}" failed:`, error.message || error);
+      throw new PhotoError('No se pudo subir la foto', 502);
+    }
     return this.bucketApi().getPublicUrl(key).data.publicUrl;
   }
 
