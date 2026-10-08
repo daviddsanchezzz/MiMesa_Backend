@@ -34,6 +34,26 @@ function mergeRanges(ranges) {
   return out;
 }
 
+/**
+ * When the place closes for a turno, as the website says it: the last time a table can be booked plus how long
+ * a table stays (reservationDuration, minutes). The turno's own end time is only the limit for booking, not the
+ * moment the last customers leave. Without a duration configured the end time is kept.
+ */
+function serviceEnd(shift, duration) {
+  const start = toMinutes(shift.startTime);
+  const end = toMinutes(shift.endTime);
+  const stay = Number(duration) || 0;
+  if (!stay || end <= start) return shift.endTime;
+  const specific = (shift.subShifts || []).map((x) => toMinutes(x.time)).filter((m) => Number.isFinite(m));
+  const interval = Number(shift.interval) > 0 ? Number(shift.interval) : 30;
+  // The slots are generated every `interval` from the start while they are before the end
+  const last = specific.length ? Math.max(...specific) : start + Math.floor((end - start - 1) / interval) * interval;
+  const total = (last + stay) % 1440;
+  const hh = String(Math.floor(total / 60)).padStart(2, '0');
+  const mm = String(total % 60).padStart(2, '0');
+  return total === 0 ? '24:00' : `${hh}:${mm}`;
+}
+
 const rangeOf = (s) => ({ open: s.startTime, close: s.endTime });
 const isUsable = (s) => s.startTime && s.endTime && s.startTime !== s.endTime;
 const hasDates = (s) => !!(s.startDate && s.endDate);
@@ -113,4 +133,4 @@ function build(data, now) {
   };
 }
 
-module.exports = { build, weeklyHours, seasonalShifts, dayOf, isOpenNow, upcomingClosures, localNow, mergeRanges, toMinutes, addDays, ALL_SHIFTS };
+module.exports = { serviceEnd, build, weeklyHours, seasonalShifts, dayOf, isOpenNow, upcomingClosures, localNow, mergeRanges, toMinutes, addDays, ALL_SHIFTS };
