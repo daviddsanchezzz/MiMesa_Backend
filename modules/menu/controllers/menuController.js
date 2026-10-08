@@ -83,6 +83,7 @@ exports.createCategory = handle(async (req, res) => {
     businessId: req.businessId,
     parentId: parent?._id || null,
     name: v.texts(req.body?.name, languages, { label: 'El nombre', max: 80, required: true }),
+    description: v.texts(req.body?.description, languages, { label: 'La descripción', max: 300 }),
     hidden: req.body?.hidden === true,
     extras: v.extras(req.body?.extras, languages) || [],
     sortOrder: await nextOrder(MenuCategory, { businessId: req.businessId, parentId: parent?._id || null }),
@@ -94,6 +95,7 @@ exports.updateCategory = handle(async (req, res) => {
   const cat = await ownCategory(req.businessId, req.params.id);
   const { languages } = await settingsOf(req.businessId);
   if (req.body?.name !== undefined) cat.name = v.texts(req.body.name, languages, { label: 'El nombre', max: 80, required: true });
+  if (req.body?.description !== undefined) cat.description = v.texts(req.body.description, languages, { label: 'La descripción', max: 300 });
   if (req.body?.hidden !== undefined) cat.hidden = req.body.hidden === true;
   if (req.body?.extras !== undefined) cat.extras = v.extras(req.body.extras, languages);
   if (req.body?.parentId !== undefined && String(req.body.parentId || '') !== String(cat.parentId || '')) {
@@ -348,6 +350,7 @@ function missingTexts({ languages, categories, items, daily }) {
   };
   for (const c of categories) {
     want(`cat:${c._id}`, 'category', c.name, (lang, t) => ({ model: 'cat', id: c._id, path: `name.${lang}`, text: t }));
+    want(`catdesc:${c._id}`, 'description', c.description, (lang, t) => ({ model: 'cat', id: c._id, path: `description.${lang}`, text: t }));
     (c.extras || []).forEach((x, xi) => want(`xcat:${c._id}:${xi}`, 'option', x.name, (lang, t) => ({ model: 'cat', id: c._id, path: `extras.${xi}.name.${lang}`, text: t })));
   }
   for (const i of items) {

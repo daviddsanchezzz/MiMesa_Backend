@@ -6,6 +6,7 @@ const menuCategorySchema = new mongoose.Schema({
   // A subcategory (Pizzas > Sin gluten) points to its category; only one level deep
   parentId:   { type: mongoose.Schema.Types.ObjectId, ref: 'MenuCategory', default: null },
   name:       { type: mongoose.Schema.Types.Mixed, default: {} },
+  description: { type: mongoose.Schema.Types.Mixed, default: {} },   // a line under the category title, per language
   extras:     { type: [new mongoose.Schema({ name: { type: mongoose.Schema.Types.Mixed, default: {} }, price: { type: Number, default: null, min: 0 }, allergens: { type: [String], default: [] } }, { _id: false })], default: [] },   // apply to every dish of the category
   sortOrder:  { type: Number, default: 0 },
   hidden:     { type: Boolean, default: false },   // not shown on the website

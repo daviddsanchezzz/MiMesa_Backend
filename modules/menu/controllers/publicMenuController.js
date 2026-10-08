@@ -55,9 +55,9 @@ exports.publicMenu = async (req, res) => {
     const out = categories.filter((c) => !c.parentId).map((c) => {
       const parentExtras = extrasOf(c.extras, 'category');
       const subcategories = categories.filter((s2) => String(s2.parentId) === String(c._id)).map((s2) => ({
-        id: s2._id, name: t(s2.name), extras: extrasOf(s2.extras, 'category'), items: itemsOf(s2, parentExtras),
+        id: s2._id, name: t(s2.name), description: t(s2.description), extras: extrasOf(s2.extras, 'category'), items: itemsOf(s2, parentExtras),
       })).filter((s2) => s2.items.length);
-      return { id: c._id, name: t(c.name), extras: parentExtras, items: itemsOf(c, []), subcategories };
+      return { id: c._id, name: t(c.name), description: t(c.description), extras: parentExtras, items: itemsOf(c, []), subcategories };
     }).filter((c) => c.items.length || c.subcategories.length);
 
     const today = dateInTimezone(new Date(), businessTimezone(business));

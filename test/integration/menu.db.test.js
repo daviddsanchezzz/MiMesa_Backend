@@ -172,7 +172,7 @@ describe('menu (carta)', { skip }, () => {
     let res = await request(app).post('/api/menu/categories').set(as('owner'))
       .send({ name: { es: 'Bebidas' }, extras: [{ name: { es: 'Con hielo' }, price: 0, allergens: [] }] });
     const bebidas = res.body._id;
-    res = await request(app).post('/api/menu/categories').set(as('owner')).send({ name: { es: 'Vinos' }, parentId: bebidas });
+    res = await request(app).post('/api/menu/categories').set(as('owner')).send({ name: { es: 'Vinos' }, description: { es: 'Todos de la tierra' }, parentId: bebidas });
     assert.equal(res.status, 201, JSON.stringify(res.body));
     const vinos = res.body._id;
     assert.equal(res.body.parentId, bebidas);
@@ -191,6 +191,7 @@ describe('menu (carta)', { skip }, () => {
     const cat = res.body.categories.find((c) => c.name === 'Bebidas');
     assert.equal(cat.items.length, 0);
     assert.equal(cat.subcategories[0].name, 'Vinos');
+    assert.equal(cat.subcategories[0].description, 'Todos de la tierra');
     assert.deepEqual(cat.subcategories[0].items[0].extras.map((x) => [x.name, x.scope]), [['Con hielo', 'category']]);
     // Import with a subcategory column creates category and subcategory
     res = await request(app).post('/api/menu/import').set(as('owner'))
