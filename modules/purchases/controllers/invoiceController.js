@@ -6,6 +6,7 @@ const { InvoiceExtractionService } = require('../services/invoiceExtractionServi
 const storage = require('../services/invoiceStorage');
 const { InvoiceValidationError, normalizeInvoiceExtraction } = require('../lib/invoiceValidation');
 const ingredients = require('../services/ingredientSync');
+const { reconcile } = require('../lib/reconcile');
 const Expense = require('../../finance/models/Expense');
 const { syncInvoiceExpense, removeInvoiceExpense, invoiceExpensePayload } = require('../../finance/services/invoiceExpenseSync');
 
@@ -125,6 +126,7 @@ async function extractInvoice(req, res) {
   if (!req.file) return res.status(400).json({ message: 'Debes adjuntar una factura en file' });
   if (!matchesFileSignature(req.file)) return res.status(400).json({ message: 'El contenido del archivo no coincide con un PDF o imagen valida' });
 
+  const kind = req.body?.kind === 'DELIVERY_NOTE' ? 'DELIVERY_NOTE' : 'INVOICE';
   const invoiceId = new mongoose.Types.ObjectId();
   let documentKey;
   let invoice;
@@ -138,6 +140,7 @@ async function extractInvoice(req, res) {
     invoice = await Invoice.create({
       _id: invoiceId,
       businessId: req.businessId,
+      kind,
       documentKey,
       documentUrl: `/api/invoices/${invoiceId}/document`,
       documentMimeType: req.file.mimetype,
@@ -161,6 +164,7 @@ async function extractInvoice(req, res) {
       buffer: req.file.buffer,
       mimeType: req.file.mimetype,
       originalName: req.file.originalname,
+      kind,
     });
     const supplier = await findOrCreateSupplier(req.businessId, extracted.data.supplier);
     await InvoiceItem.insertMany(itemDocuments(req.businessId, invoice._id, extracted.data.items));
@@ -203,8 +207,11 @@ async function extractInvoice(req, res) {
   }
 }
 
+// Invoices unless delivery notes are asked for: every screen that lists invoices keeps working as before
+const kindFilter = (kind) => (kind === 'DELIVERY_NOTE' ? { kind: 'DELIVERY_NOTE' } : { kind: { $ne: 'DELIVERY_NOTE' } });
+
 async function listInvoices(req, res) {
-  const filter = { businessId: req.businessId };
+  const filter = { businessId: req.businessId, ...kindFilter(req.query.kind) };
   if (req.query.status) filter.status = String(req.query.status).toUpperCase();
   const invoices = await Invoice.find(filter)
     .populate('supplierId', 'name taxId isActive')
@@ -318,8 +325,9 @@ async function patchInvoice(req, res) {
       status: wasConfirmed ? 'CONFIRMED' : 'REVIEW',
       extractionError: null,
     });
+    const isNote = invoice.kind === 'DELIVERY_NOTE';
     let financialSupplier = null;
-    if (wasConfirmed) {
+    if (wasConfirmed && !isNote) {
       financialSupplier = invoice.supplierId
         ? await Supplier.findOne({ _id: invoice.supplierId, businessId: req.businessId }).lean()
         : null;
@@ -330,7 +338,7 @@ async function patchInvoice(req, res) {
       await InvoiceItem.insertMany(itemDocuments(req.businessId, invoice._id, data.items));
     }
     await invoice.save();
-    if (wasConfirmed) {
+    if (wasConfirmed && !isNote) {
       await syncInvoiceExpense(invoice, financialSupplier);
     }
     await ingredients.safely('sync after edit', () => ingredients.syncInvoice(req.businessId, invoice._id));
@@ -352,9 +360,10 @@ async function confirmInvoice(req, res) {
       ? await Supplier.findOne({ _id: invoice.supplierId, businessId: req.businessId }).lean()
       : null;
     invoice.status = 'CONFIRMED';
-    invoiceExpensePayload(invoice, supplier);
+    const isNote = invoice.kind === 'DELIVERY_NOTE';
+    if (!isNote) invoiceExpensePayload(invoice, supplier);
     if (invoice.isModified('status')) await invoice.save();
-    await syncInvoiceExpense(invoice, supplier);
+    if (!isNote) await syncInvoiceExpense(invoice, supplier);
   } catch (err) {
     if (err.code === 'INVALID_INVOICE_EXPENSE') return res.status(422).json({ message: err.message });
     throw err;
@@ -374,12 +383,53 @@ async function deleteInvoice(req, res) {
     return res.status(502).json({ message: 'No se pudo eliminar el documento de la factura', code: 'DOCUMENT_DELETE_FAILED' });
   }
   await ingredients.safely('prices after delete', () => ingredients.removeInvoice(req.businessId, invoice._id));
+  const billed = await Invoice.find({ businessId: req.businessId, billedInvoiceId: invoice._id }).select('_id').lean();
+  await Invoice.updateMany({ businessId: req.businessId, billedInvoiceId: invoice._id }, { $set: { billedInvoiceId: null } });
+  for (const n of billed) await ingredients.safely('prices of freed note', () => ingredients.syncInvoice(req.businessId, n._id));
   await Promise.all([
     removeInvoiceExpense(invoice),
     InvoiceItem.deleteMany({ invoiceId: invoice._id, businessId: req.businessId }),
     Invoice.deleteOne({ _id: invoice._id, businessId: req.businessId }),
   ]);
   return res.json({ success: true });
+}
+
+const noteSummary = (n) => ({ id: n._id, number: n.invoiceNumber, date: n.invoiceDate, status: n.status, total: decimalToNumber(n.total) });
+
+// GET /api/invoices/:id/delivery-notes → the notes already billed by this invoice, the ones that could be, and the comparison
+async function deliveryNotes(req, res) {
+  const { businessId } = req;
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ message: 'Factura no encontrada' });
+  const invoice = await Invoice.findOne({ _id: req.params.id, businessId, kind: { $ne: 'DELIVERY_NOTE' } }).lean();
+  if (!invoice) return res.status(404).json({ message: 'Factura no encontrada' });
+  const [linked, free] = await Promise.all([
+    Invoice.find({ businessId, kind: 'DELIVERY_NOTE', billedInvoiceId: invoice._id }).sort({ invoiceDate: 1 }).lean(),
+    invoice.supplierId
+      ? Invoice.find({ businessId, kind: 'DELIVERY_NOTE', supplierId: invoice.supplierId, billedInvoiceId: null, status: { $ne: 'FAILED' } }).sort({ invoiceDate: -1 }).limit(30).lean()
+      : [],
+  ]);
+  const itemsOf = async (ids) => (ids.length ? InvoiceItem.find({ businessId, invoiceId: { $in: ids } }).lean() : []);
+  const [invoiceItems, noteItems] = await Promise.all([itemsOf([invoice._id]), itemsOf(linked.map((n) => n._id))]);
+  const comparison = linked.length ? reconcile({ invoiceItems: invoiceItems.map(serializeItem), noteItems: noteItems.map(serializeItem), invoiceBase: decimalToNumber(invoice.subtotal), noteTotals: linked.map((n) => decimalToNumber(n.subtotal ?? n.total)) }) : null;
+  return res.json({ linked: linked.map(noteSummary), candidates: free.map(noteSummary), comparison });
+}
+
+// PUT /api/invoices/:id/delivery-notes { ids } → exactly these notes are billed by the invoice
+async function setDeliveryNotes(req, res) {
+  const { businessId } = req;
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ message: 'Factura no encontrada' });
+  const invoice = await Invoice.findOne({ _id: req.params.id, businessId, kind: { $ne: 'DELIVERY_NOTE' } }).select('_id').lean();
+  if (!invoice) return res.status(404).json({ message: 'Factura no encontrada' });
+  const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))].filter((id) => mongoose.Types.ObjectId.isValid(id));
+  const notes = await Invoice.find({ businessId, kind: 'DELIVERY_NOTE', _id: { $in: ids }, $or: [{ billedInvoiceId: null }, { billedInvoiceId: invoice._id }] }).select('_id').lean();
+  const keep = notes.map((n) => String(n._id));
+  const before = await Invoice.find({ businessId, kind: 'DELIVERY_NOTE', billedInvoiceId: invoice._id }).select('_id').lean();
+  await Invoice.updateMany({ businessId, kind: 'DELIVERY_NOTE', billedInvoiceId: invoice._id, _id: { $nin: keep } }, { $set: { billedInvoiceId: null } });
+  await Invoice.updateMany({ businessId, kind: 'DELIVERY_NOTE', _id: { $in: keep } }, { $set: { billedInvoiceId: invoice._id } });
+  // A billed note leaves its prices to the invoice; a freed one gets them back
+  const touched = new Set([...keep, ...before.map((n) => String(n._id))]);
+  for (const id of touched) await ingredients.safely('prices after linking note', () => ingredients.syncInvoice(businessId, id));
+  return deliveryNotes(req, res);
 }
 
 function setExtractionServiceForTests(service) {
@@ -394,6 +444,8 @@ module.exports = {
   patchInvoice,
   confirmInvoice,
   deleteInvoice,
+  deliveryNotes,
+  setDeliveryNotes,
   setExtractionServiceForTests,
   serializeInvoice,
   findOrCreateSupplier,

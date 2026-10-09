@@ -100,6 +100,10 @@ class OpenAIInvoiceExtractionProvider {
             'For line items, quantity means the billed quantity (for example CANT.); never copy a CAJA, packages, or cases column into quantity. Put that value in packageQuantity.',
             'Extract invoice-level total before discount, discount, shipping, taxable base, tax and tax breakdown into their dedicated fields exactly as printed.',
             'Read each line tax rate from the IVA/tax column; do not confuse 10 with 0.',
+            ...(document.kind === 'DELIVERY_NOTE' ? [
+              'This document is a delivery note (albaran), not an invoice: put its number in invoiceNumber and its delivery date in invoiceDate.',
+              'Delivery notes often show no prices or totals: use null for every amount that is not printed, never calculate it.',
+            ] : []),
           ].join(' '),
           input: [{
             role: 'user',

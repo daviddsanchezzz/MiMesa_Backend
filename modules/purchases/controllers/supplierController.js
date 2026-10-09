@@ -86,12 +86,12 @@ async function getSupplierDetail(req, res) {
     const year = String(now.getFullYear());
     const month = `${year}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const [invoices, products, orders, monthExpenses, yearExpenses, invoiceCount, orderCount] = await Promise.all([
-      Invoice.find({ businessId: req.businessId, supplierId: supplier._id }).sort({ invoiceDate: -1, createdAt: -1 }).limit(50).lean(),
+      Invoice.find({ businessId: req.businessId, supplierId: supplier._id, kind: { $ne: 'DELIVERY_NOTE' } }).sort({ invoiceDate: -1, createdAt: -1 }).limit(50).lean(),
       PurchaseProduct.find({ businessId: req.businessId, supplierId: supplier._id }).sort({ sortOrder: 1, name: 1 }).lean(),
       PurchaseOrder.find({ businessId: req.businessId, supplierId: supplier._id }).sort({ orderDate: -1 }).limit(50).lean(),
       Expense.find({ businessId: req.businessId, supplierId: supplier._id, expenseDate: { $gte: `${month}-01`, $lte: `${month}-31` } }).lean(),
       Expense.find({ businessId: req.businessId, supplierId: supplier._id, expenseDate: { $gte: `${year}-01-01`, $lte: `${year}-12-31` } }).lean(),
-      Invoice.countDocuments({ businessId: req.businessId, supplierId: supplier._id }),
+      Invoice.countDocuments({ businessId: req.businessId, supplierId: supplier._id, kind: { $ne: 'DELIVERY_NOTE' } }),
       PurchaseOrder.countDocuments({ businessId: req.businessId, supplierId: supplier._id }),
     ]);
     const sum = (rows) => Number(rows.reduce((total, row) => total + Number(row.amount || 0), 0).toFixed(2));

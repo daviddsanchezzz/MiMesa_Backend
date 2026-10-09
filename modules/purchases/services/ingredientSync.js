@@ -49,8 +49,8 @@ async function rebuildPrices(businessId, invoiceId) {
   const before = await IngredientPrice.find({ businessId, invoiceId }).select('ingredientId').lean();
   const affected = new Set(before.map((p) => String(p.ingredientId)));
   await IngredientPrice.deleteMany({ businessId, invoiceId });
-  const invoice = await Invoice.findOne({ _id: invoiceId, businessId }).select('status invoiceDate supplierId createdAt').lean();
-  if (invoice?.status === 'CONFIRMED') {
+  const invoice = await Invoice.findOne({ _id: invoiceId, businessId }).select('status invoiceDate supplierId createdAt billedInvoiceId').lean();
+  if (invoice?.status === 'CONFIRMED' && !invoice.billedInvoiceId) {
     const items = await InvoiceItem.find({ businessId, invoiceId, ingredientId: { $ne: null } }).lean();
     const date = invoice.invoiceDate || new Date(invoice.createdAt).toISOString().slice(0, 10);
     const docs = [];

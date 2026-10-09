@@ -10,6 +10,10 @@ const taxBreakdownSchema = new mongoose.Schema({
 const invoiceSchema = new mongoose.Schema({
   businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
   supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', default: null, index: true },
+  // A delivery note (albarán) proves what arrived; it is not an expense. Documents saved before this field existed are invoices.
+  kind: { type: String, enum: ['INVOICE', 'DELIVERY_NOTE'], default: 'INVOICE' },
+  // For a delivery note: the invoice that bills it
+  billedInvoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice', default: null, index: true },
   invoiceNumber: { type: String, default: null, trim: true },
   invoiceDate: { type: String, default: null },
   grossAmount: decimalField,
