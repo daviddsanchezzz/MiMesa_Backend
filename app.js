@@ -189,6 +189,7 @@ app.use('/api/purchases',    require('./modules/purchases/routes/purchases'));
 app.use('/api/invoices',     require('./modules/purchases/routes/invoices'));
 app.use('/api/ingredients',  require('./modules/purchases/routes/ingredients'));
 app.use('/api/recipes',      require('./modules/purchases/routes/recipes'));
+app.use('/api/consumption',  require('./modules/purchases/routes/consumption'));
 app.use('/api/bookings',     require('./modules/bookings/routes/bookings'));
 app.use('/api/menu',         require('./modules/menu/routes/menu'));
 app.use('/api/site',         require('./modules/site/routes/site'));
