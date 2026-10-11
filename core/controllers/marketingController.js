@@ -8,6 +8,9 @@ const { sendTrackedEmail } = require('../services/emailDelivery');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// Enough to write to a few groups a month (clients of a service, who is overdue…) without turning into spam
+const MONTHLY_CAMPAIGN_LIMIT = 6;
+
 // ── GET /api/marketing/subscribers ───────────────────────────────────────────
 exports.getSubscribers = async (req, res) => {
   try {
@@ -42,22 +45,31 @@ exports.sendCampaign = async (req, res) => {
       return res.status(503).json({ message: 'Servicio de email no configurado' });
     }
 
-    const { subject, body } = req.body;
+    const { subject, body, customerIds, audience } = req.body;
     if (!subject?.trim() || !body?.trim()) {
       return res.status(400).json({ message: 'Asunto y cuerpo son obligatorios' });
     }
 
     const business = await Business.findById(req.businessId).select('name brandColor email phone address logoUpdatedAt');
 
+    // A segment narrows the audience to some customers; everyone still has to be an active subscriber
+    const audienceFilter = {};
+    if (customerIds !== undefined) {
+      if (!Array.isArray(customerIds) || customerIds.length > 20000 || !customerIds.every((id) => /^[a-f0-9]{24}$/i.test(String(id)))) {
+        return res.status(400).json({ message: 'La lista de clientes no es válida' });
+      }
+      audienceFilter._id = { $in: customerIds };
+    }
     const subscribers = await Customer.find({
       businessId:            req.businessId,
       marketingSubscribed:   true,
       marketingUnsubscribed: { $ne: true },
       email:                 { $ne: '' },
+      ...audienceFilter,
     }).select('name email unsubscribeToken');
 
     if (subscribers.length === 0) {
-      return res.status(400).json({ message: 'No hay suscriptores para este negocio' });
+      return res.status(400).json({ message: customerIds !== undefined ? 'Nadie de este grupo ha aceptado recibir comunicaciones' : 'No hay suscriptores para este negocio' });
     }
 
     // Rate limit: max 3 campaigns per 30 days. The check and the reservation of the slot
@@ -71,14 +83,15 @@ exports.sendCampaign = async (req, res) => {
         sentAt: { $gte: since },
         status: { $in: ['sent', 'sending'] },
       });
-      if (recentCount >= 3) {
-        return res.status(429).json({ message: 'Límite de 3 campañas por mes alcanzado' });
+      if (recentCount >= MONTHLY_CAMPAIGN_LIMIT) {
+        return res.status(429).json({ message: `Límite de ${MONTHLY_CAMPAIGN_LIMIT} campañas por mes alcanzado` });
       }
       campaign = await MarketingCampaign.create({
         businessId: req.businessId,
         subject,
         body,
         recipientCount: 0,
+        audience: typeof audience === 'string' ? audience.slice(0, 80) : '',
         status: 'sending',
       });
     } finally {

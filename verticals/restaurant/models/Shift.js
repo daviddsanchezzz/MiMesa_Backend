@@ -5,6 +5,8 @@ const shiftSchema = new mongoose.Schema({
   name:       { type: String, required: true },
   startTime:  { type: String, required: true },   // "12:00"
   endTime:    { type: String, required: true },   // "16:00"
+  staffStartTime: { type: String, default: '' }, // optional: when staff start (before opening)
+  staffEndTime:   { type: String, default: '' }, // optional: when staff finish (after closing)
   days:       { type: [Number], default: [0,1,2,3,4,5,6] }, // 0=Dom … 6=Sáb
   startDate:  { type: String, default: null },   // 'YYYY-MM-DD', null = applies always
   endDate:    { type: String, default: null },   // 'YYYY-MM-DD', null = applies always

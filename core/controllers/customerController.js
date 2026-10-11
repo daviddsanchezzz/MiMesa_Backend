@@ -1,5 +1,6 @@
 const Customer = require('../models/Customer');
 const { pickFields } = require('../lib/pickFields');
+const { optIn, optOut } = require('../lib/customerMarketing');
 const Reservation = require('../../verticals/restaurant/models/Reservation');
 const { upcomingFor, exportFor, eraseFor } = require('../lib/customerData');
 const { getPhoneMatchCandidates, toStoredNormalizedPhone } = require('../lib/phoneMatching');
@@ -126,6 +127,18 @@ exports.updateCustomer = async (req, res) => {
       { new: true }
     );
     if (!customer) return res.status(404).json({ message: 'Customer not found' });
+    // The team records that the customer agreed (or does not want) emails with offers
+    if (typeof req.body?.marketingSubscribed === 'boolean') {
+      if (req.body.marketingSubscribed) {
+        if (!customer.email) return res.status(400).json({ message: 'Para recibir comunicaciones hace falta un email' });
+        if (!(await optIn(customer._id, 'staff'))) {
+          return res.status(409).json({ message: 'Este cliente se dio de baja de las comunicaciones y no se le puede volver a suscribir' });
+        }
+      } else {
+        await optOut(customer._id);
+      }
+      return res.json(await Customer.findById(customer._id));
+    }
     res.json(customer);
   } catch (err) {
     res.status(500).json({ message: err.message });

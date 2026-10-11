@@ -253,6 +253,7 @@ function bookingInput(body, { online }) {
     })),
     partySize: int(body.partySize, 'El número de personas', { min: 1, max: 500 }) ?? 1,
     guest: guestInput(body, { requireContact: online }),
+    marketingConsent: body.marketingConsent === true,
     notes: str(body.notes, 'Las notas', { max: 1000 }) || '',
     internalNotes: online ? '' : (str(body.internalNotes, 'Las notas internas', { max: 2000 }) || ''),
   };

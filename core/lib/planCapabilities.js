@@ -37,6 +37,8 @@ const PLANS = {
       purchases: false,
       thefork: false,
       bookings: true,
+      menu: true,
+      web: true,
     },
   },
 
@@ -72,6 +74,8 @@ const PLANS = {
       purchases: false,
       thefork: false,
       bookings: true,
+      menu: true,
+      web: true,
     },
   },
 
@@ -107,6 +111,8 @@ const PLANS = {
       purchases: true,
       thefork: true,
       bookings: true,
+      menu: true,
+      web: true,
     },
   },
 };
@@ -125,6 +131,9 @@ PLANS.expired = {
   autoEmails: false,
   bookingReminders: false,
   followUps: false,
+  // Without a plan the business can still look at its money and team results (writes are blocked
+  // by readOnlyGuard), so these screens stay open instead of disappearing with the plan.
+  modulesAllowed: { ...PLANS.free.modulesAllowed, staff: true, expenses: true, purchases: true },
 };
 
 // New businesses: 14 days of Pro, no card.
@@ -215,7 +224,10 @@ function getModuleAccess(business, moduleKey) {
   // Appointment businesses get the agenda on by default; everyone else must opt in.
   const defaultOverrideEnabled = moduleKey === 'bookings'
     ? business?.businessType === 'appointments'
-    : !OPT_IN_MODULES.has(moduleKey);
+    // The menu (carta) and the website data are for restaurants
+    : (moduleKey === 'menu' || moduleKey === 'web')
+      ? business?.businessType !== 'appointments'
+      : !OPT_IN_MODULES.has(moduleKey);
 
   const overrideEnabled =
     typeof override?.enabled === 'boolean'

@@ -9,12 +9,13 @@ const { businessTimezone, dateInTimezone } = require('../../../core/lib/timezone
 const Booking = require('../models/Booking');
 const Resource = require('../models/Resource');
 const Service = require('../models/Service');
+const CustomerPack = require('../models/CustomerPack');
 const { localToUtc } = require('../lib/availability');
 const { addDaysToDate } = require('../lib/schedule');
 
 const euros = (cents) => Math.round(cents) / 100;
 
-function summarize({ bookings, payments, staff, commissionByService, tz, now }) {
+function summarize({ bookings, payments, staff, commissionByService, tz, now, packSales = [] }) {
   const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
   const byDate = {};
   const day = (d) => (byDate[d] ||= { appointments: 0, billed: 0, collected: 0, tips: 0, payments: 0 });
@@ -46,6 +47,12 @@ function summarize({ bookings, payments, staff, commissionByService, tz, now }) 
     d.tips += b.payment.tip || 0;
     d.payments += 1;
   }
+  // A pack sold is money in the till that day (the sessions are billed when they are used)
+  for (const sale of packSales) {
+    const d = day(sale.payment.date);
+    d.collected += sale.payment.amount;
+    d.payments += 1;
+  }
   const out = {};
   for (const [date, v] of Object.entries(byDate)) {
     out[date] = { appointments: v.appointments, billed: euros(v.billed), collected: euros(v.collected), tips: euros(v.tips), payments: v.payments };
@@ -60,7 +67,7 @@ function summarize({ bookings, payments, staff, commissionByService, tz, now }) 
 async function appointmentRevenue(businessId, from, to, now = new Date()) {
   const business = await Business.findById(businessId).select('timezone').lean();
   const tz = businessTimezone(business);
-  const [bookings, payments, staff, services] = await Promise.all([
+  const [bookings, payments, staff, services, packSales] = await Promise.all([
     Booking.find({
       businessId,
       start: { $gte: localToUtc(from, 0, tz), $lt: localToUtc(addDaysToDate(to, 1), 0, tz) },
@@ -68,9 +75,10 @@ async function appointmentRevenue(businessId, from, to, now = new Date()) {
     Booking.find({ businessId, 'payment.date': { $gte: from, $lte: to } }).select('payment').lean(),
     Resource.find({ businessId, kind: 'staff' }).select('name color active sortOrder').sort({ sortOrder: 1, name: 1 }).lean(),
     Service.find({ businessId }).select('staffCommissionPercent').lean(),
+    CustomerPack.find({ businessId, 'payment.date': { $gte: from, $lte: to } }).select('payment').lean(),
   ]);
   const commissionByService = Object.fromEntries(services.map((s) => [String(s._id), s.staffCommissionPercent || 0]));
-  const result = summarize({ bookings, payments, staff, commissionByService, tz, now });
+  const result = summarize({ bookings, payments, staff, commissionByService, tz, now, packSales });
   // Hide deactivated people who did nothing in the period
   result.byStaff = result.byStaff.filter((r) => r.billed > 0 || staff.find((s) => String(s._id) === r.id)?.active !== false);
   return { ...result, today: dateInTimezone(now, tz) };

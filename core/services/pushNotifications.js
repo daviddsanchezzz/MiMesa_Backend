@@ -38,4 +38,21 @@ async function sendPushToBusinessStaff(businessId, payload) {
   }
 }
 
-module.exports = { sendPushToBusinessStaff };
+/** Push to specific people of a business (an employee, the managers…). */
+async function sendPushToUsers(businessId, userIds, payload) {
+  if (!ensureVapid() || !Array.isArray(userIds) || userIds.length === 0) return;
+  try {
+    const subs = await PushSubscription.find({ businessId, userId: { $in: userIds.map(String) } }).lean();
+    await Promise.allSettled(subs.map(async (doc) => {
+      try {
+        await webpush.sendNotification(doc.subscription, JSON.stringify(payload));
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) await PushSubscription.deleteOne({ _id: doc._id });
+      }
+    }));
+  } catch (err) {
+    console.error('[push] sendPushToUsers failed:', err.message);
+  }
+}
+
+module.exports = { sendPushToBusinessStaff, sendPushToUsers };

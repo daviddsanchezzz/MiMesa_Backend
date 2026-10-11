@@ -15,6 +15,13 @@ registerBusinessData({
     return deleteAllFor(businessId, {
       InvoiceItem: require('./models/InvoiceItem'),
       Invoice,
+      Recipe: require('./models/Recipe'),
+      SaleLine: require('./models/SaleLine'),
+      StockCount: require('./models/StockCount'),
+      WasteEntry: require('./models/WasteEntry'),
+      IngredientPrice: require('./models/IngredientPrice'),
+      Ingredient: require('./models/Ingredient'),
+      CostSettings: require('./models/CostSettings'),
       PurchaseOrder: require('./models/PurchaseOrder'),
       PurchaseProduct: require('./models/PurchaseProduct'),
       Supplier: require('./models/Supplier'),

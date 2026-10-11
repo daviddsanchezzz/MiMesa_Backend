@@ -7,6 +7,7 @@ const c = require('../controllers/bookingsController');
 
 // Public booking page (guests, no session). Rate-limited in app.js.
 const publicCors = cors({ origin: '*' });
+router.get('/public/calendar/:file', publicCors, c.publicCalendar);
 router.get('/public/cancel', publicCors, c.publicBookingDetails);
 router.post('/public/cancel', publicCors, c.publicCancelBooking);
 router.post('/public/reschedule/slots', publicCors, c.publicRescheduleSlots);
@@ -20,6 +21,8 @@ router.use(requireAuth, requireModule('bookings'));
 // Setup: resources, services and schedules (manager+)
 router.get('/resources', c.listResources);
 router.get('/resources/me', c.getMyResource);
+router.get('/resources/:id/calendar', c.getCalendarLink);
+router.post('/resources/:id/calendar/reset', c.resetCalendarLink);
 router.put('/resources/me/photo', c.updateMyResourcePhoto);
 router.post('/resources', requireRole('manager'), c.createResource);
 router.put('/resources/:id', requireRole('manager'), c.updateResource);
@@ -37,6 +40,22 @@ router.delete('/schedule', requireRole('manager'), c.deleteSchedule);
 
 // Dashboard numbers (any member)
 router.get('/stats', c.getStats);
+router.get('/insights', requireRole('manager'), c.insights);
+router.get('/segments', requireRole('manager'), c.segmentPreview);
+
+// Loyalty: the rule is the manager's; where a customer stands is needed at the till
+router.get('/loyalty', requireRole('manager'), c.getLoyalty);
+router.put('/loyalty', requireRole('manager'), c.saveLoyalty);
+router.get('/customers/:customerId/loyalty', c.customerLoyalty);
+
+// Packs (bonos): anyone can see and sell them at the till; the catalogue is the manager's
+router.get('/packs', c.listPacks);
+router.post('/packs', requireRole('manager'), c.createPack);
+router.put('/packs/:id', requireRole('manager'), c.updatePack);
+router.delete('/packs/:id', requireRole('manager'), c.deletePack);
+router.get('/customers/:customerId/packs', c.customerPacks);
+router.post('/customers/:customerId/packs', c.sellPack);
+router.delete('/customer-packs/:id', requireRole('manager'), c.voidPackSale);
 
 // Customer history (manager+, like the customer list)
 router.get('/customers/summary', requireRole('manager'), c.customersSummary);
@@ -53,6 +72,8 @@ router.post('/team/:resourceId/payments', requireRole('manager'), requireModule(
 
 // Caja (any member charges and closes; managers undo and reopen)
 router.get('/cash', c.cashDay);
+router.get('/cash/summary', c.cashSummary);
+router.post('/quick-sale', c.quickSale);
 router.post('/cash/close', c.closeCash);
 router.delete('/cash/close', requireRole('manager'), c.reopenCash);
 // What customers can do from their link (managers)

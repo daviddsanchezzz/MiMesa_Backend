@@ -74,7 +74,7 @@ describe('planCapabilities', () => {
   });
 
   test('getAllModuleAccess lists every module of the plan', () => {
-    assert.deepEqual(Object.keys(plans.getAllModuleAccess(biz('pro', 'active'))).sort(), ['bookings', 'expenses', 'purchases', 'staff', 'thefork']);
+    assert.deepEqual(Object.keys(plans.getAllModuleAccess(biz('pro', 'active'))).sort(), ['bookings', 'expenses', 'menu', 'purchases', 'staff', 'thefork', 'web']);
   });
 
   test('appointment businesses get the agenda by default (can still be turned off)', () => {
@@ -88,6 +88,14 @@ describe('planCapabilities', () => {
       assert.equal(plans.canUseModule(plan, 'bookings'), false);
       assert.equal(plans.canUseModule({ ...plan, moduleOverrides: { bookings: { enabled: true } } }, 'bookings'), true);
     }
+  });
+
+  test('without a plan the money and team screens stay readable (writes are blocked elsewhere)', () => {
+    const expired = biz('pro', 'canceled');
+    for (const key of ['expenses', 'purchases', 'staff']) assert.equal(plans.canUseModule(expired, key), true, key);
+    assert.equal(plans.canUseModule(expired, 'thefork'), false);
+    // a paying Basic plan still does not include them
+    for (const key of ['expenses', 'purchases', 'staff']) assert.equal(plans.canUseModule(biz('basic', 'active'), key), false, key);
   });
 
   test('checkReservationLimit short-circuits on unlimited plans', async () => {

@@ -18,6 +18,8 @@ function isValidTime(v) {
   return typeof v === 'string' && /^\d{2}:\d{2}$/.test(v);
 }
 
+const { staffTimesOf } = require('./shiftTimes');
+
 function timeToMinutes(time) {
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m;
@@ -28,7 +30,7 @@ function assignmentMinutes(assignment, shiftById) {
   let end   = assignment.endTime;
   if ((!start || !end) && assignment.shiftId) {
     const shift = shiftById.get(String(assignment.shiftId));
-    if (shift) { start = start || shift.startTime; end = end || shift.endTime; }
+    if (shift) { const t = staffTimesOf(shift); start = start || t.start; end = end || t.end; }
   }
   if (!isValidTime(start) || !isValidTime(end)) return 0;
   const s = timeToMinutes(start);
@@ -97,7 +99,7 @@ async function calculateStaffCostForRange(businessId, from, to) {
   ]);
 
   const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
-  const shifts   = await Shift.find({ _id: { $in: shiftIds }, businessId }).select('startTime endTime').lean();
+  const shifts   = await Shift.find({ _id: { $in: shiftIds }, businessId }).select('startTime endTime staffStartTime staffEndTime').lean();
   const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
 
   const compensationMap = await getActiveCompensationMap(businessId, employees.map((e) => e._id));

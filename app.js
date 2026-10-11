@@ -34,7 +34,7 @@ const publicCors = cors({ origin: '*' });
 const PUBLIC_PREFIXES = [
   '/api/auth/public', '/api/rooms/public', '/api/shifts/public', '/api/vacations/public',
   '/api/exceptions/public', '/api/reservations/public', '/api/marketing/public', '/api/promos/public',
-  '/api/pricing/public', '/api/contact', '/api/bookings/public',
+  '/api/pricing/public', '/api/contact', '/api/bookings/public', '/api/menu/public', '/api/site/public',
 ];
 PUBLIC_PREFIXES.forEach((prefix) => app.use(prefix, publicCors));
 // Public pages are served from other origins too (vetrareserve.com/{slug}, business
@@ -119,6 +119,8 @@ app.post('/api/reservations/public/payment-intent', makePublicLimiter(15, 30, 'D
 app.use('/api/reservations/public/details',       makePublicLimiter(15, 60, 'Demasiadas consultas, inténtalo más tarde'));
 app.use('/api/reservations/public/cancel',        makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
 app.use('/api/bookings/public', makePublicLimiter(15, 120, 'Demasiadas consultas, inténtalo más tarde'));
+app.use('/api/menu/public', makePublicLimiter(15, 300, 'Demasiadas consultas, inténtalo más tarde'));
+app.use('/api/site/public', makePublicLimiter(15, 300, 'Demasiadas consultas, inténtalo más tarde'));
 app.post('/api/bookings/public/:businessId/bookings', makePublicLimiter(15, 20, 'Demasiadas reservas desde esta conexión, inténtalo más tarde'));
 app.post('/api/bookings/public/cancel', makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
 app.post('/api/bookings/public/reschedule', makePublicLimiter(15, 20, 'Demasiados cambios, inténtalo más tarde'));
@@ -162,6 +164,8 @@ require('./modules/bookings/memberLinks');
 require('./modules/bookings/customerData');
 require('./modules/purchases/businessData');
 require('./modules/finance/businessData');
+require('./modules/menu/businessData');
+require('./modules/site/businessData');
 require('./verticals/restaurant/customerData');
 require('./verticals/restaurant/templates');
 
@@ -183,7 +187,12 @@ app.use('/api/revenue',      require('./modules/finance/routes/revenue'));
 app.use('/api/categories',   require('./modules/finance/routes/categories'));
 app.use('/api/purchases',    require('./modules/purchases/routes/purchases'));
 app.use('/api/invoices',     require('./modules/purchases/routes/invoices'));
+app.use('/api/ingredients',  require('./modules/purchases/routes/ingredients'));
+app.use('/api/recipes',      require('./modules/purchases/routes/recipes'));
+app.use('/api/consumption',  require('./modules/purchases/routes/consumption'));
 app.use('/api/bookings',     require('./modules/bookings/routes/bookings'));
+app.use('/api/menu',         require('./modules/menu/routes/menu'));
+app.use('/api/site',         require('./modules/site/routes/site'));
 app.use('/api/push',         require('./core/routes/pushNotifications'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

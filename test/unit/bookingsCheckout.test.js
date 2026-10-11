@@ -43,3 +43,34 @@ test('till totals by method; tips counted in the drawer, not in revenue', () => 
   assert.equal(t.extras, 1000);
   assert.equal(t.payments, 2);
 });
+
+test('payment with a pack: services are covered, only products and tip are charged', () => {
+  const pack = { id: 'cp1', name: 'Bono láser x5' };
+  const free = buildPayment(booking, {}, { ...opts, pack });
+  assert.equal(free.method, 'pack');
+  assert.equal(free.services, 0);
+  assert.equal(free.total, 0);
+  assert.deepEqual(free.packUse, { customerPackId: 'cp1', name: 'Bono láser x5' });
+
+  // a product bought on top needs a payment method
+  assert.throws(() => buildPayment(booking, { extras: [{ name: 'Crema', price: 1500, qty: 1 }] }, { ...opts, pack }), /Elige cómo ha pagado/);
+  const withProduct = buildPayment(booking, { method: 'card', extras: [{ name: 'Crema', price: 1500, qty: 1 }], tip: 100 }, { ...opts, pack });
+  assert.equal(withProduct.method, 'card');
+  assert.equal(withProduct.total, 1500);
+  assert.equal(withProduct.packUse.customerPackId, 'cp1');
+});
+
+test('till totals: a pack sale is money in, a pack session is not', () => {
+  const t = tillTotals(
+    [
+      { method: 'pack', packUse: { customerPackId: 'cp1' }, services: 0, extras: [], discount: 0, tip: 0, total: 0 },
+      { method: 'cash', services: 2000, extras: [], discount: 0, tip: 0, total: 2000 },
+    ],
+    [{ method: 'card', amount: 25000 }, { method: 'cash', amount: 10000 }],
+  );
+  assert.equal(t.cash, 12000);
+  assert.equal(t.card, 25000);
+  assert.equal(t.packSales, 35000);
+  assert.equal(t.packSessions, 1);
+  assert.equal(t.total, 2000, 'appointment revenue is not mixed with pack sales');
+});

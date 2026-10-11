@@ -17,6 +17,7 @@ const customerSchema = new mongoose.Schema({
   marketingUnsubscribed:   { type: Boolean, default: false },
   marketingUnsubscribedAt: { type: Date,    default: null },
   unsubscribeToken:        { type: String,  default: null, index: true },
+  marketingConsentSource:  { type: String,  enum: ['', 'online', 'staff', 'restaurant', 'import'], default: '' },
 }, { timestamps: true });
 
 customerSchema.index({ businessId: 1, email: 1 });

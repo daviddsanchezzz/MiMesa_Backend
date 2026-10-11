@@ -4,6 +4,7 @@
  * business exists and has the module enabled.
  */
 const Business = require('../../../core/models/Business');
+const Customer = require('../../../core/models/Customer');
 const BusinessMember = require('../../../core/models/BusinessMember');
 const { canUseModule } = require('../../../core/lib/planCapabilities');
 const { businessTimezone } = require('../../../core/lib/timezone');
@@ -11,14 +12,24 @@ const Resource = require('../models/Resource');
 const Schedule = require('../models/Schedule');
 const Service = require('../models/Service');
 const Booking = require('../models/Booking');
+const Occupancy = require('../models/Occupancy');
 const svc = require('../services/bookingsService');
 const v = require('../lib/validation');
 const { BookingError } = require('../lib/errors');
 const emails = require('../services/bookingEmails');
 const { getDashboardStats } = require('../services/statsService');
+const { getInsights } = require('../services/insightsService');
+const { getSegment } = require('../services/segmentsService');
+const packsSvc = require('../services/packsService');
+const loyalty = require('../services/loyaltyService');
+const calendar = require('../services/calendarService');
+const { packInput } = require('../lib/packs');
+const Pack = require('../models/Pack');
+const CustomerPack = require('../models/CustomerPack');
+const { TYPES: SEGMENT_TYPES } = require('../lib/segments');
 const { summarizeCustomer } = require('../lib/customers');
 const { staffView } = require('../lib/stats');
-const { buildPayment, tillTotals } = require('../lib/checkout');
+const { buildPayment, tillTotals, tillByDay } = require('../lib/checkout');
 const team = require('../services/teamService');
 const CashClose = require('../models/CashClose');
 const { dateInTimezone } = require('../../../core/lib/timezone');
@@ -360,6 +371,134 @@ exports.updateBookingNotes = handle(async (req, res) => {
   res.json(await Booking.findById(req.params.id).select('-publicToken').lean());
 });
 
+// ── Calendar feed (.ics) of a professional ───────────────────────────────────
+function feedUrls(req, token) {
+  const base = (process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  const url = `${base}/api/bookings/public/calendar/${token}.ics`;
+  return { url, webcalUrl: url.replace(/^https?:/, 'webcal:') };
+}
+
+// The manager, or the professional about their own calendar
+async function assertCalendarAccess(req) {
+  v.objectId(req.params.id, 'id');
+  if (req.memberRole === 'owner' || req.memberRole === 'manager') return;
+  const own = await Resource.exists({ _id: req.params.id, businessId: req.businessId, kind: 'staff', userId: req.user?.id });
+  if (!own) throw new BookingError(403, 'No tienes permiso para ver este calendario', 'FORBIDDEN');
+}
+
+exports.getCalendarLink = handle(async (req, res) => {
+  await assertCalendarAccess(req);
+  res.json(feedUrls(req, await calendar.tokenFor(req.businessId, req.params.id)));
+});
+
+exports.resetCalendarLink = handle(async (req, res) => {
+  await assertCalendarAccess(req);
+  res.json(feedUrls(req, await calendar.tokenFor(req.businessId, req.params.id, { reset: true })));
+});
+
+// Public, secret by its token: calendar apps cannot log in
+exports.publicCalendar = async (req, res) => {
+  try {
+    const token = String(req.params.file || '').replace(/\.ics$/i, '');
+    const ics = await calendar.feedFor(token);
+    if (!ics) return res.status(404).type('text/plain').send('Not found');
+    res.set({ 'Content-Type': 'text/calendar; charset=utf-8', 'Cache-Control': 'private, max-age=300', 'Content-Disposition': 'inline; filename="agenda.ics"' });
+    res.send(ics);
+  } catch (err) {
+    res.status(500).type('text/plain').send('Error');
+  }
+};
+
+// ── Loyalty: every Nth paid visit earns a reward ────────────────────────────
+exports.getLoyalty = handle(async (req, res) => { res.json(await loyalty.getSettings(req.businessId)); });
+exports.saveLoyalty = handle(async (req, res) => { res.json(await loyalty.saveSettings(req.businessId, req.body || {})); });
+exports.customerLoyalty = handle(async (req, res) => {
+  v.objectId(req.params.customerId, 'customerId');
+  res.json(await loyalty.progressFor(req.businessId, req.params.customerId));
+});
+
+// ── Packs ("bonos"): catalogue, selling one to a customer ───────────────────
+exports.listPacks = handle(async (req, res) => {
+  res.json(await packsSvc.listCatalog(req.businessId, { includeInactive: req.query.includeInactive === 'true' }));
+});
+
+exports.createPack = handle(async (req, res) => {
+  const input = packInput(req.body);
+  const last = await Pack.findOne({ businessId: req.businessId }).sort({ sortOrder: -1 }).select('sortOrder').lean();
+  res.status(201).json((await Pack.create({ businessId: req.businessId, ...input, sortOrder: (last?.sortOrder ?? -1) + 1 })).toObject());
+});
+
+exports.updatePack = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const doc = await Pack.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, { $set: packInput(req.body) }, { new: true }).lean();
+  if (!doc) throw notFound('Bono');
+  res.json(doc);
+});
+
+// A pack that was sold stays in the history: it is only switched off. One never sold is deleted.
+exports.deletePack = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const sold = await CustomerPack.exists({ businessId: req.businessId, packId: req.params.id });
+  if (sold) {
+    const doc = await Pack.findOneAndUpdate({ _id: req.params.id, businessId: req.businessId }, { $set: { active: false } }, { new: true }).lean();
+    if (!doc) throw notFound('Bono');
+    return res.json({ deactivated: true });
+  }
+  const r = await Pack.deleteOne({ _id: req.params.id, businessId: req.businessId });
+  if (!r.deletedCount) throw notFound('Bono');
+  res.json({ deleted: true });
+});
+
+exports.customerPacks = handle(async (req, res) => {
+  v.objectId(req.params.customerId, 'customerId');
+  res.json(await packsSvc.listForCustomer(req.businessId, req.params.customerId));
+});
+
+exports.sellPack = handle(async (req, res) => {
+  v.objectId(req.params.customerId, 'customerId');
+  v.objectId(req.body?.packId, 'Bono');
+  const tz = await businessTz(req.businessId);
+  const now = new Date();
+  const localDate = dateInTimezone(now, tz);
+  await assertTillOpen(req.businessId, localDate);
+  res.status(201).json(await packsSvc.sell(req.businessId, req.params.customerId, req.body.packId, req.body, { now, localDate, userId: req.user?.id || null }));
+});
+
+// Undo a sale (a mistake): only while nothing has been used and the till of that day is open
+exports.voidPackSale = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const sold = await CustomerPack.findOne({ _id: req.params.id, businessId: req.businessId }).lean();
+  if (!sold) throw notFound('Bono');
+  if (sold.remaining !== sold.sessions) throw new BookingError(409, 'Este bono ya se ha usado y no se puede anular', 'PACK_USED');
+  await assertTillOpen(req.businessId, sold.payment.date);
+  await CustomerPack.deleteOne({ _id: sold._id });
+  res.json({ ok: true });
+});
+
+// ── Segments of customers for campaigns ────────────────────────────────────
+exports.segmentPreview = handle(async (req, res) => {
+  const type = String(req.query.type || 'all');
+  if (!SEGMENT_TYPES.includes(type)) throw new BookingError(400, 'Segmento no válido', 'BAD_REQUEST');
+  const params = {};
+  if (type === 'service') params.serviceId = v.objectId(req.query.serviceId, 'Servicio');
+  const num = (key, max) => {
+    if (req.query[key] === undefined) return undefined;
+    const n = Number(req.query[key]);
+    if (!Number.isInteger(n) || n < 1 || n > max) throw new BookingError(400, 'Valor no válido', 'BAD_REQUEST');
+    return n;
+  };
+  if (type === 'lapsed' || type === 'new') params.days = num('days', 730);
+  if (type === 'frequent') params.visits = num('visits', 200);
+  res.json({ type, ...(await getSegment(req.businessId, type, params)) });
+});
+
+// ── Estadísticas (services, busy hours, customers, cancellations) ──────────
+exports.insights = handle(async (req, res) => {
+  const { from, to } = v.dateRange(req.query, { maxDays: 366 });
+  const compare = req.query.compareFrom ? v.dateRange({ from: req.query.compareFrom, to: req.query.compareTo }, { maxDays: 366 }) : null;
+  res.json(await getInsights(req.businessId, from, to, compare));
+});
+
 // ── Team (pay, commissions, what each professional leaves) ─────────────────
 exports.teamReport = handle(async (req, res) => {
   const { from, to } = v.dateRange(req.query, { maxDays: 366 });
@@ -388,23 +527,80 @@ async function assertTillOpen(businessId, date) {
   }
 }
 
-exports.checkout = handle(async (req, res) => {
-  v.objectId(req.params.id, 'id');
-  const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId }).select('-publicToken').lean();
-  if (!booking) throw notFound('Cita');
+// Charges a booking (lean doc): spends the pack session first, gives it back if the charge fails.
+async function chargeBooking(req, booking, body) {
   const tz = await businessTz(req.businessId);
   const now = new Date();
   const localDate = dateInTimezone(now, tz);
   await assertTillOpen(req.businessId, localDate);
-  const payment = buildPayment(booking, req.body || {}, { now, localDate, userId: req.user?.id || null });
-  const doc = await Booking.findOneAndUpdate(
-    { _id: booking._id, businessId: req.businessId, payment: null, status: { $in: ['confirmed', 'checked_in', 'completed'] } },
-    { $set: { payment, status: 'completed' } },
-    { new: true },
-  ).lean();
-  if (!doc) throw new BookingError(409, 'Esta cita ya está cobrada', 'ALREADY_PAID');
-  delete doc.publicToken;
-  res.json(doc);
+  let packUsed = null;
+  if (body.packId) {
+    v.objectId(body.packId, 'Bono');
+    if (booking.payment) throw new BookingError(409, 'Esta cita ya está cobrada', 'ALREADY_PAID');
+    packUsed = await packsSvc.consume(req.businessId, body.packId, booking, now);
+  }
+  try {
+    const payment = buildPayment(booking, body, {
+      now, localDate, userId: req.user?.id || null, pack: packUsed ? { id: packUsed._id, name: packUsed.name } : null,
+    });
+    const doc = await Booking.findOneAndUpdate(
+      { _id: booking._id, businessId: req.businessId, payment: null, status: { $in: ['confirmed', 'checked_in', 'completed'] } },
+      { $set: { payment, status: 'completed' } },
+      { new: true },
+    ).lean();
+    if (!doc) throw new BookingError(409, 'Esta cita ya está cobrada', 'ALREADY_PAID');
+    delete doc.publicToken;
+    return doc;
+  } catch (err) {
+    if (packUsed) await packsSvc.restore(req.businessId, packUsed._id, booking._id);
+    throw err;
+  }
+}
+
+exports.checkout = handle(async (req, res) => {
+  v.objectId(req.params.id, 'id');
+  const booking = await Booking.findOne({ _id: req.params.id, businessId: req.businessId }).select('-publicToken').lean();
+  if (!booking) throw notFound('Cita');
+  res.json(await chargeBooking(req, booking, req.body || {}));
+});
+
+// Cobro rápido: a customer without a booking. Creates the appointment (now, source walk_in)
+// and charges it in one go; if the charge is refused the appointment is not left behind.
+exports.quickSale = handle(async (req, res) => {
+  const body = req.body || {};
+  const items = body.items;
+  if (!Array.isArray(items) || !items.length || items.length > 5) throw new BookingError(400, 'Elige al menos un servicio', 'BAD_REQUEST');
+  const clean = items.map((it, i) => ({
+    serviceId: v.objectId(it?.serviceId, `Servicio ${i + 1}`),
+    resourceId: it?.resourceId ? v.objectId(it.resourceId, `Profesional ${i + 1}`) : null,
+  }));
+  const tz = await businessTz(req.businessId);
+  await assertTillOpen(req.businessId, dateInTimezone(new Date(), tz));
+  // Fail on a bad payment before touching the agenda
+  buildPayment({ status: 'confirmed', totalPrice: 0, payment: null }, { ...body, services: body.services ?? 0, packId: undefined },
+    { localDate: '', pack: body.packId ? { id: 'x', name: 'x' } : null });
+  const guest = {
+    name: String(body.guestName || '').trim().slice(0, 100) || 'Cliente de paso',
+    phone: String(body.guestPhone || '').trim().slice(0, 30),
+    email: String(body.guestEmail || '').trim().toLowerCase().slice(0, 200),
+  };
+  const booking = await svc.createWalkIn({ businessId: req.businessId, items: clean, guest, timezone: tz, userId: req.user?.id || null });
+  try {
+    // A customer picked from the list is linked even when they have no phone or email to match by
+    if (body.customerId) {
+      const known = await Customer.findOne({ _id: v.objectId(body.customerId, 'Cliente'), businessId: req.businessId }).select('name').lean();
+      if (known && String(booking.customerId || '') !== String(known._id)) {
+        booking.customerId = known._id;
+        await booking.save();
+      }
+    }
+    const out = await chargeBooking(req, booking.toObject(), body);
+    res.status(201).json(out);
+  } catch (err) {
+    await Booking.deleteOne({ _id: booking._id });
+    await Occupancy.deleteMany({ bookingId: booking._id });
+    throw err;
+  }
 });
 
 exports.undoCheckout = handle(async (req, res) => {
@@ -414,6 +610,8 @@ exports.undoCheckout = handle(async (req, res) => {
   if (!booking.payment) throw new BookingError(400, 'Esta cita no está cobrada', 'BAD_REQUEST');
   await assertTillOpen(req.businessId, booking.payment.date);
   const doc = await Booking.findOneAndUpdate({ _id: booking._id }, { $set: { payment: null } }, { new: true }).lean();
+  // The session spent from a pack goes back to it
+  if (booking.payment.packUse?.customerPackId) await packsSvc.restore(req.businessId, booking.payment.packUse.customerPackId, booking._id);
   delete doc.publicToken;
   res.json(doc);
 });
@@ -424,7 +622,7 @@ exports.cashDay = handle(async (req, res) => {
   const tz = await businessTz(req.businessId);
   const date = req.query.date ? v.dateRange({ from: req.query.date }, { maxDays: 1 }).from : dateInTimezone(new Date(), tz);
   const { localToUtc } = require('../lib/availability');
-  const [paid, ofDay, close] = await Promise.all([
+  const [paid, ofDay, close, sales] = await Promise.all([
     Booking.find({ businessId: req.businessId, 'payment.date': date })
       .select('guestName customerId start segments totalPrice status payment').sort({ 'payment.paidAt': -1 }).lean(),
     Booking.find({
@@ -434,22 +632,38 @@ exports.cashDay = handle(async (req, res) => {
       payment: null,
     }).select('guestName customerId start end segments totalPrice status').sort({ start: 1 }).lean(),
     CashClose.findOne({ businessId: req.businessId, date }).lean(),
+    CustomerPack.find({ businessId: req.businessId, 'payment.date': date }).select('name customerId payment').sort({ 'payment.paidAt': -1 }).lean(),
   ]);
+  const names = new Map((await Customer.find({ _id: { $in: sales.map((x) => x.customerId).filter(Boolean) } }).select('name').lean()).map((c) => [String(c._id), c.name]));
   res.json({
     date,
-    totals: tillTotals(paid.map((b) => b.payment)),
+    totals: tillTotals(paid.map((b) => b.payment), sales.map((x) => x.payment)),
     payments: paid,
+    packSales: sales.map((x) => ({ _id: x._id, name: x.name, customerName: names.get(String(x.customerId)) || 'Cliente', ...x.payment })),
     toCharge: ofDay,
     toChargeAmount: ofDay.reduce((s, b) => s + (b.totalPrice || 0), 0),
     close,
   });
 });
 
+// The till over a period (Finanzas → Ingresos): by payment method and day by day.
+exports.cashSummary = handle(async (req, res) => {
+  const { from, to } = v.dateRange({ from: req.query.from, to: req.query.to }, { maxDays: 366 });
+  const [paid, sales] = await Promise.all([
+    Booking.find({ businessId: req.businessId, 'payment.date': { $gte: from, $lte: to } }).select('payment').lean(),
+    CustomerPack.find({ businessId: req.businessId, 'payment.date': { $gte: from, $lte: to } }).select('payment').lean(),
+  ]);
+  res.json({ from, to, ...tillByDay(paid.map((b) => b.payment), sales.map((x) => x.payment)) });
+});
+
 exports.closeCash = handle(async (req, res) => {
   const tz = await businessTz(req.businessId);
   const date = req.body?.date ? v.dateRange({ from: req.body.date }, { maxDays: 1 }).from : dateInTimezone(new Date(), tz);
-  const paid = await Booking.find({ businessId: req.businessId, 'payment.date': date }).select('payment').lean();
-  const totals = tillTotals(paid.map((b) => b.payment));
+  const [paid, sales] = await Promise.all([
+    Booking.find({ businessId: req.businessId, 'payment.date': date }).select('payment').lean(),
+    CustomerPack.find({ businessId: req.businessId, 'payment.date': date }).select('payment').lean(),
+  ]);
+  const totals = tillTotals(paid.map((b) => b.payment), sales.map((x) => x.payment));
   let countedCash = null;
   if (req.body?.countedCash !== undefined && req.body.countedCash !== null && req.body.countedCash !== '') {
     countedCash = Number(req.body.countedCash);

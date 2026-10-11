@@ -110,24 +110,32 @@ function divider(margin = '24px 0') {
 }
 
 /** Bulletproof button (works in Outlook). variant: primary | secondary. */
-function button(href, label, color = VIOLET, { variant = 'primary', full = false } = {}) {
+function button(href, label, color = VIOLET, { variant = 'primary', full = false, compact = false } = {}) {
   const primary = variant === 'primary';
   const bg = primary ? color : C.white;
   const fg = primary ? onColor(color) : C.ink;
   const border = primary ? color : C.line;
   return `<table role="presentation" cellpadding="0" cellspacing="0" ${full ? 'width="100%"' : ''} style="border-collapse:separate;">
-    <tr><td align="center" bgcolor="${bg}" style="border-radius:10px;background:${bg};border:1px solid ${border};">
-      <a href="${esc(href)}" target="_blank" style="display:${full ? 'block' : 'inline-block'};padding:13px 22px;font-family:${FONT};font-size:15px;font-weight:600;line-height:1.2;color:${fg};text-decoration:none;border-radius:10px;">${esc(label)}</a>
+    <tr><td align="center" valign="middle" bgcolor="${bg}" style="border-radius:10px;background:${bg};border:1px solid ${border};">
+      <a href="${esc(href)}" target="_blank" style="display:${full ? 'block' : 'inline-block'};padding:${compact ? '13px 4px' : '13px 22px'};font-family:${FONT};font-size:${compact ? '13px' : '15px'};font-weight:600;line-height:1.25;color:${fg};text-decoration:none;border-radius:10px;">${esc(label)}</a>
     </td></tr>
   </table>`;
 }
 
-/** Up to two buttons side by side (they stack on phones). items: [{ href, label, variant }] */
+/**
+ * One button, or two side by side each taking half the width (also on phones).
+ * items: [{ href, label, variant }]
+ */
 function buttons(items, color = VIOLET) {
-  const list = items.filter(Boolean);
+  const list = items.filter(Boolean).slice(0, 2);
   if (!list.length) return '';
-  const cells = list.map((b, i) => `<td class="stack" valign="top" style="padding:0 ${i < list.length - 1 ? '10px' : '0'} 10px 0;">${button(b.href, b.label, color, { variant: b.variant || (i === 0 ? 'primary' : 'secondary') })}</td>`).join('');
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 6px;"><tr>${cells}</tr></table>`;
+  const variantOf = (b, i) => b.variant || (i === 0 ? 'primary' : 'secondary');
+  if (list.length === 1) {
+    const b = list[0];
+    return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 6px;"><tr><td valign="top">${button(b.href, b.label, color, { variant: variantOf(b, 0) })}</td></tr></table>`;
+  }
+  const cells = list.map((b, i) => `<td width="50%" valign="top" style="width:50%;padding:${i === 0 ? '0 5px 0 0' : '0 0 0 5px'};">${button(b.href, b.label, color, { variant: variantOf(b, i), full: true, compact: true })}</td>`).join('');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0 6px;table-layout:fixed;"><tr>${cells}</tr></table>`;
 }
 
 /** Rows of label / value. rows: [{ label, value, valueHtml? }] */

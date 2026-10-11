@@ -16,7 +16,8 @@ const segmentSchema = new mongoose.Schema({
 
 // What was charged when the appointment ended (Caja). Money in cents.
 const paymentSchema = new mongoose.Schema({
-  method:   { type: String, enum: ['cash', 'card', 'bizum', 'other'], required: true },
+  method:   { type: String, enum: ['cash', 'card', 'bizum', 'other', 'pack'], required: true },   // 'pack': the whole ticket went on a session of a pack
+  packUse:  { type: new mongoose.Schema({ customerPackId: mongoose.Schema.Types.ObjectId, name: String }, { _id: false }), default: undefined },
   services: { type: Number, default: 0 },   // appointment price charged
   extras:   [{ _id: false, name: { type: String, maxlength: 100 }, price: Number, qty: { type: Number, default: 1 } }],
   discount: { type: Number, default: 0 },

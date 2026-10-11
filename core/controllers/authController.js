@@ -102,9 +102,12 @@ exports.me = async (req, res) => {
     const business = await Business.findById(req.businessId).select('-password');
     if (!business) return res.status(404).json({ message: 'Negocio no encontrado' });
 
+    // The employee of Personal this user is, when they were linked to one ("Mi horario")
+    const own = membershipDocs.find((m) => String(m.businessId?._id) === String(req.businessId));
     res.json({
       ...businessData(business),
       role:        req.memberRole ?? 'owner',
+      professionalId: own?.professionalId ? String(own.professionalId) : null,
       isDev:       devUser,
       memberships,
       userId:      req.user?.id ?? null,

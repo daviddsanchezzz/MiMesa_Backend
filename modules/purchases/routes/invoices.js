@@ -29,6 +29,8 @@ router.use(requireAuth, requireRole('manager'), requireAnyModule(['expenses', 'p
 router.post('/extract', uploadInvoice, controller.extractInvoice);
 router.get('/', controller.listInvoices);
 router.get('/:id/document', controller.downloadDocument);
+router.get('/:id/delivery-notes', controller.deliveryNotes);
+router.put('/:id/delivery-notes', controller.setDeliveryNotes);
 router.get('/:id', controller.getInvoice);
 router.patch('/:id', controller.patchInvoice);
 router.post('/:id/confirm', controller.confirmInvoice);

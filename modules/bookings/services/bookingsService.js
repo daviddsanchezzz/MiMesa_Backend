@@ -8,13 +8,14 @@ const Customer = require('../../../core/models/Customer');
 const { acquireLock } = require('../../../core/lib/keyedLock');
 const { businessTimezone, dateInTimezone } = require('../../../core/lib/timezone');
 const { toStoredNormalizedPhone, getPhoneMatchCandidates } = require('../../../core/lib/phoneMatching');
+const { optIn } = require('../../../core/lib/customerMarketing');
 const Resource = require('../models/Resource');
 const Schedule = require('../models/Schedule');
 const Service = require('../models/Service');
 const Booking = require('../models/Booking');
 const Occupancy = require('../models/Occupancy');
 const Absence = require('../models/Absence');
-const { createContext, evaluateStart, findSlots } = require('../lib/availability');
+const { createContext, evaluateStart, findSlots, localToUtc } = require('../lib/availability');
 const { cellsFor, isAligned } = require('../lib/occupancy');
 const { toMinutes, addDaysToDate } = require('../lib/schedule');
 const { BookingError } = require('../lib/errors');
@@ -220,7 +221,7 @@ async function loadOrderedServices(businessId, items, { activeOnly = true } = {}
  */
 async function createBooking({
   businessId, date, time, items, partySize = 1, guest, notes = '', internalNotes = '',
-  online, source, userId = null,
+  online, source, userId = null, marketingConsent = false,
 }) {
   if (!Array.isArray(items) || items.length === 0 || items.length > 5) {
     throw new BookingError(400, 'Indica entre 1 y 5 servicios', 'BAD_REQUEST');
@@ -235,6 +236,8 @@ async function createBooking({
 
     const needsApproval = online && ordered.some((s) => s.onlineBooking?.requireApproval);
     const customer = await findOrCreateCustomer(businessId, guest);
+    // Agreed to emails with offers: only when they ticked the box (online) or the team recorded it
+    if (marketingConsent && customer?._id && guest.email) await optIn(customer._id, online ? 'online' : 'staff');
     const booking = new Booking({
       businessId,
       customerId: customer?._id || null,
@@ -262,6 +265,50 @@ async function createBooking({
     }
     return booking;
   });
+}
+
+/**
+ * A customer at the counter without a booking (cobro rápido): an appointment that starts now.
+ * It takes the slot when there is one; when the professional is busy or the shop is "closed" for
+ * them it is still recorded (without blocking anything), because a sale must never be refused.
+ */
+async function createWalkIn({ businessId, items, guest, timezone, userId = null, now = new Date() }) {
+  const date = dateInTimezone(now, timezone);
+  const startMin = Math.floor(localMinutes(now, timezone) / 5) * 5;
+  const time = `${String(Math.floor(startMin / 60)).padStart(2, '0')}:${String(startMin % 60).padStart(2, '0')}`;
+  try {
+    return await createBooking({ businessId, date, time, items, guest, online: false, source: 'walk_in', userId });
+  } catch (err) {
+    if (!(err instanceof BookingError) || !['NOT_AVAILABLE', 'SLOT_TAKEN'].includes(err.code)) throw err;
+  }
+  if (!Array.isArray(items) || items.length === 0 || items.length > 5) {
+    throw new BookingError(400, 'Indica entre 1 y 5 servicios', 'BAD_REQUEST');
+  }
+  const ordered = await loadOrderedServices(businessId, items);
+  let cursor = localToUtc(date, startMin, timezone).getTime();
+  const segments = ordered.map((service, i) => {
+    const start = new Date(cursor);
+    const end = new Date(cursor + service.durationMin * 60000);
+    cursor = end.getTime();
+    return {
+      serviceId: service._id,
+      serviceName: service.name,
+      start, end, busyStart: start, busyEnd: end,
+      resourceIds: items[i].resourceId ? [items[i].resourceId] : [],
+      anyStaff: !items[i].resourceId,
+      price: service.price?.amount || 0,
+    };
+  });
+  const customer = await findOrCreateCustomer(businessId, guest);
+  const booking = new Booking({
+    businessId, customerId: customer?._id || null,
+    guestName: guest.name, guestPhone: guest.phone || '', guestEmail: guest.email || '',
+    status: 'confirmed', start: segments[0].start, end: segments[segments.length - 1].end,
+    partySize: 1, segments, source: 'walk_in',
+    totalPrice: segments.reduce((sum, x) => sum + x.price, 0), createdBy: userId,
+  });
+  await booking.save();
+  return booking;
 }
 
 // ── Change the day, time, services or professional of an appointment ────────
@@ -496,6 +543,6 @@ function todayFor(timezone) {
 }
 
 module.exports = {
-  BookingError, getAvailability, createBooking, cancelBooking, rescheduleBooking, rescheduleSlots, planSegments, changeStatus, todayFor, reassignOptions, reassignBooking,
+  BookingError, getAvailability, createBooking, createWalkIn, cancelBooking, rescheduleBooking, rescheduleSlots, planSegments, changeStatus, todayFor, reassignOptions, reassignBooking,
   isValidObjectId: (id) => mongoose.isValidObjectId(id),
 };

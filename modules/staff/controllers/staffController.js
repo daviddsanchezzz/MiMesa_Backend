@@ -7,6 +7,12 @@ const StaffPayment = require('../models/StaffPayment');
 const Shift = require('../../../verticals/restaurant/models/Shift');
 const BusinessMember = require('../../../core/models/BusinessMember');
 const Invitation = require('../../../core/models/Invitation');
+const { buildMySchedule, weekOf } = require('../lib/mySchedule');
+const { staffTimesOf } = require('../lib/shiftTimes');
+const StaffTimeOff = require('../models/StaffTimeOff');
+const StaffShiftSwap = require('../models/StaffShiftSwap');
+const StaffSchedulePublication = require('../models/StaffSchedulePublication');
+const { coversShift, describe: describeTimeOff } = require('../lib/timeOff');
 
 function isValidIsoDate(date) {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -53,8 +59,9 @@ function assignmentMinutes(assignment, shiftById) {
   if ((!start || !end) && assignment.shiftId) {
     const shift = shiftById.get(String(assignment.shiftId));
     if (shift) {
-      start = start || shift.startTime;
-      end = end || shift.endTime;
+      const t = staffTimesOf(shift);
+      start = start || t.start;
+      end = end || t.end;
     }
   }
 
@@ -400,6 +407,97 @@ exports.revokeEmployeeAccess = async (req, res) => {
   }
 };
 
+// PUT /staff/employees/:id/link { memberId } — links a user of the team to this employee ("this is Marta").
+exports.linkEmployeeMember = async (req, res) => {
+  try {
+    const { memberId } = req.body || {};
+    if (!/^[a-f0-9]{24}$/i.test(String(memberId || ''))) return res.status(400).json({ message: 'Elige un usuario del equipo' });
+    const [employee, member] = await Promise.all([
+      StaffEmployee.findOne({ _id: req.params.id, businessId: req.businessId }),
+      BusinessMember.findOne({ _id: memberId, businessId: req.businessId }),
+    ]);
+    if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
+    if (!member) return res.status(404).json({ message: 'Usuario no encontrado' });
+    if (employee.memberId || await BusinessMember.exists({ businessId: req.businessId, professionalId: employee._id })) {
+      return res.status(409).json({ message: 'Este empleado ya tiene un usuario vinculado' });
+    }
+    if (member.professionalId) return res.status(409).json({ message: 'Este usuario ya está vinculado a otro empleado' });
+    member.professionalId = employee._id;
+    employee.memberId = member._id;
+    await Promise.all([member.save(), employee.save()]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// DELETE /staff/employees/:id/link — unlinks the user but keeps them in the team (revoking access is a separate action).
+exports.unlinkEmployeeMember = async (req, res) => {
+  try {
+    const employee = await StaffEmployee.findOne({ _id: req.params.id, businessId: req.businessId });
+    if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
+    await BusinessMember.updateMany({ businessId: req.businessId, professionalId: employee._id }, { $set: { professionalId: null } });
+    employee.memberId = null;
+    await employee.save();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /staff/me/schedule?weekStart=YYYY-MM-DD — the signed-in person's own shifts (any role).
+exports.mySchedule = async (req, res) => {
+  try {
+    const member = await BusinessMember.findOne({ businessId: req.businessId, userId: req.user.id }).select('_id professionalId').lean();
+    const employee = member && (
+      (member.professionalId && await StaffEmployee.findOne({ _id: member.professionalId, businessId: req.businessId }).lean())
+      || await StaffEmployee.findOne({ businessId: req.businessId, memberId: member._id }).lean()
+    );
+    if (!employee) return res.json({ linked: false });
+
+    const requested = req.query.weekStart;
+    if (requested !== undefined && !isValidIsoDate(requested)) return res.status(400).json({ message: 'weekStart no válido (YYYY-MM-DD)' });
+    const days = weekOf(requested || new Date().toISOString().slice(0, 10));
+    const [pub, employees, timeOff, swaps] = await Promise.all([
+      StaffSchedulePublication.findOne({ businessId: req.businessId, weekStart: days[0] }).lean(),
+      StaffEmployee.find({ businessId: req.businessId }).select('firstName lastName status').lean(),
+      StaffTimeOff.find({ businessId: req.businessId, employeeId: employee._id, status: { $in: ['pending', 'approved'] }, from: { $lte: days[6] }, to: { $gte: days[0] } }).lean(),
+      StaffShiftSwap.find({ businessId: req.businessId, fromEmployeeId: employee._id, status: { $in: ['pending_peer', 'pending_manager'] }, date: { $gte: days[0], $lte: days[6] } }).lean(),
+    ]);
+
+    // Employees only see what the manager has published
+    const week = buildMySchedule({
+      employeeId: employee._id,
+      date: days[0],
+      employees,
+      assignments: (pub?.rows || []).map((r) => ({
+        _id: r.assignmentId, employeeId: r.employeeId, date: r.date, shiftId: r.shiftId,
+        shift: { name: r.shiftName }, startTime: r.start, endTime: r.end, roleLabel: r.roleLabel, notes: r.notes,
+      })),
+    });
+    const swapOf = new Map(swaps.map((w) => [String(w.assignmentId), w]));
+    week.days = week.days.map((day) => ({
+      ...day,
+      shifts: day.shifts.map((sh) => {
+        const w = swapOf.get(sh.id);
+        return w ? { ...sh, swap: { id: String(w._id), status: w.status } } : sh;
+      }),
+      timeOff: timeOff.filter((t) => day.date >= t.from && day.date <= t.to)
+        .map((t) => ({ id: String(t._id), type: t.type, status: t.status, fromTime: t.fromTime, toTime: t.toTime, note: t.note })),
+    }));
+
+    res.json({
+      linked: true,
+      published: Boolean(pub),
+      publishedAt: pub?.publishedAt || null,
+      employee: { id: employee._id, name: [employee.firstName, employee.lastName].filter(Boolean).join(' '), position: employee.position || '', color: employee.color },
+      ...week,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // GET /staff/performance?month=YYYY-MM - uses real reservation prices and existing cost rules.
 exports.getPerformance = async (req, res) => {
   try {
@@ -416,7 +514,7 @@ exports.getPerformance = async (req, res) => {
       StaffAssignment.find({ businessId: req.businessId, date: { $gte: monthStart, $lte: monthEnd } }).lean(),
     ]);
     const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
-    const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId }).select('startTime endTime').lean();
+    const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId }).select('startTime endTime staffStartTime staffEndTime').lean();
     const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
     const compMap = await getActiveCompensationMap(req.businessId, employees.map((e) => e._id));
     const rows = employees.map((employee) => {
@@ -546,19 +644,21 @@ exports.getAssignments = async (req, res) => {
     const weekStart = startOfWeekMonday(weekStartRaw);
     const weekEnd = addDays(weekStart, 6);
 
-    const [employees, assignments] = await Promise.all([
+    const [employees, assignments, timeOff] = await Promise.all([
       StaffEmployee.find({ businessId: req.businessId }).sort({ firstName: 1, lastName: 1 }).lean(),
       StaffAssignment.find({
         businessId: req.businessId,
         date: { $gte: weekStart, $lte: weekEnd },
       })
-        .populate('shiftId', 'name startTime endTime')
+        .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
         .populate('employeeId', 'firstName lastName status position positionId')
         .sort({ date: 1, startTime: 1, createdAt: 1 })
         .lean(),
+      StaffTimeOff.find({ businessId: req.businessId, status: { $in: ['pending', 'approved'] }, from: { $lte: weekEnd }, to: { $gte: weekStart } })
+        .select('employeeId type from to fromTime toTime status').lean(),
     ]);
 
-    res.json({ weekStart, weekEnd, employees, assignments });
+    res.json({ weekStart, weekEnd, employees, assignments, timeOff });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -571,7 +671,7 @@ exports.getEmployeeAssignments = async (req, res) => {
     if (!employee) return res.status(404).json({ message: 'Empleado no encontrado' });
 
     const assignments = await StaffAssignment.find({ businessId: req.businessId, employeeId: req.params.id })
-      .populate('shiftId', 'name startTime endTime')
+      .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
       .sort({ date: 1, createdAt: 1 })
       .lean();
 
@@ -606,6 +706,15 @@ exports.createAssignment = async (req, res) => {
     const shift = await Shift.findOne({ _id: shiftId, businessId: req.businessId }).lean();
     if (!shift) return res.status(404).json({ message: 'Turno no encontrado' });
 
+    if (!req.body?.force) {
+      const { start, end } = staffTimesOf(shift);
+      const off = await StaffTimeOff.find({ businessId: req.businessId, employeeId, status: 'approved', from: { $lte: date }, to: { $gte: date } }).lean();
+      const hit = off.find((t) => coversShift(t, date, start, end));
+      if (hit) {
+        return res.status(409).json({ code: 'TIME_OFF', message: `${employee.firstName} tiene una ausencia ese día (${describeTimeOff(hit)})` });
+      }
+    }
+
     let normalizedCustomPrice = null;
     if (customPrice !== null && customPrice !== undefined && customPrice !== '') {
       const parsed = Number(customPrice);
@@ -628,7 +737,7 @@ exports.createAssignment = async (req, res) => {
     });
 
     const populated = await StaffAssignment.findById(assignment._id)
-      .populate('shiftId', 'name startTime endTime')
+      .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
       .populate('employeeId', 'firstName lastName status position positionId');
 
     res.status(201).json(populated);
@@ -670,7 +779,7 @@ exports.updateAssignment = async (req, res) => {
       payload,
       { new: true, runValidators: true },
     )
-      .populate('shiftId', 'name startTime endTime')
+      .populate('shiftId', 'name startTime endTime staffStartTime staffEndTime')
       .populate('employeeId', 'firstName lastName status position positionId');
 
     if (!assignment) return res.status(404).json({ message: 'Asignacion no encontrada' });
@@ -688,6 +797,7 @@ exports.deleteAssignment = async (req, res) => {
     });
 
     if (!deleted) return res.status(404).json({ message: 'Asignacion no encontrada' });
+    await StaffShiftSwap.updateMany({ businessId: req.businessId, $or: [{ assignmentId: deleted._id }, { counterAssignmentId: deleted._id }], status: { $in: ['pending_peer', 'pending_manager'] } }, { status: 'cancelled' });
     res.json({ message: 'Asignacion eliminada' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -714,7 +824,7 @@ exports.getWeeklyCosts = async (req, res) => {
 
     const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
     const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId })
-      .select('startTime endTime')
+      .select('startTime endTime staffStartTime staffEndTime')
       .lean();
     const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
 
@@ -805,7 +915,7 @@ exports.getMonthlyCosts = async (req, res) => {
 
     const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
     const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId })
-      .select('startTime endTime').lean();
+      .select('startTime endTime staffStartTime staffEndTime').lean();
     const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
 
     const compensationMap = await getActiveCompensationMap(req.businessId, employees.map((e) => e._id));
@@ -873,7 +983,7 @@ exports.getBalances = async (req, res) => {
 
     const shiftIds = [...new Set(assignments.map((a) => a.shiftId).filter(Boolean).map(String))];
     const shifts = await Shift.find({ _id: { $in: shiftIds }, businessId: req.businessId })
-      .select('startTime endTime').lean();
+      .select('startTime endTime staffStartTime staffEndTime').lean();
     const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
 
     const compensationMap = await getActiveCompensationMap(req.businessId, employeeIds);
