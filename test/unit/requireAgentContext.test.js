@@ -7,14 +7,18 @@
  */
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const { testKeyPair } = require('../helpers/aiServiceKeys');
 
 describe('requireAgentContext', () => {
-  let originalSecret;
+  let originalPrivate, originalPublic;
   let requireAgentContext, mintAgentContextToken, AGENT_TYPES;
 
   before(() => {
-    originalSecret = process.env.AI_SERVICE_JWT_SECRET;
-    process.env.AI_SERVICE_JWT_SECRET = 'test-secret-do-not-use-in-prod';
+    const { privateKey, publicKey } = testKeyPair();
+    originalPrivate = process.env.AI_SERVICE_JWT_PRIVATE_KEY;
+    originalPublic = process.env.AI_SERVICE_JWT_PUBLIC_KEY;
+    process.env.AI_SERVICE_JWT_PRIVATE_KEY = privateKey;
+    process.env.AI_SERVICE_JWT_PUBLIC_KEY = publicKey;
     delete require.cache[require.resolve('../../core/lib/aiServiceAuth')];
     delete require.cache[require.resolve('../../core/middleware/requireAgentContext')];
     ({ mintAgentContextToken, AGENT_TYPES } = require('../../core/lib/aiServiceAuth'));
@@ -22,7 +26,8 @@ describe('requireAgentContext', () => {
   });
 
   after(() => {
-    process.env.AI_SERVICE_JWT_SECRET = originalSecret;
+    process.env.AI_SERVICE_JWT_PRIVATE_KEY = originalPrivate;
+    process.env.AI_SERVICE_JWT_PUBLIC_KEY = originalPublic;
   });
 
   function run(headerValue) {

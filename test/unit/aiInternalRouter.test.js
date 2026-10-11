@@ -11,19 +11,23 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const request = require('supertest');
 const { ROOT } = require('../helpers/load');
+const { testKeyPair } = require('../helpers/aiServiceKeys');
 
 describe('/api/internal/ai', () => {
   let mongoose, mongod, app;
   let Business, BusinessMember;
   let mintAgentContextToken, AGENT_TYPES;
   let business, member;
-  let originalServiceToken, originalJwtSecret;
+  let originalServiceToken, originalPrivate, originalPublic;
 
   before(async () => {
+    const { privateKey, publicKey } = testKeyPair();
     originalServiceToken = process.env.AI_SERVICE_TOKEN;
-    originalJwtSecret = process.env.AI_SERVICE_JWT_SECRET;
+    originalPrivate = process.env.AI_SERVICE_JWT_PRIVATE_KEY;
+    originalPublic = process.env.AI_SERVICE_JWT_PUBLIC_KEY;
     process.env.AI_SERVICE_TOKEN = 'test-service-token';
-    process.env.AI_SERVICE_JWT_SECRET = 'test-jwt-secret';
+    process.env.AI_SERVICE_JWT_PRIVATE_KEY = privateKey;
+    process.env.AI_SERVICE_JWT_PUBLIC_KEY = publicKey;
 
     const { MongoMemoryServer } = require('mongodb-memory-server');
     mongod = await MongoMemoryServer.create();
@@ -43,7 +47,8 @@ describe('/api/internal/ai', () => {
     await mongoose.disconnect();
     await mongod.stop();
     process.env.AI_SERVICE_TOKEN = originalServiceToken;
-    process.env.AI_SERVICE_JWT_SECRET = originalJwtSecret;
+    process.env.AI_SERVICE_JWT_PRIVATE_KEY = originalPrivate;
+    process.env.AI_SERVICE_JWT_PUBLIC_KEY = originalPublic;
   });
 
   beforeEach(async () => {

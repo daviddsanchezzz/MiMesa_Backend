@@ -11,16 +11,20 @@ const path = require('node:path');
 const request = require('supertest');
 const { installFakeAuth, addUser } = require('../helpers/fakeAuth');
 const { ROOT } = require('../helpers/load');
+const { testKeyPair } = require('../helpers/aiServiceKeys');
 
 describe('AI session minting routes', () => {
   let mongoose, mongod, app;
   let Business, BusinessMember;
   let verifyAgentContextToken, AGENT_TYPES;
-  let originalJwtSecret;
+  let originalPrivate, originalPublic;
 
   before(async () => {
-    originalJwtSecret = process.env.AI_SERVICE_JWT_SECRET;
-    process.env.AI_SERVICE_JWT_SECRET = 'test-jwt-secret';
+    const { privateKey, publicKey } = testKeyPair();
+    originalPrivate = process.env.AI_SERVICE_JWT_PRIVATE_KEY;
+    originalPublic = process.env.AI_SERVICE_JWT_PUBLIC_KEY;
+    process.env.AI_SERVICE_JWT_PRIVATE_KEY = privateKey;
+    process.env.AI_SERVICE_JWT_PUBLIC_KEY = publicKey;
 
     installFakeAuth();
     const { MongoMemoryServer } = require('mongodb-memory-server');
@@ -42,7 +46,8 @@ describe('AI session minting routes', () => {
   after(async () => {
     await mongoose.disconnect();
     await mongod.stop();
-    process.env.AI_SERVICE_JWT_SECRET = originalJwtSecret;
+    process.env.AI_SERVICE_JWT_PRIVATE_KEY = originalPrivate;
+    process.env.AI_SERVICE_JWT_PUBLIC_KEY = originalPublic;
   });
 
   beforeEach(async () => {
