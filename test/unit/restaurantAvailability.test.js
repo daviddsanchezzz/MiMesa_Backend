@@ -56,8 +56,14 @@ describe('restaurant availabilityService', () => {
   const WEDNESDAY = '2026-11-04';
   const DAY_OF_WEEK = new Date(`${WEDNESDAY}T12:00:00Z`).getDay(); // 3
 
-  test('generateSlots produces 30-minute increments, end exclusive', () => {
-    assert.deepEqual(availability.generateSlots('09:00', '11:00'), ['09:00', '09:30', '10:00', '10:30']);
+  test('generateSlots produces 30-minute increments, end time included', () => {
+    // Merged from origin/master: the end time is the last bookable slot (fixes an off-by-one);
+    // a shift ending exactly at midnight is the one case that still stops before it.
+    assert.deepEqual(availability.generateSlots('09:00', '11:00'), ['09:00', '09:30', '10:00', '10:30', '11:00']);
+  });
+
+  test('generateSlots stops before midnight when a shift ends at 00:00', () => {
+    assert.deepEqual(availability.generateSlots('23:00', '00:00'), ['23:00', '23:30']);
   });
 
   test('getApplicableShiftSlotsForDate returns subShift times for a shift active that weekday', async () => {
@@ -132,15 +138,16 @@ describe('restaurant availabilityService', () => {
   });
 
   test('getAvailableSlots excludes a slot that would exceed capacity, keeps the rest', async () => {
-    // 30-minute duration so the 20:00 and 20:30 slots don't overlap each other's load.
+    // 30-minute duration so the 20:00 slot's load doesn't overlap the later slots.
     business.reservationDuration = 30;
     await business.save();
+    // generateSlots is end-inclusive, so a 20:00-21:00 shift yields 20:00, 20:30 and 21:00.
     await Shift.create({ businessId: business._id, name: 'Cena', startTime: '20:00', endTime: '21:00', days: [DAY_OF_WEEK] });
     await Reservation.create({ businessId: business._id, guestName: 'A', date: WEDNESDAY, time: '20:00', people: 9, status: 'confirmed' });
 
     const slots = await availability.getAvailableSlots({ business, businessId: business._id, date: WEDNESDAY, people: 5 });
 
-    assert.deepEqual(slots.map((s) => s.time), ['20:30']);
-    assert.equal(slots[0].status, 'confirmed');
+    assert.deepEqual(slots.map((s) => s.time), ['20:30', '21:00']);
+    assert.ok(slots.every((s) => s.status === 'confirmed'));
   });
 });
