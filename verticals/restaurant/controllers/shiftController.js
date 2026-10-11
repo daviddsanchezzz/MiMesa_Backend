@@ -4,6 +4,7 @@ const Reservation = require('../models/Reservation');
 const Vacation = require('../models/Vacation');
 const { getCapabilities, markLockedEntities } = require('../../../core/lib/planCapabilities');
 const { businessTimezone, zonedDateTimeToUtc } = require('../../../core/lib/timezone');
+const { getExceptionBlocksForShift } = require('../services/availabilityService');
 
 // Generate time slots within a window at a given interval (minutes)
 function generateSlots(startTime, endTime, interval = 30) {
@@ -226,7 +227,17 @@ exports.getPublicSlots = async (req, res) => {
     );
 
     const overriddenGenerals = general.filter(g => specific.some(s => shiftsOverlap(g, s)));
-    const applicable = [...specific, ...general.filter(g => !overriddenGenerals.includes(g))];
+    let applicable = [...specific, ...general.filter(g => !overriddenGenerals.includes(g))];
+    if (!applicable.length) return res.json([]);
+
+    // A shift closed/full/call-only for this date must not be offered to guests —
+    // otherwise they're shown a time that createPublicReservation will then reject.
+    const blockedShiftNames = new Set();
+    for (const name of new Set(applicable.map((s) => s.name))) {
+      const blocked = await getExceptionBlocksForShift({ businessId, date, shiftName: name });
+      if (blocked.blocked) blockedShiftNames.add(name);
+    }
+    applicable = applicable.filter((s) => !blockedShiftNames.has(s.name));
     if (!applicable.length) return res.json([]);
 
     const slots = [];
