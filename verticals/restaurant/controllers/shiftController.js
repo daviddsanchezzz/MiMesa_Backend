@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Shift    = require('../models/Shift');
 const Business = require('../../../core/models/Business');
 const Reservation = require('../models/Reservation');
@@ -208,8 +209,10 @@ exports.deleteShift = async (req, res) => {
 exports.getPublicSlots = async (req, res) => {
   try {
     const { date, businessId } = req.query;
-    if (!date)       return res.status(400).json({ message: 'date es requerido' });
-    if (!businessId) return res.status(400).json({ message: 'businessId es requerido' });
+    if (!date) return res.status(400).json({ message: 'date es requerido' });
+    if (typeof businessId !== 'string' || !mongoose.isValidObjectId(businessId)) {
+      return res.status(400).json({ message: 'businessId no es valido' });
+    }
 
     const dayOfWeek = new Date(`${date}T12:00:00Z`).getDay();
 
@@ -295,7 +298,10 @@ exports.getPublicSlots = async (req, res) => {
 exports.getPublicMonthAvailability = async (req, res) => {
   try {
     const { year, month, businessId } = req.query;
-    if (!year || !month || !businessId) return res.status(400).json({ message: 'year, month, businessId requeridos' });
+    if (!year || !month) return res.status(400).json({ message: 'year, month requeridos' });
+    if (typeof businessId !== 'string' || !mongoose.isValidObjectId(businessId)) {
+      return res.status(400).json({ message: 'businessId no es valido' });
+    }
     const y = parseInt(year), m = parseInt(month);
     const pad = (n) => String(n).padStart(2, '0');
     const daysInMonth  = new Date(y, m, 0).getDate();
