@@ -35,6 +35,7 @@ const PUBLIC_PREFIXES = [
   '/api/auth/public', '/api/rooms/public', '/api/shifts/public', '/api/vacations/public',
   '/api/exceptions/public', '/api/reservations/public', '/api/marketing/public', '/api/promos/public',
   '/api/pricing/public', '/api/contact', '/api/bookings/public', '/api/menu/public', '/api/site/public',
+  '/api/ai/public',
 ];
 PUBLIC_PREFIXES.forEach((prefix) => app.use(prefix, publicCors));
 // Public pages are served from other origins too (vetrareserve.com/{slug}, business
@@ -124,6 +125,7 @@ app.use('/api/site/public', makePublicLimiter(15, 300, 'Demasiadas consultas, in
 app.post('/api/bookings/public/:businessId/bookings', makePublicLimiter(15, 20, 'Demasiadas reservas desde esta conexión, inténtalo más tarde'));
 app.post('/api/bookings/public/cancel', makePublicLimiter(15, 30, 'Demasiados intentos, inténtalo más tarde'));
 app.post('/api/bookings/public/reschedule', makePublicLimiter(15, 20, 'Demasiados cambios, inténtalo más tarde'));
+app.use('/api/ai/public', makePublicLimiter(15, 30, 'Demasiadas solicitudes, inténtalo más tarde'));
 
 app.use('/api/contact', require('./core/routes/contact'));
 
@@ -194,6 +196,8 @@ app.use('/api/bookings',     require('./modules/bookings/routes/bookings'));
 app.use('/api/menu',         require('./modules/menu/routes/menu'));
 app.use('/api/site',         require('./modules/site/routes/site'));
 app.use('/api/push',         require('./core/routes/pushNotifications'));
+app.use('/api/internal/ai',  require('./core/routes/aiInternal'));
+app.use('/api/ai',           require('./core/routes/aiSession'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
