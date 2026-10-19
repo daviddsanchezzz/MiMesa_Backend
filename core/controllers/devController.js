@@ -413,13 +413,13 @@ exports.migrateMemberships = async (req, res) => {
 const OWNER_INVITE_DAYS = 14;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-async function sendOwnerInvitation(req, business, { name, email }) {
+async function sendOwnerInvitation(req, business, { name, email, links = {} }) {
   const Invitation = require('../models/Invitation');
   const { Resend } = require('resend');
   const { buildOwnerWelcomeEmail } = require('../services/accountEmails');
   await Invitation.updateMany({ businessId: business._id, role: 'owner', status: 'pending' }, { status: 'canceled' });
   const invitation = await Invitation.create({
-    name, email: email.toLowerCase(), businessId: business._id, role: 'owner', type: 'business',
+    name, email: email.toLowerCase(), businessId: business._id, role: 'owner', type: 'business', links,
     invitedBy: req.user?.id, expiresAt: new Date(Date.now() + OWNER_INVITE_DAYS * 86400000),
   });
   const base = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:3005').split(',')[0].trim().replace(/\/$/, '');
@@ -471,14 +471,16 @@ exports.createClient = async (req, res) => {
       ...devPlanFields(plan),
       timezone: 'Europe/Madrid',
     });
+    let links = {};
     if (template) {
       try {
-        await template.apply(business, { ownerName });
+        const applied = await template.apply(business, { ownerName, attendsClients: o.attendsClients !== false });
+        if (applied?.resourceId) links = { resourceId: applied.resourceId };   // the owner's account is linked when they accept
       } catch (err) {
         console.error('[dev] template failed:', err.message);
       }
     }
-    const { inviteLink, emailed, invitation } = await sendOwnerInvitation(req, business, { name: ownerName, email: ownerEmail });
+    const { inviteLink, emailed, invitation } = await sendOwnerInvitation(req, business, { name: ownerName, email: ownerEmail, links });
     res.status(201).json({
       id: business._id, name: business.name, businessType, plan, template: template?.key || null,
       inviteLink, emailed, inviteExpiresAt: invitation.expiresAt,
@@ -499,7 +501,7 @@ exports.resendOwnerInvitation = async (req, res) => {
     const name = String(req.body?.name || last?.name || '').trim();
     const email = String(req.body?.email || last?.email || '').trim().toLowerCase();
     if (!name || !EMAIL_RE.test(email)) return res.status(400).json({ message: 'Indica el nombre y el email del dueño' });
-    const { inviteLink, emailed, invitation } = await sendOwnerInvitation(req, business, { name, email });
+    const { inviteLink, emailed, invitation } = await sendOwnerInvitation(req, business, { name, email, links: last?.links || {} });
     res.json({ inviteLink, emailed, inviteExpiresAt: invitation.expiresAt });
   } catch (err) {
     res.status(500).json({ message: err.message });

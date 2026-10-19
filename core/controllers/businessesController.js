@@ -70,7 +70,7 @@ exports.createBusiness = async (req, res) => {
 
     if (template && template.businessType === businessType) {
       try {
-        await template.apply(business, { ownerName: req.user.name || '' });
+        await template.apply(business, { ownerName: req.user.name || '', ownerUserId: req.user.id, attendsClients: req.body?.attendsClients !== false });
       } catch (err) {
         console.error('[businesses] template failed:', err.message); // the business works without it
       }

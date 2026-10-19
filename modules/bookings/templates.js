@@ -63,9 +63,15 @@ for (const t of TEMPLATES) {
     label: t.label,
     description: t.description,
     businessType: 'appointments',
-    apply: async (business, { ownerName = '' } = {}) => {
+    // The owner is the first professional (linked to their account when it already exists) unless
+    // they only run the business: then it starts with no professionals.
+    apply: async (business, { ownerName = '', ownerUserId = null, attendsClients = true } = {}) => {
       const first = String(ownerName || '').trim().split(/\s+/)[0] || 'Yo';
-      await Resource.create({ businessId: business._id, kind: 'staff', name: first.charAt(0).toUpperCase() + first.slice(1), sortOrder: 1 });
+      let resourceId = null;
+      if (attendsClients) {
+        const pro = await Resource.create({ businessId: business._id, kind: 'staff', name: first.charAt(0).toUpperCase() + first.slice(1), sortOrder: 1, userId: ownerUserId ? String(ownerUserId) : null });
+        resourceId = String(pro._id);
+      }
       if (!(await Schedule.exists({ businessId: business._id, ownerType: 'business' }))) {
         await Schedule.create({ businessId: business._id, ownerType: 'business', ownerId: business._id, rules: t.rules });
       }
@@ -78,6 +84,7 @@ for (const t of TEMPLATES) {
           sortOrder: i,
         })));
       }
+      return { resourceId };
     },
   });
 }
