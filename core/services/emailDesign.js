@@ -214,7 +214,20 @@ function links(items, color = VIOLET, { margin = '14px 0 0' } = {}) {
 }
 
 // ── The document ────────────────────────────────────────────────────────────
+// Vetra's own mark: the app icon served by the frontend (email clients do not render SVG).
+function vetraLogoUrl() {
+  if (process.env.VETRA_LOGO_URL) return process.env.VETRA_LOGO_URL;
+  const base = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '').split(',')[0].trim().replace(/\/$/, '');
+  return /^https:\/\//.test(base) ? `${base}/icon-192.png` : null;
+}
+
 function header(brand) {
+  if (brand.isVetra && !brand.logoUrl && vetraLogoUrl()) {
+    return `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td valign="middle"><img src="${esc(vetraLogoUrl())}" alt="Vetra" width="36" height="36" style="display:block;width:36px;height:36px;border-radius:10px;border:0;outline:none;" /></td>
+      <td style="padding-left:12px;font-family:${FONT};font-size:17px;font-weight:700;color:${C.ink};">Vetra</td>
+    </tr></table>`;
+  }
   if (brand.logoUrl) {
     return `<img src="${esc(brand.logoUrl)}" alt="${esc(brand.name)}" height="44" style="display:block;height:44px;max-height:44px;width:auto;max-width:200px;border:0;outline:none;" />`;
   }
