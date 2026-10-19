@@ -59,3 +59,19 @@ test('salary, commissions, products, tips and what each one leaves', () => {
   assert.equal(eva.salary, 0);
   assert.equal(r.totals.billed, 80 + 20 + 40);
 });
+
+test('the owner without payroll bills but costs nothing, not even with a service commission', () => {
+  const r = computeTeam({
+    from: '2026-10-01', to: '2026-10-31', now: NOW,
+    staff: [{ _id: 'dueña', name: 'Marta', staffEmployeeId: 'eMarta' }],
+    compensations: { eMarta: { paymentType: 'owner', baseAmount: 0, commissionPercent: null } },
+    serviceCommission: { tinte: 15 },
+    businessSchedule: hours, resourceSchedules: {},
+    bookings: [booking('2026-10-06T10:00', 'dueña', 5000, 'tinte')],
+  });
+  const [marta] = r.staff;
+  assert.equal(marta.billed, 50);
+  assert.equal(marta.commission, 0);
+  assert.equal(marta.salary, 0);
+  assert.equal(marta.cost, 0);
+});

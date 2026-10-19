@@ -58,7 +58,7 @@ async function teamReport(businessId, from, to, now = new Date(), { ensure = tru
   return { from, to, today: dateInTimezone(now, tz), ...report };
 }
 
-const PAY_TYPES = { monthly: 'monthly_fixed', hourly: 'hourly', commission: 'commission_only' };
+const PAY_TYPES = { monthly: 'monthly_fixed', hourly: 'hourly', commission: 'commission_only', owner: 'owner' };
 
 async function employeeFor(businessId, resourceId) {
   await ensureEmployees(businessId);
@@ -77,11 +77,12 @@ function pct(v, label) {
 async function setPay(businessId, resourceId, body = {}, today) {
   const { employeeId } = await employeeFor(businessId, resourceId);
   const paymentType = PAY_TYPES[body.type];
-  if (!paymentType) throw new BookingError(400, 'Elige cómo cobra: sueldo fijo, por horas o solo comisión', 'BAD_REQUEST');
-  const baseAmount = paymentType === 'commission_only' ? 0 : Number(body.amount);
+  if (!paymentType) throw new BookingError(400, 'Elige cómo cobra: dueño, sueldo fijo, por horas o solo comisión', 'BAD_REQUEST');
+  const baseAmount = paymentType === 'commission_only' || paymentType === 'owner' ? 0 : Number(body.amount);
   if (!Number.isFinite(baseAmount) || baseAmount < 0 || baseAmount > 100000) throw new BookingError(400, 'El importe no es válido', 'BAD_REQUEST');
-  const commissionPercent = pct(body.commissionPercent, 'La comisión');
-  const productCommissionPercent = pct(body.productCommissionPercent, 'La comisión de productos');
+  const isOwner = paymentType === 'owner';   // the owner keeps the profit: no salary, no commission
+  const commissionPercent = isOwner ? null : pct(body.commissionPercent, 'La comisión');
+  const productCommissionPercent = isOwner ? null : pct(body.productCommissionPercent, 'La comisión de productos');
   await StaffCompensation.updateMany({ businessId, employeeId, isActive: true }, { $set: { isActive: false } });
   return StaffCompensation.create({
     businessId, employeeId, paymentType, baseAmount, commissionPercent, productCommissionPercent,

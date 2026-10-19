@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const staffCompensationSchema = new mongoose.Schema({
   businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
   employeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffEmployee', required: true, index: true },
-  paymentType: { type: String, enum: ['hourly', 'per_shift', 'monthly_fixed', 'commission_only'], required: true },
+  paymentType: { type: String, enum: ['hourly', 'per_shift', 'monthly_fixed', 'commission_only', 'owner'], required: true },
   baseAmount: { type: Number, required: true, min: 0 },
   currency: { type: String, default: 'EUR', uppercase: true },
   effectiveFrom: { type: String, required: true }, // YYYY-MM-DD

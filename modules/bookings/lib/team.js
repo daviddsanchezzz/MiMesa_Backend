@@ -78,6 +78,7 @@ function computeTeam({ staff, compensations = {}, serviceCommission = {}, bookin
     const comp = pay(row.id);
     const minutes = scheduledMinutes(row.id, dates, businessSchedule, resourceSchedules);
     row.hours = round(minutes / 60);
+    if (comp?.paymentType === 'owner') row.commission = 0;   // the owner is not a cost, not even through a service's own %
     if (comp?.paymentType === 'monthly_fixed') row.salary = (comp.baseAmount || 0) * months;
     else if (comp?.paymentType === 'hourly') row.salary = (comp.baseAmount || 0) * (minutes / 60);
     row.paid = row.employeeId ? (payments[row.employeeId] || 0) : 0;
